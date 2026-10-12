@@ -13,6 +13,8 @@ or integrates into a task environment (`mise` first).
 ## Scope (v0)
 
 - Single binary, Rust (edition 2024, `unsafe_code = "forbid"`).
+- **Monorepo-aware** versioning (package model: ticket 16).
+- **VCS-optional** — works with git, jj, or no VCS at all (ticket 17).
 - Task-environment integration via an internal `TaskEnvironment` trait, with
   `mise` as the only implementation. No third-party plugin loading.
 - Standalone use needs no task environment.
@@ -56,6 +58,11 @@ Each is decided by a ticket; the spec gains its section as the ticket resolves.
 | jj & git tag mechanics *(research)* | 12 |
 | Precedents: existing versioning tools *(research)* | 13 |
 | Rust crate & dependency landscape *(research)* | 14 |
+| Monorepo / workspace model | 16 |
+| VCS-optional operation | 17 |
+| Version-file detection & sync *(stretch)* | 18 |
+| Task-runner workspace models *(research)* | 19 |
+| Version-file formats & safe writing *(research)* | 20 |
 
 ## Assembly
 

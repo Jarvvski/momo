@@ -26,6 +26,10 @@ builder can implement momo v0 with nothing left to decide.
     `init`, `install <taskenv>`, and a global `--dry-run`.
   - **Recording model:** support **both** a single changelog file and fragment
     files (each suits different setups).
+- **Scope grew during resolution** (ticket 01's answer): **monorepo-aware**
+  versioning (16), **VCS-optional** operation (17), and (stretch) **manifest
+  version-sync** (18) are now in scope — v0 is no longer "one version per repo".
+  Monorepo-awareness is **owner-confirmed** for v0.
 - **Standing preference:** "short but sweet" — the smallest thing that works;
   defer gradle/bun and plugin loading.
 - **Prior art in-repo:** `docs/mise-task-distribution.md` — the playbook for
@@ -51,16 +55,31 @@ builder can implement momo v0 with nothing left to decide.
   explicit `recording` config key (default `changelog`); fragments live at
   `.momo/changes/<kind>-<slug>.md` (Kind in the filename, no front-matter);
   `release` deletes consumed fragments.
+- [Version source of truth & first-release bootstrap](issues/01-version-source.md):
+  source is the **latest VCS tag** (VCS-optional → 17); **monorepo-aware** (model
+  → 16); bootstrap at `0.0.0` with normal bumps (`init` may set a start version);
+  manifest version-sync is a stretch (→ 18).
+- [Task-runner workspace / monorepo models](issues/19-taskenv-workspaces.md):
+  use **`mise tasks graph --json`** as the monorepo seam (ecosystem-namespaced
+  project IDs + edges, no package manager needed) — but it carries **no versions**;
+  Gradle enumerates via the Tooling API; Node via `workspaces` /
+  `pnpm-workspace.yaml`.
+- [Version-file formats & safe writing](issues/20-version-file-formats.md):
+  per-ecosystem manifest locations + safe writes (`toml_edit`, `jsonc-parser`,
+  line-oriented properties, XML splice); never reserialize; watch inheritance,
+  dynamic versions, duplicates, and lockfiles.
 
 ## Not yet specified
 
 - The semver edge-case table (`0.0.x`; multiple kinds in one release; whether an
-  `add` can be breaking pre-1.0) — sharpens once 01 and 05 resolve.
+  `add` can be breaking pre-1.0) — sharpens once 05 resolves.
 - Failure modes and their messages (release with nothing unreleased, tag already
-  exists, dirty tree, no VCS detected) — graduates after 06.
-- Whether momo owns a "Keep a Changelog" heading set or a bespoke one.
+  exists, dirty tree) — graduates after 06.
+- Whether momo owns a "Keep a Changelog" heading set or a bespoke one (ticket 03).
 - How `momo install` records which environment it installed into, for idempotent
   re-install — graduates after 08/09.
+- The **changelog-vs-tags disagreement** rule — surfaced by ticket 01; graduates
+  once the VCS-optional source (17) is settled.
 
 ## Out of scope
 
