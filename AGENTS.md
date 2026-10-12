@@ -99,3 +99,9 @@ The five canonical roles, used verbatim: `needs-triage`, `needs-info`, `ready-fo
 ### Domain docs
 
 Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Mise task distribution
+
+How momo ships tasks + a pinned CLI to other repos, and why it uses
+self-contained task files rather than a plugin or remote include. See
+`docs/mise-task-distribution.md`.
