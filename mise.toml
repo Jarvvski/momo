@@ -1,0 +1,30 @@
+[tools]
+rust = "1.99.0"
+
+[tasks.run]
+description = "Run momo"
+run = "cargo run --release -p momo"
+
+[tasks.build]
+description = "Build every workspace package"
+run = "cargo build --release --workspace"
+
+[tasks.test]
+description = "Run tests for every workspace package"
+run = "cargo test --workspace"
+
+[tasks.fmt]
+description = "Format all code"
+run = "cargo fmt --all"
+
+[tasks.lint]
+description = "Clippy across every workspace package, warnings as errors"
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.check]
+description = "fmt + lint + build + test (the pre-land gate)"
+run = "mise run fmt && mise run lint && mise run build && mise run test"
+
+[tasks.install]
+description = "Build a host release binary and install it to ~/.cargo/bin (local dev)"
+run = "cargo install --path . --locked --force"

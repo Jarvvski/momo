@@ -1,0 +1,32 @@
+[workspace]
+# The root package is the workspace's sole member for now; crates/* join it as
+# the domain takes shape.
+members = []
+resolver = "3"
+
+[package]
+name = "momo"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "momo - <description pending>"
+repository = "https://github.com/Jarvvski/momo"
+readme = "README.md"
+rust-version = "1.99"
+
+# Keep local development and test artifacts small. Release builds are used by
+# the normal mise run/build tasks, while tests retain their separate profile.
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false
+
+[lints.rust]
+unsafe_code = "forbid"
+unused = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
