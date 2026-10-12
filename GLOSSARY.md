@@ -9,6 +9,11 @@ releases, a changelog, and VCS tags.
 One recorded unit of work, classified by exactly one Kind.
 _Avoid_: entry, item, commit
 
+**Fragment**:
+A Change stored as a file — `.momo/changes/<kind>-<slug>.md` — in the fragment
+recording model.
+_Avoid_: changeset, news fragment, note
+
 **Kind**:
 The classification of a Change — one of `break`, `add`, `fix`. (The original
 word was "noun"; `break`/`add`/`fix` are verbs, so "Kind" is preferred.)

@@ -47,6 +47,10 @@ builder can implement momo v0 with nothing left to decide.
   changesets' `pre.json` is the RC share-then-strip model; `v`-prefix is
   near-universal; "leave the tree dirty" is the majority default; Keep a Changelog
   is the baseline.
+- [Recording model: single changelog vs fragments, and how momo chooses](issues/02-recording-model.md):
+  explicit `recording` config key (default `changelog`); fragments live at
+  `.momo/changes/<kind>-<slug>.md` (Kind in the filename, no front-matter);
+  `release` deletes consumed fragments.
 
 ## Not yet specified
 
