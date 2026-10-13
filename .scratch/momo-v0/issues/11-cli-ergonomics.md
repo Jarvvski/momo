@@ -1,7 +1,7 @@
 # CLI ergonomics
 
 Type: prototype
-Status: open
+Status: claimed
 
 ## Question
 

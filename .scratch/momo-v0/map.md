@@ -102,6 +102,10 @@ builder can implement momo v0 with nothing left to decide.
   output by default, `--format json` + `--version-only`; `--output <path>` for CI;
   `status --check` exits non-zero when nothing is unreleased (**must be
   documented**); momo stays VCS-agnostic.
+- [Repo & module shape](issues/10-repo-shape.md): **virtual-workspace** split —
+  `momo-core` (domain + `Vcs`/`TaskEnvironment` ports), `momo-vcs` (git/jj),
+  `momo-taskenv` (mise), `momo-cli` (binary); ports in core, adapters separate,
+  wired by the CLI.
 
 ## Not yet specified
 
