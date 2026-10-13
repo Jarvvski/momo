@@ -1,7 +1,7 @@
 # 41: jj and mise integration tests silently pass when the tool is missing
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: tests
 Verified: no — reported by an agent; the skip sites are as cited
@@ -68,3 +68,12 @@ commits.
 - Replace the ad-hoc `have`/`require` sites in `release.rs`, `monorepo.rs`,
   `ci_output.rs`.
 - Add one test asserting the flag turns a missing tool into a failure.
+
+## Resolution
+
+Added `tests/common/mod.rs` with `require_tool`/`require_tool_when`: a missing
+tool still skips locally but panics when `MOMO_REQUIRE_TOOLS` is set. The skip
+sites in `tests/release.rs`, `tests/monorepo.rs` and `tests/ci_output.rs` now go
+through it, and `.github/workflows/ci.yml` sets `MOMO_REQUIRE_TOOLS: "1"` on the
+`check` job. `tests/tooling.rs` asserts a missing tool fails when required and
+skips when not.

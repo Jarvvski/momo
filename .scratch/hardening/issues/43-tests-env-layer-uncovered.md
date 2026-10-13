@@ -1,7 +1,7 @@
 # 43: Most `MOMO_*` environment keys have no test
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: tests
 Verified: no — reported by an agent; the `env_remove` lists are as cited
@@ -63,3 +63,12 @@ keys now; leave the two inert keys to 21/22.
   - Each also with the file set to a different value, to prove env > file > default.
 - Defer `MOMO_TAG_KIND`/`MOMO_TASK_ENV` to 21/22; if kept, an `init --dry-run`
   echo is the only honest assertion.
+
+## Resolution
+
+Added `tests/env.rs`: one table per live key (`MOMO_CHANGELOG`,
+`MOMO_CHANGES_DIR`, `MOMO_RC_FORMAT`) driving the real binary through default →
+file → env and proving `env > file > default`. `MOMO_RC_FORMAT` has a true
+end-to-end `candidate --version-only` case. `MOMO_TAG_KIND` and `MOMO_TASK_ENV`
+are deliberately not covered — they are inert until tickets 21/22 decide
+implement-or-remove.

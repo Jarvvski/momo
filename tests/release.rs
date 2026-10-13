@@ -12,6 +12,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
+mod common;
+
+use common::{release_date, require_tool, today_or_yesterday};
+
 /// A `momo` command rooted at `dir`, with every `MOMO_*` variable cleared.
 fn momo(dir: &TempDir) -> Command {
     let mut cmd = Command::cargo_bin("momo").expect("the momo binary is built");
@@ -43,19 +47,6 @@ fn seed_recording(dir: &TempDir, value: &str) {
 /// Read a file under `dir`, panicking when it is missing.
 fn read(dir: &TempDir, path: &str) -> String {
     fs::read_to_string(dir.path().join(path)).expect("read file")
-}
-
-/// Today's date, `YYYY-MM-DD`, as the binary stamps it.
-fn today() -> String {
-    time::OffsetDateTime::now_utc().date().to_string()
-}
-
-/// Whether `program` can be spawned at all.
-fn have(program: &str) -> bool {
-    StdCommand::new(program)
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success())
 }
 
 /// Run `program args` in `cwd` and return its trimmed stdout.
@@ -141,9 +132,10 @@ fn release_promotes_the_changelog_with_the_minted_version_and_today() {
         .stdout(predicate::str::contains("released 0.1.0"));
 
     let changelog = read(&dir, "CHANGELOG.md");
+    let date = release_date(&changelog, "0.1.0");
     assert!(
-        changelog.contains(&format!("## [0.1.0] - {}", today())),
-        "{changelog}"
+        today_or_yesterday().contains(&date),
+        "release stamped `{date}`, not today or yesterday UTC:\n{changelog}"
     );
     assert!(!changelog.contains("## [Unreleased]"), "{changelog}");
     assert!(changelog.contains("- Add a shiny thing"), "{changelog}");
@@ -306,8 +298,7 @@ fn an_rc_format_without_a_marker_is_rejected() {
 
 #[test]
 fn release_leaves_the_repository_untouched_but_tag_names_the_released_version() {
-    if !have("jj") {
-        eprintln!("skipping: jj is not on PATH");
+    if !require_tool("jj") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");
@@ -364,8 +355,7 @@ fn release_leaves_the_repository_untouched_but_tag_names_the_released_version() 
 
 #[test]
 fn a_candidate_can_be_tagged_and_the_final_release_drops_the_suffix() {
-    if !have("jj") {
-        eprintln!("skipping: jj is not on PATH");
+    if !require_tool("jj") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");
@@ -401,8 +391,7 @@ fn a_candidate_can_be_tagged_and_the_final_release_drops_the_suffix() {
 
 #[test]
 fn init_version_then_tag_creates_the_initial_tag() {
-    if !have("jj") {
-        eprintln!("skipping: jj is not on PATH");
+    if !require_tool("jj") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");

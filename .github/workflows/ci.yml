@@ -11,6 +11,10 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      # A missing jj/mise must fail the run rather than skip the tests that
+      # need it, so a green check means the strongest tests actually ran.
+      MOMO_REQUIRE_TOOLS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2

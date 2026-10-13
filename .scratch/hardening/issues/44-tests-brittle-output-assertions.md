@@ -1,7 +1,7 @@
 # 44: Tests pin exact output whitespace and clap internals
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: tests
 Verified: no — reported by an agent; the assertions are as cited
@@ -58,3 +58,13 @@ hoists `today()`). Not a duplicate.
   parsed shape over the human column counts.
 - `cli.rs` alias assertion: keep as a clap smoke check, but optionally assert the
   alias tokens without the `[alias: …]` wrapper to reduce coupling.
+
+## Resolution
+
+Fixed the genuine flake: `tests/release.rs` no longer recomputes `now_utc()` and
+compares exactly. It reads the `## [0.1.0] - <date>` heading and asserts the date
+is today or yesterday in UTC (`common::today_or_yesterday`), so a run straddling
+midnight cannot fail. The deliberate contract assertions — the `→ next:`
+indentation in `tests/recording.rs` and the clap-rendered `[alias: …]` in
+`tests/cli.rs` — are kept and now commented as intentional UX/clap contracts
+rather than "fixed".
