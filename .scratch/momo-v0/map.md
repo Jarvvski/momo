@@ -89,6 +89,11 @@ builder can implement momo v0 with nothing left to decide.
   per verb (`momo:*`) at the repo root, delegating package routing to momo; each
   pins the running CLI via `#MISE tools={…}`; idempotent, `--update`, `uninstall`;
   **no `mise.toml` edit** (playbook Shape B).
+- [Changelog format & entry shape](issues/03-changelog-format.md): `Breaking` /
+  `Added` / `Fixed` sections; `## [x.y.z] - YYYY-MM-DD` headings; `Unreleased` only
+  in changelog mode; entries `- text (#issue)`; RCs get headings; **reference
+  links** derived from the VCS remote (config-overridable, omitted when unknown).
+  Prototype: `prototypes/changelog-format/`.
 
 ## Not yet specified
 
