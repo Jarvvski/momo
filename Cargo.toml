@@ -1,18 +1,36 @@
 [workspace]
-# The root package is the workspace's sole member for now; crates/* join it as
-# the domain takes shape.
-members = []
+# Every crate under crates/ is a member, so adding one never edits this file.
+members = ["crates/*"]
 resolver = "3"
 
-[package]
-name = "momo"
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
-description = "momo - <description pending>"
 repository = "https://github.com/Jarvvski/momo"
-readme = "README.md"
 rust-version = "1.99"
+
+# The v0 dependency catalog. Members opt in with `foo.workspace = true`, so a
+# crate can add a dependency without touching any other crate's manifest.
+[workspace.dependencies]
+anyhow = "1.0"
+clap = { version = "4.6", features = ["derive"] }
+inquire = { version = "0.9", default-features = false, features = ["crossterm"] }
+semver = "1.0"
+thiserror = "2.0"
+time = "0.3"
+toml_edit = "0.25"
+
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
 
 # Keep local development and test artifacts small. Release builds are used by
 # the normal mise run/build tasks, while tests retain their separate profile.
@@ -23,10 +41,3 @@ incremental = false
 [profile.test]
 debug = 0
 incremental = false
-
-[lints.rust]
-unsafe_code = "forbid"
-unused = { level = "warn", priority = -1 }
-
-[lints.clippy]
-all = { level = "warn", priority = -1 }

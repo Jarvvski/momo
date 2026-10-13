@@ -6,7 +6,7 @@ rust = { version = "1.99.0", components = ["rustfmt", "clippy"] }
 
 [tasks.run]
 description = "Run momo"
-run = "cargo run --release -p momo"
+run = "cargo run --release -p momo-cli"
 
 [tasks.build]
 description = "Build every workspace package"
@@ -30,4 +30,4 @@ run = "mise run fmt && mise run lint && mise run build && mise run test"
 
 [tasks.install]
 description = "Build a host release binary and install it to ~/.cargo/bin (local dev)"
-run = "cargo install --path . --locked --force"
+run = "cargo install --path crates/momo-cli --locked --force"
