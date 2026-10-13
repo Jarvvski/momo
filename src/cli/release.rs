@@ -252,9 +252,10 @@ fn read_changelog(repo_root: &Path, config: &Config, package: &Package) -> Resul
 
 /// The Remote derived from the VCS, when it has one momo recognises.
 ///
-/// A VCS remote momo cannot understand is ignored: it cannot be linked to, and
-/// there is nothing for the user to fix. A configured `remote` never reaches
-/// here — config resolution has already rejected an unusable one.
+/// A VCS remote momo cannot understand is ignored with a warning: it cannot be
+/// linked to, and there is nothing for the user to fix to keep releasing. A
+/// configured `remote` never reaches here — config resolution has already
+/// rejected an unusable one.
 fn derive_remote(vcs: Option<&dyn Vcs>) -> Result<Option<Remote>> {
     let Some(vcs) = vcs else {
         return Ok(None);
@@ -262,7 +263,13 @@ fn derive_remote(vcs: Option<&dyn Vcs>) -> Result<Option<Remote>> {
     let Some(url) = vcs.remote()? else {
         return Ok(None);
     };
-    Ok(url.parse().ok())
+    match url.parse() {
+        Ok(remote) => Ok(Some(remote)),
+        Err(_) => {
+            eprintln!("warning: remote `{url}` is not recognised; no reference links added");
+            Ok(None)
+        }
+    }
 }
 
 /// The Release Candidate suffix template from the configuration.
@@ -576,6 +583,23 @@ mod tests {
         // The release consumed the Unreleased section, so the footer must not
         // define a link to it.
         assert!(!changelog.contains("[Unreleased]:"), "{changelog}");
+    }
+
+    #[test]
+    fn a_release_with_an_unrecognised_vcs_remote_still_releases_without_links() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        let vcs = FakeVcs::new().remote("not a remote");
+
+        let outcome = release(root, &fragments(), &package(), Some(&vcs), date(), false)
+            .expect("an unrecognised remote is a warning, not a failure")
+            .expect("something to release");
+
+        assert_eq!(outcome.version, Version::new(0, 1, 0));
+        let changelog = read(root, "CHANGELOG.md");
+        assert!(changelog.contains("## [0.1.0]"), "{changelog}");
+        assert!(!changelog.contains("[0.1.0]:"), "{changelog}");
     }
 
     #[test]

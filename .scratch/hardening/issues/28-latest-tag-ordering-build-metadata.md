@@ -1,7 +1,7 @@
 # 28: Latest-tag selection uses `Ord` (build metadata), not semver precedence
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: adapters/vcs
 Verified: no — reported by an agent; the code path is `tags.rs:22-29`
@@ -64,3 +64,14 @@ taking.
 precedence tie, prefer the tag with empty build metadata — and fix the doc
 comment. Tests: `["v1.0.0", "v1.0.0+meta"]` → `1.0.0`; keep the existing ordering
 tests.
+
+## Resolution
+
+`latest_version` (`src/adapters/vcs/tags.rs`) now ranks with
+`.max_by(|a, b| a.cmp_precedence(b).then_with(|| b.build.cmp(&a.build)))`, so a
+precedence tie prefers the tag without build metadata. The doc comment now says
+"semver precedence" and documents the tie-break.
+
+Tests: `["v1.0.0", "v1.0.0+meta"]` and its reverse both yield `1.0.0`;
+`["v1.0.0+meta", "v1.0.1"]` yields `1.0.1`, confirming metadata does not outrank
+precedence. The existing ordering tests are unchanged.

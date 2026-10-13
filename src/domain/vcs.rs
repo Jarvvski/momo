@@ -42,7 +42,8 @@ pub trait Vcs {
 
     /// The URL of the repository's remote, when one is configured.
     ///
-    /// `origin` is preferred; `Ok(None)` when no remote exists. The URL feeds
+    /// `origin` is preferred; `Ok(None)` when no remote exists. A remote that
+    /// exists but cannot be read is an error, not an absence. The URL feeds
     /// the Changelog's reference links, so it is returned verbatim and
     /// normalised by the caller.
     fn remote(&self) -> Result<Option<String>, VcsError>;
@@ -50,7 +51,9 @@ pub trait Vcs {
     /// Create the tag `<prefix><version>` at the current revision.
     ///
     /// `message` is the Release title; git records it on the annotated tag, jj
-    /// ignores it (jj tags are always lightweight).
+    /// ignores it (jj tags are always lightweight). The computed name is
+    /// validated as a git ref first, so an unusable one fails with
+    /// [`VcsError::InvalidTagName`] rather than an opaque VCS error.
     fn create_tag(&self, prefix: &str, version: &Version, message: &str) -> Result<(), VcsError>;
 
     /// Whether the working copy has changes that are not committed.
@@ -72,6 +75,13 @@ pub enum VcsError {
     TagAlreadyExists {
         /// The full tag name, including the prefix.
         tag: String,
+    },
+
+    /// The computed tag name is not one git accepts as a ref.
+    #[error("`{name}` is not a valid git tag name; check the package's tag prefix")]
+    InvalidTagName {
+        /// The full tag name, including the prefix.
+        name: String,
     },
 
     /// The VCS binary could not be started.

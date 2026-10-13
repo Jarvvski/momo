@@ -1,7 +1,7 @@
 # 31: Tag names are never validated against git ref rules
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: adapters/vcs
 Verified: no — reported by an agent; `tags.rs:10-12` and `git.rs:60-71` read as cited
@@ -75,3 +75,18 @@ trailing `.` or `.lock`; no `//`, no leading/trailing `/`). Call it in both
 adapters' `create_tag` before spawning, returning a clear configuration error that
 names the offending name. Tests: `v1.2.3` and `cargo-momo-v1.2.3` accepted;
 `-1.2.3`, `v 1`, `v1..2`, `v1.lock` rejected.
+
+## Resolution
+
+`src/adapters/vcs/tags.rs` gained `is_valid_ref_name` (the `git check-ref-format`
+rules above) and `checked_tag_name`, which validates the full `<prefix><version>`
+and returns the new `VcsError::InvalidTagName { name }` — `` `{name}` is not a
+valid git tag name; check the package's tag prefix``. Both `GitVcs::create_tag`
+and `JjVcs::create_tag` now call `checked_tag_name` before spawning, so an
+unusable name fails clearly instead of reaching the VCS.
+
+Note: `git check-ref-format refs/tags/-1.2.3` accepts the full ref, but a leading
+`-` is still rejected because the name is passed to `git tag` as an argument and
+git would parse it as an option. Tests: `tags.rs` covers accepted and rejected
+names; each adapter has a test that an invalid name errors before any command runs
+(an empty `FakeRunner` panics if one does).
