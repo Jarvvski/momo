@@ -26,13 +26,19 @@ out the version, writes the changelog, and tags the release.
 ## Install
 
 ```bash
-cargo install --path . --locked   # from a checkout
+cargo install momo-cli          # from crates.io; installs the `momo` binary
 ```
 
 Or let a task environment manage it:
 
 ```bash
-mise use github:Jarvvski/momo@0.1.0
+mise use github:Jarvvski/momo@0.1.2
+```
+
+From a checkout:
+
+```bash
+cargo install --path . --locked
 ```
 
 ## Quick start

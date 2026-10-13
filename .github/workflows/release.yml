@@ -1,21 +1,138 @@
 name: Release
 
-# `momo install` pins the CLI as `github:Jarvvski/momo`, so the wrappers resolve
-# to a GitHub release asset. A version tag builds the assets and publishes them;
-# on a pull request the same build runs as a dry run that proves compilation and
-# the asset names without cutting a release.
+# Owner-dispatched release, driven by momo itself: it derives the next version
+# from the unreleased changes, mints it, builds the archives, publishes to
+# crates.io, and cuts the GitHub Release.
+#
+# `workflow_dispatch` only runs from the default branch, so this file has to be
+# on `main` before it can be dispatched at all.
+#
+# The `release` environment gates publishing: it holds RELEASE_TOKEN (a PAT that
+# may push to the protected `main`) and CARGO_REGISTRY_TOKEN, and requires a
+# reviewer, so a real release needs an approval click on top of the dispatch.
+# `dry_run` defaults to true because a crates.io version number can never be
+# reused.
+#
+# `pull_request` runs the same build matrix as a smoke test: it proves every
+# target still compiles without touching a release.
 on:
-  push:
-    tags: ["v*"]
-  pull_request:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Stop before committing, tagging, publishing, or releasing"
+        type: boolean
+        default: true
+  pull_request:
 
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    name: mint the release
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: release
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # momo reads the current version from the newest tag, and the guards
+          # below need every tag. The PAT, not GITHUB_TOKEN, because the release
+          # commit is pushed to the protected default branch.
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+      - uses: jdx/mise-action@v2
+        with:
+          # Rustup components live outside mise's cached data directory.
+          cache: false
+      - uses: Swatinem/rust-cache@v2
+
+      # The canonical gate, before anything irreversible.
+      - name: Pre-land gate
+        run: mise run check
+
+      - name: Derive the next version
+        id: version
+        run: |
+          set -euo pipefail
+          # `--check` exits non-zero when there is nothing unreleased, which is
+          # a dispatch mistake rather than a release.
+          if ! ./target/release/momo status --check >/dev/null 2>&1; then
+            echo "error: nothing unreleased; there is no release to cut" >&2
+            exit 1
+          fi
+
+          version="$(./target/release/momo status --version-only)"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "error: tag v$version already exists" >&2
+            exit 1
+          fi
+          if curl -sf -A "momo-release-workflow" \
+              "https://crates.io/api/v1/crates/momo-cli/$version" >/dev/null; then
+            echo "error: momo-cli $version is already published on crates.io" >&2
+            exit 1
+          fi
+
+          echo "derived $version"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+      - name: Mint the release
+        run: |
+          set -euo pipefail
+          ./target/release/momo release
+          # momo syncs the manifest's version scalar and warns the lock may now
+          # be stale; it never rewrites the lock itself.
+          cargo update --workspace --offline
+
+      - name: Verify the package without publishing
+        # The bump above is deliberately uncommitted at this point, so the
+        # checkout is dirty by design; --allow-dirty packages exactly what the
+        # commit below will record.
+        run: cargo publish --dry-run --locked --allow-dirty
+
+      - name: Summarise the dry run
+        if: inputs.dry_run
+        run: |
+          echo "dry run: would release ${{ steps.version.outputs.version }}"
+          git --no-pager diff --stat
+
+      - name: Commit and tag
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock CHANGELOG.md .momo/version
+          git commit -m "release $version"
+          # momo creates the tag, exactly as it does locally.
+          ./target/release/momo tag
+          git push origin "HEAD:${{ github.ref_name }}" "refs/tags/v$version"
+
+      # Publish before creating the Release: a failed publish then leaves a tag
+      # but no release, which is recoverable. The reverse would leave a public
+      # release pointing at a crate version that does not exist.
+      - name: Publish to crates.io
+        if: ${{ !inputs.dry_run }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
+
   build:
     name: build ${{ matrix.target }}
+    needs: [prepare]
+    # Runs on a pull request (where `prepare` is skipped), and on a real
+    # dispatch; a dry run stops at the summary above.
+    if: always() && (github.event_name == 'pull_request' || !inputs.dry_run)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -31,9 +148,11 @@ jobs:
             os: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+        with:
+          # On a dispatch the release commit is tagged; build exactly that.
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', needs.prepare.outputs.version) || '' }}
       - uses: jdx/mise-action@v2
         with:
-          # Rustup components live outside mise's cached data directory.
           cache: false
       - uses: Swatinem/rust-cache@v2
         with:
@@ -42,8 +161,8 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            version="${GITHUB_REF_NAME#v}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            version="${{ needs.prepare.outputs.version }}"
           else
             version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
           fi
@@ -63,9 +182,9 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: publish release
-    needs: build
-    if: github.ref_type == 'tag'
+    name: publish the GitHub release
+    needs: [prepare, build]
+    if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -79,5 +198,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/*.tar.gz \
-            --title "${GITHUB_REF_NAME}" --generate-notes
+          gh release create "v${{ needs.prepare.outputs.version }}" dist/*.tar.gz \
+            --title "v${{ needs.prepare.outputs.version }}" --generate-notes
