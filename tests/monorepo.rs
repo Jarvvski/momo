@@ -199,6 +199,52 @@ fn an_unknown_package_is_rejected() {
 }
 
 #[test]
+fn a_slug_collision_is_rejected() {
+    if !require("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    monorepo(&dir);
+    // Pin `cargo:b` to `cargo:a`'s slug: the two would share a tag prefix and a
+    // Fragment store, so discovery must refuse rather than pick one.
+    fs::write(
+        dir.path().join("momo.toml"),
+        "[packages.\"cargo:b\"]\nslug = \"cargo-a\"\n",
+    )
+    .expect("seed config");
+
+    momo(&dir)
+        .arg("status")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("share the slug `cargo-a`"));
+}
+
+#[test]
+fn an_ambiguous_package_name_is_rejected() {
+    if !require("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    monorepo(&dir);
+    // Give `cargo:a` the slug `b`, so the bare name `b` names both it and
+    // `cargo:b`'s bare name.
+    fs::write(
+        dir.path().join("momo.toml"),
+        "[packages.\"cargo:a\"]\nslug = \"b\"\n",
+    )
+    .expect("seed config");
+
+    momo(&dir)
+        .args(["-p", "b", "status"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("matches more than one package"))
+        .stderr(predicate::str::contains("cargo:a"))
+        .stderr(predicate::str::contains("cargo:b"));
+}
+
+#[test]
 fn fragments_are_stored_per_package() {
     if !require("mise") {
         return;

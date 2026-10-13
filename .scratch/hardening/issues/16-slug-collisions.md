@@ -1,7 +1,7 @@
 # 16: Distinct package identities can collapse to the same slug
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: domain/slug + domain/package
 Verified: yes — read at the cited lines
@@ -80,3 +80,22 @@ concern ambiguous selection), but a distinct bug; the triage plan groups
 - Tests: a `workspace.rs` unit test with `node:@acme/ui` + `node:acme-ui`
   asserting the error names both; a test that a `[packages.*].slug` override
   resolves the collision; update the `monorepo()` fixture for the new `Result`.
+
+## Resolution
+
+Added `WorkspaceError::DuplicateSlug { slug, identities }` and made
+`Workspace::new` return `Result<Self, WorkspaceError>`. After applying the
+per-package overrides it groups the Packages by slug and, when any slug has more
+than one Package, errors naming every colliding fully-qualified identity (sorted).
+The check is on the slug alone, so it catches within-ecosystem collisions
+(`cargo:a_b` vs `cargo:a-b`) as well as cross-provider ones. `Workspace::single`
+stays infallible: it builds its one Package directly.
+
+`cli/workspace::load` now returns `Result<Discovery>`; a collision propagates with
+`?` and is fatal, not folded into the `unavailable` degraded-discovery field. The
+five callers in `src/cli/commands.rs` already used `?`.
+
+Tests: `workspace.rs` unit tests for the `node:@acme/ui` + `node:acme-ui`
+collision (error names both identities) and for a `[packages.*].slug` override
+resolving it; an integration test in `tests/monorepo.rs` that pins `cargo:b` to
+`cargo:a`'s slug and asserts `momo status` fails naming the shared slug.

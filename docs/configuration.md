@@ -55,6 +55,13 @@ slug = "alpha"                        # override the ref/path-safe slug
 manifest = "crates/momo/Cargo.toml"   # override the discovered manifest
 ```
 
+`slug` is derived from the identity unless set explicitly, and it namespaces
+the package's tags and Fragment store. An `identity` override with no `slug`
+recomputes the slug from the new identity, so renaming a package moves its tag
+namespace and Fragment store to the new name; pin `slug` explicitly to keep the
+old ones. Two packages that derive the same slug are an error — give one a
+distinct `slug`.
+
 ## Precedence
 
 Configuration is layered, lowest to highest:
