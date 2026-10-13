@@ -22,8 +22,9 @@ builder can implement momo v0 with nothing left to decide.
   - The tool **is `momo`** — this repo's binary.
   - **v0 extensibility:** an internal `TaskEnvironment` trait with `mise` as its
     only implementation; no third-party plugin loading.
-  - **Verb surface:** `break|add|fix`, `status`, `release [--rc]`, `rc`, `tag`,
-    `init`, `install <taskenv>`, and a global `--dry-run`.
+  - **Verb surface:** `break|add|fix`, `status`, `release`, `candidate` (alias
+    `rc`), `tag`, `init`, `install <taskenv>`, and a global `--dry-run`. (The
+    `candidate` rename and the short aliases were settled in ticket 11.)
   - **Recording model:** support **both** a single changelog file and fragment
     files (each suits different setups).
 - **Scope grew during resolution** (ticket 01's answer): **monorepo-aware**
@@ -106,6 +107,10 @@ builder can implement momo v0 with nothing left to decide.
   `momo-core` (domain + `Vcs`/`TaskEnvironment` ports), `momo-vcs` (git/jj),
   `momo-taskenv` (mise), `momo-cli` (binary); ports in core, adapters separate,
   wired by the CLI.
+- [CLI ergonomics](issues/11-cli-ergonomics.md): positional `<TEXT>` for the change
+  nouns (one per call); global `--dry-run`; flags-only; **`candidate`** (alias
+  `rc`) replaces `release --rc`; short aliases `a`/`f`/`b`; `status` prints
+  per-package `→ next: <version>`. Prototype: `prototypes/cli/`.
 
 ## Not yet specified
 

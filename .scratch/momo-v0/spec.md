@@ -23,13 +23,13 @@ or integrates into a task environment (`mise` first).
 
 | Command | Purpose |
 |---|---|
-| `momo break\|add\|fix "<desc>"` | Record a change |
+| `momo break\|add\|fix "<desc>"` | Record a change (aliases `b` / `a` / `f`) |
 | `momo status` | Show unreleased changes + the version they'd mint |
-| `momo release [--rc]` | Mint a version, timestamp the changelog, optionally tag |
-| `momo rc` | Cut / increment a release candidate |
+| `momo release` | Mint a version from the unreleased changes |
+| `momo candidate` | Cut / increment a release candidate (alias `rc`) |
 | `momo tag` | Create the VCS tag for the current version |
-| `momo init` | Scaffold changelog + config |
-| `momo install <taskenv>` | Install integration into a task environment |
+| `momo init` | Scaffold `momo.toml` |
+| `momo install [taskenv]` | Install integration into a task environment |
 | `--dry-run` | Global: show what would happen, change nothing |
 
 ## Semver rules
