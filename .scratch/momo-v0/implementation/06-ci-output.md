@@ -10,10 +10,10 @@ when there is nothing Unreleased. momo stays VCS-agnostic: it never sniffs
 
 **Spec:** `.scratch/momo-v0/spec.md` §13
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `momo status --format json` emits a stable, documented shape.
-- [ ] `momo status --version-only` prints just the version.
-- [ ] `momo status --check` exits non-zero when nothing is Unreleased, and zero when something is.
-- [ ] `--output <path>` writes the same content to a file.
-- [ ] No behaviour changes on the basis of CI environment variables.
+- [x] `momo status --format json` emits a stable, documented shape.
+- [x] `momo status --version-only` prints just the version.
+- [x] `momo status --check` exits non-zero when nothing is Unreleased, and zero when something is.
+- [x] `--output <path>` writes the same content to a file.
+- [x] No behaviour changes on the basis of CI environment variables.

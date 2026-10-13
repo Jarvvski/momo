@@ -3,6 +3,7 @@
 mod cli;
 mod commands;
 mod config;
+mod output;
 mod recording;
 mod release;
 mod version;
