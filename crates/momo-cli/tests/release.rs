@@ -366,6 +366,7 @@ fn a_remote_key_in_the_config_writes_the_changelog_footer() {
         changelog.contains("[0.1.0]: https://github.com/Jarvvski/momo/releases/tag/v0.1.0"),
         "{changelog}"
     );
+    assert!(!changelog.contains("[Unreleased]:"), "{changelog}");
 }
 
 #[test]

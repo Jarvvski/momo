@@ -19,9 +19,9 @@ v0.1.0 changelog.
 
 **Spec:** `.scratch/momo-v0/spec.md` §6
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A changelog with no Unreleased section has no `[Unreleased]` link definition.
-- [ ] A changelog with unreleased changes still links `[Unreleased]`.
-- [ ] Every released version still gets its link, in newest-first order.
-- [ ] The existing reference-link tests are updated rather than deleted.
+- [x] A changelog with no Unreleased section has no `[Unreleased]` link definition.
+- [x] A changelog with unreleased changes still links `[Unreleased]`.
+- [x] Every released version still gets its link, in newest-first order.
+- [x] The existing reference-link tests are updated rather than deleted.

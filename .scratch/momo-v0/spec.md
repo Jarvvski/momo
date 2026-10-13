@@ -66,7 +66,8 @@ integrates into a task environment (`mise` in v0).
   - Entry: `- <text> (#issue)`.
   - RCs get their own heading.
   - **Reference-link footer** derived from the VCS remote, overridable with the
-    `remote` config key; omitted when neither is available.
+    `remote` config key; omitted when neither is available. The `[Unreleased]`
+    link is emitted only while the document has an Unreleased section.
   - In **changelog mode** the `## Unreleased` section is the source; in **fragment
     mode** the changelog holds only releases and `status` reports unreleased.
 - `release` **consumes** fragments (deletes them); `candidate` does **not** (they
