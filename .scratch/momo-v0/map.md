@@ -2,6 +2,9 @@
 
 Type: map
 
+**Status: complete.** Every ticket is resolved and `.scratch/momo-v0/spec.md` is
+locked — nothing left to decide before implementation.
+
 ## Destination
 
 A locked **v0 spec for `momo`**: a short, standalone Rust CLI that manages a
@@ -118,6 +121,8 @@ builder can implement momo v0 with nothing left to decide.
   `ManifestSync` trait + **Rust `Cargo.toml`**; auto-discover per package,
   config-overridable; format-preserving writes (`toml_edit`); lockfiles left to the
   package manager (warn); a release step only.
+- [Assemble the v0 spec](issues/15-assemble-spec.md): consolidated every decision
+  into `spec.md` (§1–16); glossary consistent; map complete.
 
 ## Not yet specified
 

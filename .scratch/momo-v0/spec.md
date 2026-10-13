@@ -1,25 +1,25 @@
 # momo v0 — spec
 
-> **Status:** in progress. Assembled as the decision tickets in
-> `.scratch/momo-v0/issues/` resolve; each open section points at its ticket.
-> The map is `.scratch/momo-v0/map.md`. Vocabulary is in `GLOSSARY.md`.
+> The consolidated v0 design. Every decision below was resolved by a ticket in
+> `issues/`; the map is `map.md`; vocabulary is `GLOSSARY.md`. **Status: locked** —
+> a builder can implement v0 with nothing left to decide.
 
-## What momo is
+## 1. What momo is
 
-A short, standalone Rust CLI that turns a project's accumulated changes into
-semver releases, a changelog, and VCS tags. It runs standalone (`cargo install`)
-or integrates into a task environment (`mise` first).
+A short, standalone Rust CLI that turns a project's accumulated changes into semver
+releases, a changelog, and VCS tags. It runs standalone (`cargo install`) or
+integrates into a task environment (`mise` in v0).
 
-## Scope (v0)
+## 2. Scope (v0)
 
-- Single binary, Rust (edition 2024, `unsafe_code = "forbid"`).
-- **Monorepo-aware** versioning (package model: ticket 16).
-- **VCS-optional** — works with git, jj, or no VCS at all (ticket 17).
-- Task-environment integration via an internal `TaskEnvironment` trait, with
-  `mise` as the only implementation. No third-party plugin loading.
-- Standalone use needs no task environment.
+- Single binary; Rust, edition 2024; `unsafe_code = "forbid"`.
+- **Monorepo-aware**: the *package* is the unit of versioning.
+- **VCS-optional**: works with git, jj, or no VCS at all.
+- Task-environment integration via an internal `TaskEnvironment` trait — `mise` only.
+- Manifest version-sync via an internal `ManifestSync` trait — Rust `Cargo.toml` only.
+- Standalone use needs neither a task environment nor a VCS.
 
-## Command surface
+## 3. Command surface
 
 | Command | Purpose |
 |---|---|
@@ -29,41 +29,144 @@ or integrates into a task environment (`mise` first).
 | `momo candidate` | Cut / increment a release candidate (alias `rc`) |
 | `momo tag` | Create the VCS tag for the current version |
 | `momo init` | Scaffold `momo.toml` |
-| `momo install [taskenv]` | Install integration into a task environment |
+| `momo install [env]` | Install momo into a task environment |
 | `--dry-run` | Global: show what would happen, change nothing |
 
-## Semver rules
+## 4. Semver rules
 
-- **MAJOR 0:** `break` and `add` both bump MINOR; `fix` bumps PATCH.
+- **MAJOR 0:** `break` and `add` bump MINOR; `fix` bumps PATCH.
 - **MAJOR ≥ 1:** `break` bumps MAJOR; `add` bumps MINOR; `fix` bumps PATCH.
-- Edge cases (`0.0.x`, multiple kinds per release) → see tickets 01 / 05.
+- **Multiple kinds in one release:** the **highest** kind wins (`break` > `add` >
+  `fix`).
+- **Bootstrap:** baseline `0.0.0`; the first release follows the rules (`add`/
+  `break` → `0.1.0`; `fix`-only → `0.0.1`). `momo init` may set an explicit start.
+- This is the **zero-aware** pre-1.0 camp (matches release-plz; see `research/versioning-precedents.md`).
 
-## Open design areas
+## 5. Version source
 
-Each is decided by a ticket; the spec gains its section as the ticket resolves.
+- **Primary:** the latest VCS tag.
+- **Tag names:** `<slug>-v<version>` in a monorepo; plain `v<version>` for a single
+  package.
+- **VCS-optional:** with no VCS, the source is `.momo/version` (a momo-managed file
+  written on every release).
+- The VCS is **authoritative when present**; `.momo/version` is the fallback.
+- Reading is side-effect-free; `status` / `--dry-run` never write.
 
-| Area | Ticket |
-|---|---|
-| Version source of truth & first-release bootstrap | 01 |
-| Recording model (single changelog vs fragments) | 02 |
-| Changelog format & entry shape | 03 |
-| Config file & keys | 04 |
-| Release-candidate semantics | 05 |
-| Release side-effects & tag format | 06 |
-| CI / non-interactive output & dry-run | 07 |
-| Task-environment selection UX | 08 |
-| `mise` integration content | 09 |
-| Repo & module shape | 10 |
-| CLI ergonomics | 11 |
-| jj & git tag mechanics *(research)* | 12 |
-| Precedents: existing versioning tools *(research)* | 13 |
-| Rust crate & dependency landscape *(research)* | 14 |
-| Monorepo / workspace model | 16 |
-| VCS-optional operation | 17 |
-| Version-file detection & sync *(stretch)* | 18 |
-| Task-runner workspace models *(research)* | 19 |
-| Version-file formats & safe writing *(research)* | 20 |
+## 6. Recording model & changelog
 
-## Assembly
+- **Selection:** `recording = "changelog" | "fragments"` in `momo.toml`; default
+  `changelog`.
+- **Fragments:** `.momo/changes/<package>/<kind>-<slug>.md`; the body is the entry
+  text (the Kind is in the filename — no front-matter). Plain files, so they can be
+  hand- or CI-authored.
+- **Changelog:** one `CHANGELOG.md` **per package**:
+  - Sections: `Breaking` / `Added` / `Fixed`.
+  - Release heading: `## [<version>] - YYYY-MM-DD`.
+  - Entry: `- <text> (#issue)`.
+  - RCs get their own heading.
+  - **Reference-link footer** derived from the VCS remote (config-overridable;
+    omitted when there is no remote).
+  - In **changelog mode** the `## Unreleased` section is the source; in **fragment
+    mode** the changelog holds only releases and `status` reports unreleased.
+- `release` **consumes** fragments (deletes them); `candidate` does **not** (they
+  are shared with the final release).
+- Prototype: `prototypes/changelog-format/`.
 
-Ticket 15 consolidates the resolved decisions into this document.
+## 7. Release & release candidates
+
+- **`momo release`** mints the version from the unreleased changes and writes the
+  changelog (+ manifests). It does **not** commit and does **not** tag.
+- **`momo candidate`** (alias `rc`) computes the bump exactly as `release` would,
+  then appends **`-rc.N`** (dotted; scoped per target version; restarts at `1` if
+  the target changes). Same file writes as `release`, but leaves fragments in place.
+- **`momo tag`** creates the VCS tag for the current version — run after committing.
+- `release` / `candidate` with **nothing unreleased** → error.
+
+## 8. Tagging
+
+- **git:** annotated (`git tag -a`, message = release title).
+- **jj:** lightweight (`jj tag set`) — jj's only option.
+- Detect **`.jj` first, else `.git`**.
+- Refuse to overwrite an existing tag.
+- **No VCS → `tag` errors clearly** ("no VCS detected — nothing to tag").
+
+## 9. Monorepo model
+
+- **Unit:** the package (a single-package repo is a monorepo with one package).
+- **Discovery:** `mise tasks graph --json` (requires `monorepo_root = true`); momo's
+  own manifest discovery is deferred.
+- **Identity:** the ecosystem ID (`cargo:momo`, `node:@acme/ui`) with a derived
+  ref/path-safe **slug** (`cargo-momo`), **config-overridable**.
+- **Targeting:** cwd-relative default; `-p/--package` to override; `--all` for
+  every package. `release` with no `-p` releases every package with unreleased
+  changes.
+- **No cascading** to dependents in v0.
+
+## 10. Task-environment integration (`mise`)
+
+- **`momo install [env]`** auto-detects (`mise.toml` / `.mise/`) with an explicit
+  override. **No TUI in v0.**
+- **No environment → graceful no-op + warning** (momo works standalone).
+- Writes **one thin `momo:*` task wrapper per verb** at the repo root
+  (`mise-tasks/momo/`), each pinning the running CLI via
+  `#MISE tools={"github:Jarvvski/momo" = "<version>"}`. **No `mise.toml` edit.**
+- Idempotent; `--update` refreshes to the running version; `--uninstall` removes
+  the directory.
+- Records `task_env` in config.
+- See `docs/mise-task-distribution.md` (Shape B).
+
+## 11. Version-file sync
+
+- **Minimal v0:** a `ManifestSync` trait + **Rust `Cargo.toml`** (Node/Gradle/
+  Python are later impls with no core change).
+- **Auto-discover** per package; config-overridable; skip gracefully when none.
+- **Format-preserving** (`toml_edit`) — touch only the version scalar, never
+  reserialize.
+- **Lockfiles** (`Cargo.lock`) are left to the package manager: momo **warns** they
+  may be stale.
+- A **release step** only; `status` / `--dry-run` never write.
+
+## 12. Config
+
+- **`momo.toml`** at the repo root (TOML).
+- **Precedence:** CLI flags > `MOMO_*` env vars > `momo.toml` > built-in defaults.
+- **Optional**, with **lazy creation** — each write command creates what it needs on
+  first use; `momo init` writes only `momo.toml`.
+- Keys: `recording`, `changelog` path, `changes_dir`, `tag_prefix`, `tag_kind`,
+  per-package overrides (identity/slug), `task_env`, `rc_format` (optional).
+
+## 13. CLI & CI behaviour
+
+- Change nouns take a positional `<TEXT>`, **one change per call**.
+- **Global `--dry-run`**; **flags-only** (no interactive prompts).
+- `candidate` (alias `rc`); change-noun aliases `a` / `f` / `b`.
+- `status`: human by default (per-package, ending in `→ next: <version>`),
+  `--format json`, `--version-only`, and `--check` (exits **non-zero when there is
+  nothing unreleased**). *The `--check` exit-code contract must be documented.*
+- `--output <path>` writes output to a file for CI.
+- **VCS-agnostic** — no `GITHUB_*` / `CI_*` sniffing.
+- `status` / `--dry-run` are read-only; `release` / `candidate` / `tag` / `install`
+  mutate.
+- Prototype: `prototypes/cli/`.
+
+## 14. Repo & module shape
+
+- **Virtual workspace**; the root is a manifest only.
+- Crates:
+  - `momo-core` — domain (Kind/Change, bump policy, version, changelog, config) and
+    the **ports** (`Vcs`, `TaskEnvironment`, `ManifestSync`). Pure: no I/O, no clap.
+  - `momo-vcs` — git + jj adapters.
+  - `momo-taskenv` — mise adapter.
+  - `momo-cli` — the `momo` binary (clap tree + handlers); wires the adapters.
+
+## 15. Dependencies
+
+`clap` (derive) · `toml_edit` · `semver` · `time` · `anyhow` + `thiserror`; shell out
+to `git`/`jj` (no `git2`). `inquire` only if a picker is ever needed. Dev:
+`tempfile`, `assert_cmd`, `predicates`. (See `research/rust-crates.md`.)
+
+## 16. Remaining builder notes
+
+- Confirm the exact failure messages for: nothing unreleased, tag already exists,
+  no VCS on `tag`, no task environment on `install`.
+- The `--check` exit code needs a documented contract (ticket 07).
