@@ -1,15 +1,13 @@
 <p align="center">
-  <img src="assets/momo.png" alt="momo" width="200">
+  <img src="https://raw.githubusercontent.com/Jarvvski/momo/main/assets/momo.png" alt="momo" width="200">
 </p>
 
 <h1 align="center">momo</h1>
 
 <p align="center">
-  <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0-or-later-blue"></a>
+  <a href="https://github.com/Jarvvski/momo/blob/main/LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"></a>
   <a href="https://github.com/Jarvvski/momo/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Jarvvski/momo/actions/workflows/ci.yml/badge.svg"></a>
 </p>
-
----
 
 momo turns a project's accumulated changes into semver releases, a changelog and
 VCS tags. It is a small, standalone Rust CLI.
@@ -32,7 +30,7 @@ cargo install momo-cli          # from crates.io; installs the `momo` binary
 Or let a task environment manage it:
 
 ```bash
-mise use github:Jarvvski/momo@0.2.0
+mise use github:Jarvvski/momo@0.2.1
 ```
 
 From a checkout:
@@ -111,14 +109,18 @@ Global flags:
 
 ## Documentation
 
-- **[Usage](docs/usage.md)** — recording models, releases and release
-  candidates, tagging, monorepos, task-environment install.
-- **[Configuration](docs/configuration.md)** — every `momo.toml` key,
-  the precedence order, and the `MOMO_*` environment variables.
-- **[CI](docs/ci.md)** — the JSON shapes, `status --check`, and `--output`.
-- **[Contributing](docs/contributing.md)** — building, testing, and the landing
-  flow.
+- **[Usage](https://github.com/Jarvvski/momo/blob/main/docs/usage.md)** — recording
+  models, releases and release candidates, tagging, monorepos, task-environment
+  install.
+- **[Configuration](https://github.com/Jarvvski/momo/blob/main/docs/configuration.md)**
+  — every `momo.toml` key, the precedence order, and the `MOMO_*` environment
+  variables.
+- **[CI](https://github.com/Jarvvski/momo/blob/main/docs/ci.md)** — the JSON
+  shapes, `status --check`, and `--output`.
+- **[Contributing](https://github.com/Jarvvski/momo/blob/main/docs/contributing.md)**
+  — building, testing, and the landing flow.
 
 ## License
 
-GPL-3.0-or-later. See [`LICENSE`](LICENSE).
+GPL-3.0-or-later. See
+[`LICENSE`](https://github.com/Jarvvski/momo/blob/main/LICENSE).
