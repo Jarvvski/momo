@@ -88,25 +88,18 @@ builds the Linux and macOS archives, publishes to crates.io, and cuts the GitHub
 Release. Those assets are what `mise use github:Jarvvski/momo@<version>`
 resolves; the crate is what `cargo install momo-cli` resolves.
 
-`dry_run` defaults to true and stops before anything irreversible. The `release`
-environment holds `RELEASE_TOKEN` (a PAT allowed to push to the protected
-`main`) and `CARGO_REGISTRY_TOKEN`, and requires a reviewer — a crates.io
-version number can never be reused, so the approval is deliberate.
+`dry_run` defaults to true and stops before anything irreversible: dispatch it
+that way to see the version momo would derive, then dispatch again with `dry_run`
+off. The `release` environment holds `RELEASE_TOKEN` (a PAT allowed to push to
+the protected `main`) and `CARGO_REGISTRY_TOKEN`, and requires a reviewer — a
+crates.io version number can never be reused, so the approval is deliberate.
 
 The same workflow runs its build matrix on every pull request, so a target that
 no longer compiles fails before a release rather than during one.
 
-The **first** release is different: a crates.io token scoped to publishing
-*updates* cannot create a new crate name. Dispatch that one with
-`publish: false`, then publish from the new tag by hand:
-
-```bash
-git clone https://github.com/Jarvvski/momo /tmp/momo && cd /tmp/momo
-git checkout v0.2.0
-cargo publish --locked
-```
-
-Every release after that leaves `publish` on.
+`publish` defaults on. It only ever needs turning off to bootstrap a *new* crate
+name: a crates.io token scoped to publishing updates cannot create one, so the
+first publish of a name has to be done by hand from the tag.
 
 ## More
 

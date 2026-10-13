@@ -13,11 +13,9 @@ name: Release
 # `dry_run` defaults to true because a crates.io version number can never be
 # reused.
 #
-# `publish` is turned off only for the very first release. The repository's
-# crates.io token is scoped to publishing *updates*, and crates.io requires the
-# first publish of a new crate name to be done by hand, so the bootstrap is:
-# dispatch with `publish: false`, then `cargo publish` from the new tag. Every
-# release after that leaves it on.
+# `publish` defaults on. It exists to bootstrap a *new* crate name: a crates.io
+# token scoped to publishing updates cannot create one, so the first publish of
+# a name has to be done by hand from the tag.
 #
 # `pull_request` runs the same build matrix as a smoke test: it proves every
 # target still compiles without touching a release.
@@ -29,7 +27,7 @@ on:
         type: boolean
         default: true
       publish:
-        description: "Publish to crates.io (off for the first release only)"
+        description: "Publish to crates.io (off only to bootstrap a new crate name)"
         type: boolean
         default: true
   pull_request:
