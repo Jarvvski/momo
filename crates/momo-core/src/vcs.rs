@@ -40,6 +40,13 @@ pub trait Vcs {
     /// Returns `Ok(None)` when no tag matches — there is no version yet.
     fn latest_tag(&self, prefix: &str) -> Result<Option<Version>, VcsError>;
 
+    /// The URL of the repository's remote, when one is configured.
+    ///
+    /// `origin` is preferred; `Ok(None)` when no remote exists. The URL feeds
+    /// the Changelog's reference links, so it is returned verbatim and
+    /// normalised by the caller.
+    fn remote(&self) -> Result<Option<String>, VcsError>;
+
     /// Create the tag `<prefix><version>` at the current revision.
     ///
     /// `message` is the Release title; git records it on the annotated tag, jj

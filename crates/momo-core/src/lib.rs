@@ -8,6 +8,7 @@ pub mod change;
 pub mod changelog;
 pub mod config;
 pub mod package;
+pub mod remote;
 mod slug;
 pub mod taskenv;
 pub mod vcs;

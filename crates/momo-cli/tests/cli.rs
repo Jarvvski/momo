@@ -184,16 +184,24 @@ fn a_read_only_command_creates_no_config() {
 }
 
 #[test]
-fn unimplemented_verbs_exit_non_zero_with_a_clear_message() {
+fn the_release_verbs_report_their_own_errors() {
     let dir = TempDir::new().expect("temp dir");
-    let invocations: [&[&str]; 4] = [&["release"], &["candidate"], &["rc"], &["tag"]];
-    for args in invocations {
+
+    // With nothing Unreleased, `release` and `candidate` refuse.
+    for args in [&["release"][..], &["candidate"][..], &["rc"][..]] {
         momo(&dir)
             .args(args)
             .assert()
             .failure()
-            .stderr(predicate::str::contains("not implemented yet"));
+            .stderr(predicate::str::contains("nothing unreleased"));
     }
+
+    // With no repository, `tag` has nothing to tag.
+    momo(&dir)
+        .arg("tag")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no VCS detected"));
 }
 
 #[test]

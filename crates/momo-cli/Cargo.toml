@@ -16,7 +16,9 @@ anyhow.workspace = true
 clap.workspace = true
 momo-core = { path = "../momo-core" }
 momo-taskenv = { path = "../momo-taskenv" }
+momo-vcs = { path = "../momo-vcs" }
 semver.workspace = true
+time.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true

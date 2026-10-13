@@ -46,6 +46,17 @@ impl<R: CommandRunner> Vcs for GitVcs<R> {
         Ok(latest_version(output.stdout.lines(), prefix))
     }
 
+    fn remote(&self) -> Result<Option<String>, VcsError> {
+        // `get-url` exits non-zero when `origin` is not configured; that is not
+        // an error here, it just means there is no remote to link to.
+        let args = ["remote", "get-url", "origin"];
+        let output = self.git(&args)?;
+        Ok(match output.stdout.trim() {
+            "" => None,
+            url => Some(url.to_owned()),
+        })
+    }
+
     fn create_tag(&self, prefix: &str, version: &Version, message: &str) -> Result<(), VcsError> {
         let tag = tag_name(prefix, version);
         let reference = format!("refs/tags/{tag}");
@@ -134,5 +145,25 @@ mod tests {
 
         let clean = FakeRunner::new().ok("git", &["status", "--porcelain"], "");
         assert!(!adapter(clean).is_dirty().unwrap());
+    }
+
+    #[test]
+    fn remote_reads_origins_url() {
+        let runner = FakeRunner::new().ok(
+            "git",
+            &["remote", "get-url", "origin"],
+            "git@github.com:Jarvvski/momo.git\n",
+        );
+        assert_eq!(
+            adapter(runner).remote().unwrap().as_deref(),
+            Some("git@github.com:Jarvvski/momo.git")
+        );
+    }
+
+    #[test]
+    fn remote_reports_none_when_there_is_no_origin() {
+        // `git remote get-url origin` exits non-zero with an empty stdout.
+        let runner = FakeRunner::new().fail("git", &["remote", "get-url", "origin"], "");
+        assert_eq!(adapter(runner).remote().unwrap(), None);
     }
 }

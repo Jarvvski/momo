@@ -84,19 +84,29 @@ fn unique_fragment_path(dir: &Path, change: &Change) -> PathBuf {
         .unwrap_or(path)
 }
 
+/// Consume (delete) every Fragment the store holds, returning their paths.
+///
+/// Only the fragment recording model has Fragment files, so in changelog mode
+/// this is a no-op. With `dry_run`, nothing is removed.
+pub fn consume(root: &Path, config: &Config, dry_run: bool) -> Result<Vec<PathBuf>> {
+    if config.recording != Recording::Fragments {
+        return Ok(Vec::new());
+    }
+
+    let mut paths = fragment_paths(&root.join(&config.changes_dir))?;
+    paths.sort();
+    if !dry_run {
+        for path in &paths {
+            fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
+        }
+    }
+    Ok(paths)
+}
+
 /// Read every Fragment under `dir` into a Change, ordered by text.
 fn read_fragments(dir: &Path) -> Result<Vec<Change>> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(err) => return Err(err).with_context(|| format!("reading {}", dir.display())),
-    };
-
     let mut changes = Vec::new();
-    for entry in entries {
-        let path = entry
-            .with_context(|| format!("reading {}", dir.display()))?
-            .path();
+    for path in fragment_paths(dir)? {
         let Some(kind) = fragment_kind(&path) else {
             continue;
         };
@@ -106,6 +116,26 @@ fn read_fragments(dir: &Path) -> Result<Vec<Change>> {
     }
     changes.sort_by(|a, b| a.text.cmp(&b.text));
     Ok(changes)
+}
+
+/// Every Fragment file under `dir`, unordered.
+fn fragment_paths(dir: &Path) -> Result<Vec<PathBuf>> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err).with_context(|| format!("reading {}", dir.display())),
+    };
+
+    let mut paths = Vec::new();
+    for entry in entries {
+        let path = entry
+            .with_context(|| format!("reading {}", dir.display()))?
+            .path();
+        if fragment_kind(&path).is_some() {
+            paths.push(path);
+        }
+    }
+    Ok(paths)
 }
 
 /// The Kind a Fragment file name encodes, if it is a Fragment at all.
