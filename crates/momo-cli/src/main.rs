@@ -3,6 +3,6 @@
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    println!("momo {}", momo::VERSION);
+    println!("momo {}", env!("CARGO_PKG_VERSION"));
     ExitCode::SUCCESS
 }
