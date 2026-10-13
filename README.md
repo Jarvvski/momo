@@ -26,7 +26,7 @@ out the version, writes the changelog, and tags the release.
 ## Install
 
 ```bash
-cargo install --path crates/momo-cli --locked   # from a checkout
+cargo install --path . --locked   # from a checkout
 ```
 
 Or let a task environment manage it:

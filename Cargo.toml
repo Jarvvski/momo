@@ -1,36 +1,61 @@
-[workspace]
-# Every crate under crates/ is a member, so adding one never edits this file.
-members = ["crates/*"]
-resolver = "3"
-
-[workspace.package]
+[package]
+name = "momo-cli"
+description = "A standalone, monorepo-aware CLI that turns a project's accumulated changes into semver releases, a changelog, and VCS tags"
 version = "0.1.1"
 edition = "2024"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/Jarvvski/momo"
+readme = "README.md"
+keywords = ["semver", "changelog", "release", "versioning", "monorepo"]
+categories = ["command-line-utilities", "development-tools"]
+# The project pins its toolchain in rust-toolchain.toml and mise.toml; this is
+# the version the suite is verified against, not a hand-computed minimum.
 rust-version = "1.99"
+# Keep the published crate to what a `cargo install` consumer needs: planning
+# notes, CI config, the logo, and the docs the README links to are not part of
+# the binary.
+exclude = [
+  ".agents/",
+  ".claude/",
+  ".github/",
+  ".momo/",
+  ".scratch/",
+  "assets/",
+  "docs/",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "GLOSSARY.md",
+  "mise.toml",
+  "momo.toml",
+  # `rust-version` already states the toolchain floor; shipping the pin would
+  # make `cargo install` download a specific toolchain instead.
+  "rust-toolchain.toml",
+  "skills-lock.json",
+]
 
-# The v0 dependency catalog. Members opt in with `foo.workspace = true`, so a
-# crate can add a dependency without touching any other crate's manifest.
-[workspace.dependencies]
+[[bin]]
+name = "momo"
+path = "src/main.rs"
+
+[dependencies]
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
-inquire = { version = "0.9", default-features = false, features = ["crossterm"] }
 semver = "1.0"
 serde_json = "1.0"
 thiserror = "2.0"
 time = "0.3"
 toml_edit = "0.25"
 
+[dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
 
-[workspace.lints.rust]
+[lints.rust]
 unsafe_code = "forbid"
 unused = { level = "warn", priority = -1 }
 
-[workspace.lints.clippy]
+[lints.clippy]
 all = { level = "warn", priority = -1 }
 
 # Keep local development and test artifacts small. Release builds are used by

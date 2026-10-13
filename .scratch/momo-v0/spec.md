@@ -162,14 +162,18 @@ integrates into a task environment (`mise` in v0).
 
 ## 14. Repo & module shape
 
-- **Virtual workspace**; the root is a manifest only.
-- Crates:
-  - `momo-core` — domain (Kind/Change, bump policy, version, changelog, config) and
-    the **ports** (`Vcs`, `TaskEnvironment`, `ManifestSync`). Pure: no I/O, no clap.
-  - `momo-vcs` — git + jj adapters.
-  - `momo-taskenv` — mise adapter.
-  - `momo-manifest` — manifest adapters (`Cargo.toml`).
-  - `momo-cli` — the `momo` binary (clap tree + handlers); wires the adapters.
+- **One crate**: package `momo-cli` — a library plus a thin `momo` binary.
+  (Amended from the original five-crate virtual workspace; see
+  `docs/adr/0002-ship-as-a-single-crate.md`.)
+- Modules:
+  - `domain` — Kind/Change, bump policy, version, changelog, config, the
+    Package/Workspace model, and the **ports** (`Vcs`, `TaskEnvironment`,
+    `ManifestSync`). Pure: no I/O, no clap. Public.
+  - `adapters::vcs` — git + jj adapters. Public.
+  - `adapters::taskenv` — mise adapter. Public.
+  - `adapters::manifest` — manifest adapters (`Cargo.toml`). Public.
+  - `cli` — the clap tree + handlers; wires the adapters. Private, reached
+    through `momo_cli::run`.
 
 ## 15. Dependencies
 

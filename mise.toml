@@ -3,34 +3,45 @@
 # profile, so `mise run fmt`/`lint` would otherwise fail with
 # "'cargo-fmt' is not installed for the toolchain".
 rust = { version = "1.99.0", components = ["rustfmt", "clippy"] }
-# momo-vcs round-trips against a real jj repository; pin jj so CI runs that
-# test instead of skipping it for a missing binary.
+# The vcs adapter round-trips against a real jj repository; pin jj so CI runs
+# that test instead of skipping it for a missing binary.
 jj = "0.46.0"
 
 [tasks.run]
 description = "Run momo"
-run = "cargo run --release -p momo-cli"
+run = "cargo run --release"
 
 [tasks.build]
-description = "Build every workspace package"
-run = "cargo build --release --workspace"
+description = "Build the release binary"
+run = "cargo build --release"
 
 [tasks.test]
-description = "Run tests for every workspace package"
-run = "cargo test --workspace"
+description = "Run the test suite"
+run = "cargo test"
 
 [tasks.fmt]
 description = "Format all code"
 run = "cargo fmt --all"
 
 [tasks.lint]
-description = "Clippy across every workspace package, warnings as errors"
-run = "cargo clippy --workspace --all-targets -- -D warnings"
+description = "Clippy, warnings as errors"
+run = "cargo clippy --all-targets -- -D warnings"
+
+[tasks."lint:domain"]
+description = "The domain stays pure: no I/O, processes, env, clap or anyhow"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+if grep -rnE 'std::(fs|process|env|net)|clap|anyhow' src/domain; then
+  echo "error: src/domain must not touch I/O, processes, the environment, clap or anyhow" >&2
+  exit 1
+fi
+"""
 
 [tasks.check]
-description = "fmt + lint + build + test (the pre-land gate)"
-run = "mise run fmt && mise run lint && mise run build && mise run test"
+description = "fmt + lint + domain purity + build + test (the pre-land gate)"
+run = "mise run fmt && mise run lint && mise run lint:domain && mise run build && mise run test"
 
 [tasks.install]
 description = "Build a host release binary and install it to ~/.cargo/bin (local dev)"
-run = "cargo install --path crates/momo-cli --locked --force"
+run = "cargo install --path . --locked --force"
