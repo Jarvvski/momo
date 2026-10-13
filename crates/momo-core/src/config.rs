@@ -1,9 +1,9 @@
 //! The `momo.toml` configuration model and its resolution across layers.
 //!
 //! Configuration is resolved with a fixed precedence, lowest to highest:
-//! built-in defaults, the `momo.toml` file, `MOMO_*` environment variables,
-//! then CLI flags. Each layer only overrides the keys it actually sets, so a
-//! sparse file leaves every other key at its default.
+//! built-in defaults, the `momo.toml` file, then `MOMO_*` environment
+//! variables. Each layer only overrides the keys it actually sets, so a sparse
+//! file leaves every other key at its default.
 //!
 //! The module is pure: it parses and renders TOML text and merges layers. It
 //! never touches the filesystem or the process environment - reading
@@ -19,7 +19,7 @@ use toml_edit::{DocumentMut, Item, Table, value};
 /// The header comment written above a generated `momo.toml`.
 const HEADER: &str = "\
 # momo configuration.
-# Precedence: CLI flags > MOMO_* environment variables > this file > built-in defaults.
+# Precedence: MOMO_* environment variables > this file > built-in defaults.
 ";
 
 /// The error produced when a value is not one of the accepted variants.
@@ -145,6 +145,9 @@ pub struct Config {
     pub tag_prefix: String,
     /// The kind of VCS tag to create.
     pub tag_kind: TagKind,
+    /// The code-host remote the Changelog's reference links point at, when
+    /// configured. It overrides the remote derived from the VCS.
+    pub remote: Option<String>,
     /// The task environment momo is installed into, when any.
     pub task_env: Option<String>,
     /// Template for a Release Candidate version suffix, when customised.
@@ -161,6 +164,7 @@ impl Default for Config {
             changes_dir: PathBuf::from(".momo/changes"),
             tag_prefix: "v".to_owned(),
             tag_kind: TagKind::default(),
+            remote: None,
             task_env: None,
             rc_format: None,
             packages: BTreeMap::new(),
@@ -171,13 +175,11 @@ impl Default for Config {
 impl Config {
     /// Resolve the effective configuration from its layers.
     ///
-    /// Precedence, lowest to highest: built-in defaults, `file`, `env`, then
-    /// `flags`.
-    pub fn resolve(file: ConfigOverrides, env: ConfigOverrides, flags: ConfigOverrides) -> Self {
+    /// Precedence, lowest to highest: built-in defaults, `file`, then `env`.
+    pub fn resolve(file: ConfigOverrides, env: ConfigOverrides) -> Self {
         let mut config = Self::default();
         config.overlay(file);
         config.overlay(env);
-        config.overlay(flags);
         config
     }
 
@@ -197,6 +199,9 @@ impl Config {
         }
         if let Some(tag_kind) = overrides.tag_kind {
             self.tag_kind = tag_kind;
+        }
+        if let Some(remote) = overrides.remote {
+            self.remote = Some(remote);
         }
         if let Some(task_env) = overrides.task_env {
             self.task_env = Some(task_env);
@@ -222,6 +227,9 @@ impl fmt::Display for Config {
         table["changes_dir"] = value(self.changes_dir.to_string_lossy().as_ref());
         table["tag_prefix"] = value(self.tag_prefix.as_str());
         table["tag_kind"] = value(self.tag_kind.to_string());
+        if let Some(remote) = &self.remote {
+            table["remote"] = value(remote.as_str());
+        }
         if let Some(task_env) = &self.task_env {
             table["task_env"] = value(task_env.as_str());
         }
@@ -263,6 +271,8 @@ pub struct ConfigOverrides {
     pub tag_prefix: Option<String>,
     /// Override for [`Config::tag_kind`].
     pub tag_kind: Option<TagKind>,
+    /// Override for [`Config::remote`].
+    pub remote: Option<String>,
     /// Override for [`Config::task_env`].
     pub task_env: Option<String>,
     /// Override for [`Config::rc_format`].
@@ -295,6 +305,7 @@ impl ConfigOverrides {
                 "MOMO_TAG_KIND" => {
                     overrides.tag_kind = Some(parse_value::<TagKind>(name.as_ref(), value)?);
                 }
+                "MOMO_REMOTE" => overrides.remote = Some(value.to_owned()),
                 "MOMO_TASK_ENV" => overrides.task_env = Some(value.to_owned()),
                 "MOMO_RC_FORMAT" => overrides.rc_format = Some(value.to_owned()),
                 _ => {}
@@ -316,6 +327,7 @@ impl FromStr for ConfigOverrides {
             changes_dir: parse_path(&doc, "changes_dir")?,
             tag_prefix: parse_string(&doc, "tag_prefix")?,
             tag_kind: parse_scalar::<TagKind>(&doc, "tag_kind")?,
+            remote: parse_string(&doc, "remote")?,
             task_env: parse_string(&doc, "task_env")?,
             rc_format: parse_string(&doc, "rc_format")?,
             packages: parse_packages(&doc)?,
@@ -466,6 +478,7 @@ mod tests {
         assert_eq!(config.changes_dir, PathBuf::from(".momo/changes"));
         assert_eq!(config.tag_prefix, "v");
         assert_eq!(config.tag_kind, TagKind::Auto);
+        assert_eq!(config.remote, None);
         assert_eq!(config.task_env, None);
         assert_eq!(config.rc_format, None);
         assert!(config.packages.is_empty());
@@ -474,7 +487,7 @@ mod tests {
     #[test]
     fn file_layer_overrides_defaults() {
         let file: ConfigOverrides = "recording = \"fragments\"\n".parse().expect("valid TOML");
-        let config = Config::resolve(file, ConfigOverrides::default(), ConfigOverrides::default());
+        let config = Config::resolve(file, ConfigOverrides::default());
         assert_eq!(config.recording, Recording::Fragments);
         assert_eq!(config.changelog, PathBuf::from("CHANGELOG.md"));
     }
@@ -484,45 +497,36 @@ mod tests {
         let file: ConfigOverrides = "recording = \"fragments\"\n".parse().expect("valid TOML");
         let env =
             ConfigOverrides::from_env([("MOMO_RECORDING", "changelog")]).expect("valid env value");
-        let config = Config::resolve(file, env, ConfigOverrides::default());
+        let config = Config::resolve(file, env);
         assert_eq!(config.recording, Recording::Changelog);
     }
 
     #[test]
-    fn flag_layer_overrides_env() {
-        let file: ConfigOverrides = "recording = \"fragments\"\n".parse().expect("valid TOML");
-        let env =
-            ConfigOverrides::from_env([("MOMO_RECORDING", "changelog")]).expect("valid env value");
-        let flags = ConfigOverrides {
-            recording: Some(Recording::Fragments),
-            ..ConfigOverrides::default()
-        };
-        let config = Config::resolve(file, env, flags);
-        assert_eq!(config.recording, Recording::Fragments);
+    fn the_precedence_chain_is_monotonic() {
+        let file: ConfigOverrides = "tag_prefix = \"file\"\n".parse().expect("valid TOML");
+        let env = ConfigOverrides::from_env([("MOMO_TAG_PREFIX", "env")]).expect("valid env");
+        assert_eq!(
+            Config::resolve(file.clone(), ConfigOverrides::default()).tag_prefix,
+            "file"
+        );
+        assert_eq!(Config::resolve(file, env).tag_prefix, "env");
     }
 
     #[test]
-    fn full_precedence_chain_is_monotonic() {
-        let file: ConfigOverrides = "tag_prefix = \"file\"\n".parse().expect("valid TOML");
-        let env = ConfigOverrides::from_env([("MOMO_TAG_PREFIX", "env")]).expect("valid env");
-        let flags = ConfigOverrides {
-            tag_prefix: Some("flag".to_owned()),
-            ..ConfigOverrides::default()
-        };
-        assert_eq!(
-            Config::resolve(
-                file.clone(),
-                ConfigOverrides::default(),
-                ConfigOverrides::default()
-            )
-            .tag_prefix,
-            "file"
-        );
-        assert_eq!(
-            Config::resolve(file.clone(), env.clone(), ConfigOverrides::default()).tag_prefix,
-            "env"
-        );
-        assert_eq!(Config::resolve(file, env, flags).tag_prefix, "flag");
+    fn a_remote_is_parsed_from_the_file() {
+        let file: ConfigOverrides = "remote = \"git@github.com:a/b.git\"\n"
+            .parse()
+            .expect("valid TOML");
+        let config = Config::resolve(file, ConfigOverrides::default());
+        assert_eq!(config.remote.as_deref(), Some("git@github.com:a/b.git"));
+    }
+
+    #[test]
+    fn a_remote_is_parsed_from_the_environment() {
+        let env = ConfigOverrides::from_env([("MOMO_REMOTE", "https://github.com/a/b")])
+            .expect("valid env value");
+        let config = Config::resolve(ConfigOverrides::default(), env);
+        assert_eq!(config.remote.as_deref(), Some("https://github.com/a/b"));
     }
 
     #[test]
@@ -547,7 +551,7 @@ slug = \"cargo-momo\"
 "
         .parse()
         .expect("valid TOML");
-        let config = Config::resolve(file, ConfigOverrides::default(), ConfigOverrides::default());
+        let config = Config::resolve(file, ConfigOverrides::default());
         let package = config.packages.get("cargo:momo").expect("package present");
         assert_eq!(package.slug.as_deref(), Some("cargo-momo"));
         assert_eq!(package.identity, None);
@@ -562,7 +566,7 @@ manifest = \"crates/momo/Cargo.toml\"
 "
         .parse()
         .expect("valid TOML");
-        let config = Config::resolve(file, ConfigOverrides::default(), ConfigOverrides::default());
+        let config = Config::resolve(file, ConfigOverrides::default());
         let package = config.packages.get("cargo:momo").expect("package present");
         assert_eq!(
             package.manifest.as_deref(),
@@ -573,6 +577,7 @@ manifest = \"crates/momo/Cargo.toml\"
     #[test]
     fn generated_config_round_trips() {
         let mut original = Config {
+            remote: Some("https://github.com/Jarvvski/momo".to_owned()),
             task_env: Some("mise".to_owned()),
             rc_format: Some("-rc.{n}".to_owned()),
             ..Config::default()
@@ -588,11 +593,7 @@ manifest = \"crates/momo/Cargo.toml\"
 
         let rendered = original.to_string();
         let parsed: ConfigOverrides = rendered.parse().expect("generated config is valid TOML");
-        let resolved = Config::resolve(
-            parsed,
-            ConfigOverrides::default(),
-            ConfigOverrides::default(),
-        );
+        let resolved = Config::resolve(parsed, ConfigOverrides::default());
         assert_eq!(resolved, original);
     }
 

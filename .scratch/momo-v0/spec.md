@@ -39,7 +39,8 @@ integrates into a task environment (`mise` in v0).
 - **Multiple kinds in one release:** the **highest** kind wins (`break` > `add` >
   `fix`).
 - **Bootstrap:** baseline `0.0.0`; the first release follows the rules (`add`/
-  `break` → `0.1.0`; `fix`-only → `0.0.1`). `momo init` may set an explicit start.
+  `break` → `0.1.0`; `fix`-only → `0.0.1`). `momo init --version <x.y.z>` sets an
+  explicit start by writing `.momo/version`.
 - This is the **zero-aware** pre-1.0 camp (matches release-plz; see `research/versioning-precedents.md`).
 
 ## 5. Version source
@@ -64,8 +65,8 @@ integrates into a task environment (`mise` in v0).
   - Release heading: `## [<version>] - YYYY-MM-DD`.
   - Entry: `- <text> (#issue)`.
   - RCs get their own heading.
-  - **Reference-link footer** derived from the VCS remote (config-overridable;
-    omitted when there is no remote).
+  - **Reference-link footer** derived from the VCS remote, overridable with the
+    `remote` config key; omitted when neither is available.
   - In **changelog mode** the `## Unreleased` section is the source; in **fragment
     mode** the changelog holds only releases and `status` reports unreleased.
 - `release` **consumes** fragments (deletes them); `candidate` does **not** (they
@@ -99,7 +100,7 @@ integrates into a task environment (`mise` in v0).
   ref/path-safe **slug** (`cargo-momo`), **config-overridable**.
 - **Targeting:** cwd-relative default; `-p/--package` to override; `--all` for
   every package. `release` with no `-p` releases every package with unreleased
-  changes.
+  changes; `tag` with no `-p` tags every package, symmetric with `release`.
 - **No cascading** to dependents in v0.
 
 ## 10. Task-environment integration (`mise`)
@@ -129,11 +130,13 @@ integrates into a task environment (`mise` in v0).
 ## 12. Config
 
 - **`momo.toml`** at the repo root (TOML).
-- **Precedence:** CLI flags > `MOMO_*` env vars > `momo.toml` > built-in defaults.
+- **Precedence:** `MOMO_*` env vars > `momo.toml` > built-in defaults.
 - **Optional**, with **lazy creation** — each write command creates what it needs on
-  first use; `momo init` writes only `momo.toml`.
+  first use; `momo init` writes only `momo.toml` (plus `.momo/version` when given
+  `--version`).
 - Keys: `recording`, `changelog` path, `changes_dir`, `tag_prefix`, `tag_kind`,
-  per-package overrides (identity/slug), `task_env`, `rc_format` (optional).
+  `remote`, per-package overrides (identity/slug), `task_env`, `rc_format`
+  (optional).
 
 ## 13. CLI & CI behaviour
 
@@ -144,6 +147,9 @@ integrates into a task environment (`mise` in v0).
   `--format json`, `--version-only`, and `--check` (exits **non-zero when there is
   nothing unreleased**). *The `--check` exit-code contract must be documented.*
 - `--output <path>` writes output to a file for CI.
+- `--format`, `--version-only` and `--output` are honoured by the reporting verbs
+  (`status`, `release`, `candidate`, `tag`); on `break`/`add`/`fix`, `init` and
+  `install` they are rejected with a clear error naming the flag.
 - **VCS-agnostic** — no `GITHUB_*` / `CI_*` sniffing.
 - `status` / `--dry-run` are read-only; `release` / `candidate` / `tag` / `install`
   mutate.

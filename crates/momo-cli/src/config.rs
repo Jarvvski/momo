@@ -47,7 +47,7 @@ pub fn load(root: &Path) -> Result<Config> {
         }))
         .context("reading MOMO_* environment variables")?;
 
-    Ok(Config::resolve(file, env, ConfigOverrides::default()))
+    Ok(Config::resolve(file, env))
 }
 
 /// Record the chosen task environment in the project's `momo.toml`.

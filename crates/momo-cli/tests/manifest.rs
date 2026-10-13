@@ -13,12 +13,13 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 /// The `MOMO_*` variables the CLI reads; every test clears them.
-const MOMO_VARS: [&str; 7] = [
+const MOMO_VARS: [&str; 8] = [
     "MOMO_RECORDING",
     "MOMO_CHANGELOG",
     "MOMO_CHANGES_DIR",
     "MOMO_TAG_PREFIX",
     "MOMO_TAG_KIND",
+    "MOMO_REMOTE",
     "MOMO_TASK_ENV",
     "MOMO_RC_FORMAT",
 ];
