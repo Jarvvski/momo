@@ -215,8 +215,9 @@ impl Verb {
 /// }
 /// ```
 ///
-/// `version_file` is `null` only when the run wrote no version file; under
-/// `--dry-run` the paths are what the run *would* have written.
+/// `version_file` is always present — both `release` and `candidate` advance it,
+/// so the run can be tagged. Under `--dry-run` the paths are what the run
+/// *would* have written.
 pub struct Release<'a> {
     /// The Version minted.
     pub version: &'a Version,
