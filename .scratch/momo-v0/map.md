@@ -98,6 +98,10 @@ builder can implement momo v0 with nothing left to decide.
   `1.2.0-rc.1`, increment per target version (restart on target change); RCs
   **share** the unreleased fragments (consumed at the final release); `rc` bumps
   like `release`, then appends `-rc.N`.
+- [CI / non-interactive output & dry-run shape](issues/07-ci-output.md): human
+  output by default, `--format json` + `--version-only`; `--output <path>` for CI;
+  `status --check` exits non-zero when nothing is unreleased (**must be
+  documented**); momo stays VCS-agnostic.
 
 ## Not yet specified
 

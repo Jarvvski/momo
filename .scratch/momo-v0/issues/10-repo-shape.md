@@ -1,7 +1,7 @@
 # Repo & module shape
 
 Type: grilling
-Status: open
+Status: claimed
 
 ## Question
 
