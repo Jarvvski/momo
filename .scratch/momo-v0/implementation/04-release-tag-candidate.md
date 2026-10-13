@@ -14,11 +14,11 @@ and sharing Fragments with the eventual Release.
 
 **Spec:** `.scratch/momo-v0/spec.md` §6, §7, §8
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `momo release` writes the Changelog heading with the minted version and today's date, and removes the consumed Fragments.
-- [ ] `momo release` leaves the working copy otherwise untouched: no commit, no tag.
-- [ ] The next `momo release` takes its version source from the tag the previous `momo tag` created.
-- [ ] `momo candidate` produces `x.y.z-rc.1`, then `-rc.2`, and restarts at `1` when the target version changes.
-- [ ] `momo tag` errors clearly when no VCS is present.
-- [ ] `momo release` errors when there is nothing Unreleased.
+- [x] `momo release` writes the Changelog heading with the minted version and today's date, and removes the consumed Fragments.
+- [x] `momo release` leaves the working copy otherwise untouched: no commit, no tag.
+- [x] The next `momo release` takes its version source from the tag the previous `momo tag` created.
+- [x] `momo candidate` produces `x.y.z-rc.1`, then `-rc.2`, and restarts at `1` when the target version changes.
+- [x] `momo tag` errors clearly when no VCS is present.
+- [x] `momo release` errors when there is nothing Unreleased.

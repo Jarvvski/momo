@@ -48,6 +48,24 @@ impl<R: CommandRunner> Vcs for JjVcs<R> {
         ))
     }
 
+    fn remote(&self) -> Result<Option<String>, VcsError> {
+        // `jj git remote list` prints one `<name> <url>` line per remote.
+        let args = ["git", "remote", "list"];
+        let output = require_success("jj", &args, self.jj(&args)?)?;
+        let mut first = None;
+        for line in output.stdout.lines() {
+            let Some((name, url)) = line.split_once(' ') else {
+                continue;
+            };
+            let url = url.trim().to_owned();
+            if name == "origin" {
+                return Ok(Some(url));
+            }
+            first.get_or_insert(url);
+        }
+        Ok(first)
+    }
+
     fn create_tag(&self, prefix: &str, version: &Version, _message: &str) -> Result<(), VcsError> {
         let tag = tag_name(prefix, version);
         let list = ["tag", "list"];
@@ -136,5 +154,34 @@ mod tests {
 
         let clean = FakeRunner::new().ok("jj", &["diff", "--summary"], "");
         assert!(!adapter(clean).is_dirty().unwrap());
+    }
+
+    #[test]
+    fn remote_prefers_origin_over_other_remotes() {
+        let runner = FakeRunner::new().ok(
+            "jj",
+            &["git", "remote", "list"],
+            "upstream git@github.com:other/momo.git\norigin git@github.com:Jarvvski/momo.git\n",
+        );
+        assert_eq!(
+            adapter(runner).remote().unwrap().as_deref(),
+            Some("git@github.com:Jarvvski/momo.git")
+        );
+    }
+
+    #[test]
+    fn remote_falls_back_to_the_first_remote_and_reports_none_when_empty() {
+        let runner = FakeRunner::new().ok(
+            "jj",
+            &["git", "remote", "list"],
+            "upstream git@github.com:other/momo.git\n",
+        );
+        assert_eq!(
+            adapter(runner).remote().unwrap().as_deref(),
+            Some("git@github.com:other/momo.git")
+        );
+
+        let none = FakeRunner::new().ok("jj", &["git", "remote", "list"], "");
+        assert_eq!(adapter(none).remote().unwrap(), None);
     }
 }

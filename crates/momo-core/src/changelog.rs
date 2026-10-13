@@ -1,10 +1,15 @@
-//! The `CHANGELOG.md` document: parsing the Unreleased Changes out of it and
-//! recording new ones into it.
+//! The `CHANGELOG.md` document: parsing the Unreleased Changes out of it,
+//! recording new ones, and promoting them into a Release.
 //!
 //! Pure text: reading and writing the file is the CLI's job. Only the Unreleased
-//! section is understood; released sections are carried through verbatim.
+//! section is understood; released sections are carried through verbatim, and
+//! the reference-link footer is kept apart so it can be regenerated.
+
+use semver::Version;
+use time::Date;
 
 use crate::change::{Change, Kind};
+use crate::remote::Remote;
 
 /// The title and intro written above the first `##` heading of a new changelog.
 const INTRO: &str = "\
@@ -25,46 +30,53 @@ pub struct Changelog {
     unreleased: Option<Vec<Change>>,
     /// Every line from the first released `##` heading onwards, verbatim.
     released: Vec<String>,
+    /// The trailing reference-link definitions, without the separator blank.
+    footer: Vec<String>,
 }
 
 impl Changelog {
-    /// A new changelog holding only the standard intro and an empty Unreleased
-    /// section.
+    /// A new changelog holding only the standard intro.
+    ///
+    /// It has no Unreleased section yet; recording a Change creates one.
     pub fn empty() -> Self {
         Self {
             preamble: INTRO.lines().map(str::to_owned).collect(),
-            unreleased: Some(Vec::new()),
+            unreleased: None,
             released: Vec::new(),
+            footer: Vec::new(),
         }
     }
 
     /// Parse `text` into a changelog.
     pub fn parse(text: &str) -> Self {
         let lines: Vec<&str> = text.lines().collect();
+        let (content, footer) = split_footer(&lines);
 
-        let Some(start) = lines.iter().position(|line| is_unreleased(line)) else {
-            let split = lines
+        let Some(start) = content.iter().position(|line| is_unreleased(line)) else {
+            let split = content
                 .iter()
                 .position(|line| is_section(line))
-                .unwrap_or(lines.len());
+                .unwrap_or(content.len());
             return Self {
-                preamble: owned(&lines[..split]),
+                preamble: owned(&content[..split]),
                 unreleased: None,
-                released: owned(&lines[split..]),
+                released: owned(&content[split..]),
+                footer: owned(footer),
             };
         };
 
         let body_start = start + 1;
-        let body_end = lines[body_start..]
+        let body_end = content[body_start..]
             .iter()
             .position(|line| is_section(line))
             .map(|offset| body_start + offset)
-            .unwrap_or(lines.len());
+            .unwrap_or(content.len());
 
         Self {
-            preamble: owned(&lines[..start]),
-            unreleased: Some(entries(&lines[body_start..body_end])),
-            released: owned(&lines[body_end..]),
+            preamble: owned(&content[..start]),
+            unreleased: Some(entries(&content[body_start..body_end])),
+            released: owned(&content[body_end..]),
+            footer: owned(footer),
         }
     }
 
@@ -83,6 +95,63 @@ impl Changelog {
         self.unreleased.unwrap_or_default()
     }
 
+    /// Promote the Unreleased Changes into a Release section.
+    ///
+    /// The section is headed `## [version] - date` and holds `changes`. The
+    /// Unreleased section is cleared, because a Release consumes it; the
+    /// reference links are refreshed for `links`.
+    pub fn release(&mut self, version: &Version, date: Date, changes: &[Change], links: Links<'_>) {
+        self.write_section(version, date, changes);
+        self.unreleased = None;
+        self.refresh_footer(links);
+    }
+
+    /// Record a Release Candidate section for `version`.
+    ///
+    /// The section is headed `## [version] - date`. The Unreleased Changes are
+    /// left in place, because a Candidate shares them with the eventual Release.
+    pub fn candidate(
+        &mut self,
+        version: &Version,
+        date: Date,
+        changes: &[Change],
+        links: Links<'_>,
+    ) {
+        self.write_section(version, date, changes);
+        self.refresh_footer(links);
+    }
+
+    /// The Versions named by the released section headings, newest first.
+    ///
+    /// Hand-written headings that are not semver are skipped.
+    pub fn released_versions(&self) -> Vec<Version> {
+        self.released
+            .iter()
+            .filter_map(|line| heading_version(line))
+            .collect()
+    }
+
+    /// Insert a released section for `version` above the existing ones.
+    fn write_section(&mut self, version: &Version, date: Date, changes: &[Change]) {
+        let mut section = vec![format!("## [{version}] - {date}")];
+        push_body(&mut section, changes);
+
+        let released = std::mem::take(&mut self.released);
+        if !released.is_empty() {
+            section.push(String::new());
+        }
+        section.extend(released);
+        self.released = section;
+    }
+
+    /// Regenerate the reference-link footer, or clear it when there is no remote.
+    fn refresh_footer(&mut self, links: Links<'_>) {
+        self.footer = match links.remote {
+            Some(remote) => remote.footer(&self.released_versions(), links.prefix),
+            None => Vec::new(),
+        };
+    }
+
     /// Render the changelog back to Markdown.
     pub fn render(&self) -> String {
         let mut lines = self.preamble.clone();
@@ -90,19 +159,7 @@ impl Changelog {
         if let Some(changes) = &self.unreleased {
             blank(&mut lines);
             lines.push(UNRELEASED_HEADING.to_owned());
-            for kind in Kind::ALL {
-                let matching: Vec<&Change> = changes
-                    .iter()
-                    .filter(|change| change.kind == kind)
-                    .collect();
-                if matching.is_empty() {
-                    continue;
-                }
-                blank(&mut lines);
-                lines.push(format!("### {}", kind.heading()));
-                blank(&mut lines);
-                lines.extend(matching.iter().map(|change| format!("- {}", change.text)));
-            }
+            push_body(&mut lines, changes);
         }
 
         if !self.released.is_empty() {
@@ -110,10 +167,24 @@ impl Changelog {
             lines.extend(self.released.iter().cloned());
         }
 
+        if !self.footer.is_empty() {
+            blank(&mut lines);
+            lines.extend(self.footer.iter().cloned());
+        }
+
         let mut rendered = lines.join("\n");
         rendered.push('\n');
         rendered
     }
+}
+
+/// Where a Changelog's reference links point.
+#[derive(Debug, Clone, Copy)]
+pub struct Links<'a> {
+    /// The tag prefix, e.g. `v` or `cargo-momo-v`.
+    pub prefix: &'a str,
+    /// The remote to link to; `None` omits the footer entirely.
+    pub remote: Option<&'a Remote>,
 }
 
 /// Whether `line` is a level-2 (`## `) heading.
@@ -129,9 +200,42 @@ fn is_unreleased(line: &str) -> bool {
     )
 }
 
+/// Whether `line` is a Markdown reference-link definition.
+fn is_reference_link(line: &str) -> bool {
+    line.starts_with('[') && line.contains("]: ")
+}
+
+/// Split trailing reference links off `lines`.
+///
+/// The footer is the block of `[label]: url` lines at the end of the document,
+/// separated from the body by a blank line. Without one the footer is empty.
+fn split_footer<'a, 'b>(lines: &'a [&'b str]) -> (&'a [&'b str], &'a [&'b str]) {
+    let end = lines
+        .iter()
+        .rposition(|line| !line.is_empty())
+        .map_or(0, |index| index + 1);
+    let start = lines[..end]
+        .iter()
+        .rposition(|line| !is_reference_link(line))
+        .map_or(0, |index| index + 1);
+    let separated = start > 0 && lines[start - 1].is_empty();
+    if start < end && separated {
+        (&lines[..start], &lines[start..end])
+    } else {
+        (lines, &[])
+    }
+}
+
 /// Own a slice of borrowed lines.
 fn owned(lines: &[&str]) -> Vec<String> {
     lines.iter().map(|line| (*line).to_owned()).collect()
+}
+
+/// The Version a `## [x.y.z]` heading names, if any.
+fn heading_version(line: &str) -> Option<Version> {
+    let rest = line.strip_prefix("## [")?;
+    let (version, _) = rest.split_once(']')?;
+    Version::parse(version).ok()
 }
 
 /// Parse the entries of an Unreleased body, grouped by their `###` heading.
@@ -150,6 +254,23 @@ fn entries(body: &[&str]) -> Vec<Change> {
     changes
 }
 
+/// Append the `### Kind` blocks for `changes`, highest Kind first.
+fn push_body(lines: &mut Vec<String>, changes: &[Change]) {
+    for kind in Kind::ALL {
+        let matching: Vec<&Change> = changes
+            .iter()
+            .filter(|change| change.kind == kind)
+            .collect();
+        if matching.is_empty() {
+            continue;
+        }
+        blank(lines);
+        lines.push(format!("### {}", kind.heading()));
+        blank(lines);
+        lines.extend(matching.iter().map(|change| format!("- {}", change.text)));
+    }
+}
+
 /// Push a blank line unless the buffer is empty or already ends with one.
 fn blank(lines: &mut Vec<String>) {
     if lines.last().is_some_and(|line| !line.is_empty()) {
@@ -163,6 +284,23 @@ mod tests {
 
     fn change(kind: Kind, text: &str) -> Change {
         Change::new(kind, text)
+    }
+
+    fn date(year: i32, month: u8, day: u8) -> Date {
+        Date::from_calendar_date(year, time::Month::try_from(month).expect("a month"), day)
+            .expect("a valid date")
+    }
+
+    fn remote(url: &str) -> Remote {
+        url.parse().expect("a remote URL")
+    }
+
+    /// Links with no remote, so the footer is omitted.
+    fn no_links() -> Links<'static> {
+        Links {
+            prefix: "v",
+            remote: None,
+        }
     }
 
     #[test]
@@ -284,5 +422,226 @@ All notable changes to this package are documented here, generated by
         let changelog = Changelog::parse("# Changelog\n");
         assert!(changelog.unreleased().is_empty());
         assert_eq!(changelog.into_unreleased(), Vec::new());
+    }
+
+    #[test]
+    fn a_release_promotes_unreleased_into_a_dated_section_and_clears_it() {
+        let mut changelog = Changelog::empty();
+        changelog.record(change(Kind::Add, "Add a thing"));
+        changelog.record(change(Kind::Fix, "Fix a thing"));
+
+        let changes = changelog.unreleased().to_vec();
+        changelog.release(
+            &Version::new(0, 1, 0),
+            date(2026, 10, 13),
+            &changes,
+            no_links(),
+        );
+
+        assert_eq!(
+            changelog.render(),
+            "\
+# Changelog
+
+All notable changes to this package are documented here, generated by
+[momo](https://github.com/Jarvvski/momo).
+
+## [0.1.0] - 2026-10-13
+
+### Added
+
+- Add a thing
+
+### Fixed
+
+- Fix a thing
+"
+        );
+        assert!(changelog.unreleased().is_empty());
+    }
+
+    #[test]
+    fn a_release_sits_above_the_sections_already_there() {
+        let text = "\
+# Changelog
+
+## [Unreleased]
+
+### Added
+
+- new thing
+
+## [1.0.0] - 2026-01-01
+
+### Added
+
+- old thing
+";
+        let mut changelog = Changelog::parse(text);
+        let changes = changelog.unreleased().to_vec();
+        changelog.release(
+            &Version::new(1, 1, 0),
+            date(2026, 10, 13),
+            &changes,
+            no_links(),
+        );
+
+        let rendered = changelog.render();
+        let new = rendered
+            .find("## [1.1.0] - 2026-10-13")
+            .expect("new heading");
+        let old = rendered
+            .find("## [1.0.0] - 2026-01-01")
+            .expect("old heading");
+        assert!(new < old, "{rendered}");
+        assert!(!rendered.contains("## [Unreleased]"), "{rendered}");
+        assert_eq!(
+            changelog.released_versions(),
+            vec![Version::new(1, 1, 0), Version::new(1, 0, 0)]
+        );
+    }
+
+    #[test]
+    fn a_candidate_shares_the_unreleased_changes() {
+        let mut changelog = Changelog::empty();
+        changelog.record(change(Kind::Add, "Add a thing"));
+        let changes = changelog.unreleased().to_vec();
+
+        let candidate = Version::parse("0.1.0-rc.1").expect("a valid version");
+        changelog.candidate(&candidate, date(2026, 10, 13), &changes, no_links());
+
+        let rendered = changelog.render();
+        assert!(rendered.contains("## [Unreleased]"), "{rendered}");
+        assert!(
+            rendered.contains("## [0.1.0-rc.1] - 2026-10-13"),
+            "{rendered}"
+        );
+        // The Unreleased Changes survive a Candidate.
+        assert_eq!(changelog.unreleased(), &[change(Kind::Add, "Add a thing")]);
+    }
+
+    #[test]
+    fn a_footer_is_written_when_a_remote_is_known() {
+        let mut changelog = Changelog::empty();
+        changelog.record(change(Kind::Add, "Add a thing"));
+        let changes = changelog.unreleased().to_vec();
+
+        let remote = remote("git@github.com:Jarvvski/momo.git");
+        let links = Links {
+            prefix: "v",
+            remote: Some(&remote),
+        };
+        changelog.release(&Version::new(0, 1, 0), date(2026, 10, 13), &changes, links);
+
+        let rendered = changelog.render();
+        assert!(
+            rendered.ends_with(
+                "\
+[Unreleased]: https://github.com/Jarvvski/momo/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Jarvvski/momo/releases/tag/v0.1.0
+"
+            ),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn a_footer_is_omitted_without_a_remote() {
+        let mut changelog = Changelog::empty();
+        changelog.record(change(Kind::Add, "Add a thing"));
+        let changes = changelog.unreleased().to_vec();
+        changelog.release(
+            &Version::new(0, 1, 0),
+            date(2026, 10, 13),
+            &changes,
+            no_links(),
+        );
+
+        assert!(
+            !changelog.render().contains("[Unreleased]:"),
+            "footer present"
+        );
+    }
+
+    #[test]
+    fn parsing_splits_the_footer_off_the_body() {
+        let text = "\
+# Changelog
+
+## [1.0.0] - 2026-01-01
+
+### Added
+
+- a thing
+
+[Unreleased]: https://github.com/a/b/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/a/b/releases/tag/v1.0.0
+";
+        let changelog = Changelog::parse(text);
+        assert_eq!(changelog.released_versions(), vec![Version::new(1, 0, 0)]);
+        assert_eq!(
+            changelog.render(),
+            text,
+            "a footer must round-trip unchanged"
+        );
+    }
+
+    #[test]
+    fn a_regenerated_footer_follows_a_new_release() {
+        let text = "\
+# Changelog
+
+## [1.0.0] - 2026-01-01
+
+### Added
+
+- a thing
+
+[Unreleased]: https://github.com/a/b/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/a/b/releases/tag/v1.0.0
+";
+        let mut changelog = Changelog::parse(text);
+        let remote = remote("https://github.com/a/b");
+        let links = Links {
+            prefix: "v",
+            remote: Some(&remote),
+        };
+        changelog.release(
+            &Version::new(1, 1, 0),
+            date(2026, 10, 13),
+            &[change(Kind::Fix, "a fix")],
+            links,
+        );
+
+        let rendered = changelog.render();
+        assert!(
+            rendered.contains("[Unreleased]: https://github.com/a/b/compare/v1.1.0...HEAD"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("[1.1.0]: https://github.com/a/b/compare/v1.0.0...v1.1.0"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("[1.0.0]: https://github.com/a/b/releases/tag/v1.0.0"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn released_versions_skip_headings_that_are_not_versions() {
+        let text = "\
+# Changelog
+
+## [Unreleased]
+
+## [not a version] - 2026-01-01
+
+## [1.2.3] - 2026-01-01
+";
+        assert_eq!(
+            Changelog::parse(text).released_versions(),
+            vec![Version::new(1, 2, 3)]
+        );
     }
 }

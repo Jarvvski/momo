@@ -1,9 +1,9 @@
 //! Command handlers.
 //!
-//! `init` and `install` have real handlers in v0; the change verbs
-//! (`break`/`add`/`fix`) record a Change and `status` reports the Unreleased
-//! Changes. Every other verb is declared on the command surface and exits
-//! non-zero with a "not implemented" message.
+//! Every verb on the command surface has a handler: the change verbs
+//! (`break`/`add`/`fix`) record a Change, `status` reports the Unreleased
+//! Changes and the Version they imply, `release`/`candidate` mint one, `tag`
+//! creates the VCS tag, and `init`/`install` scaffold config and task wrappers.
 
 use std::env;
 use std::fs;
@@ -11,17 +11,20 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use momo_core::taskenv::{InstallMode, InstallPlan, TaskEnvironment};
+use momo_core::vcs::Vcs;
 use semver::Version;
+use time::Date;
 
 use momo_core::change::{Change, Kind};
 use momo_core::config::Config;
 use momo_core::package::Package;
-use momo_core::version::{VersionSource, next_version};
+use momo_core::version::release_version;
 
 use crate::cli::{Cli, Command};
 use crate::config::{self, CONFIG_FILE};
 use crate::recording;
-use crate::version::FileVersionSource;
+use crate::release::{self, Outcome};
+use crate::version;
 
 /// The momo verbs exposed as `momo:*` tasks, in command-surface order.
 const VERBS: [&str; 9] = [
@@ -46,13 +49,15 @@ pub fn run(cli: &Cli) -> Result<()> {
         Command::Add { text } => record(cli, Kind::Add, text),
         Command::Fix { text } => record(cli, Kind::Fix, text),
         Command::Status => status(),
+        Command::Release => release(cli),
+        Command::Candidate => candidate(cli),
+        Command::Tag => tag(cli),
         Command::Init => init(cli),
         Command::Install {
             env,
             update,
             uninstall,
         } => install(cli, env.as_deref(), *update, *uninstall),
-        other => bail!("`momo {other}` is not implemented yet"),
     }
 }
 
@@ -82,10 +87,11 @@ fn status() -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
     let package = Package::single(&root_name(&root));
+    let vcs = detect_vcs(&root);
 
     let changes = recording::unreleased(&root, &config)?;
-    let current = FileVersionSource::new(&root).current()?;
-    let next = next_version(&changes, &current).unwrap_or(current);
+    let current = version::source(&root, &config, vcs.as_deref()).current()?;
+    let next = release_version(&changes, &current).unwrap_or(current);
 
     let mut out = String::from("Unreleased\n\n");
     out.push_str(&format!("  {}\n", package.identity()));
@@ -105,6 +111,79 @@ fn status() -> Result<()> {
     out.push_str(&format!("    → next: {next}\n"));
     print!("{out}");
     Ok(())
+}
+
+/// Mint a Release from the Unreleased Changes.
+///
+/// Writes the Changelog and `.momo/version` and consumes the Fragments; it never
+/// commits and never tags.
+fn release(cli: &Cli) -> Result<()> {
+    let root = project_root()?;
+    let config = config::load(&root)?;
+    let vcs = detect_vcs(&root);
+
+    let outcome = release::release(&root, &config, vcs.as_deref(), today(), cli.dry_run)?;
+    report_release(&outcome, cli.dry_run, "release", "released");
+    Ok(())
+}
+
+/// Cut a Release Candidate from the Unreleased Changes.
+///
+/// Bumps as a Release would, then appends `-rc.N`; the Fragments are shared with
+/// the eventual Release.
+fn candidate(cli: &Cli) -> Result<()> {
+    let root = project_root()?;
+    let config = config::load(&root)?;
+    let vcs = detect_vcs(&root);
+
+    let outcome = release::candidate(&root, &config, vcs.as_deref(), today(), cli.dry_run)?;
+    report_release(&outcome, cli.dry_run, "cut", "cut");
+    Ok(())
+}
+
+/// Create the VCS tag for the current Version.
+fn tag(cli: &Cli) -> Result<()> {
+    let root = project_root()?;
+    let config = config::load(&root)?;
+    let Some(vcs) = detect_vcs(&root) else {
+        bail!("no VCS detected — nothing to tag");
+    };
+
+    let name = release::tag(&root, &config, vcs.as_ref(), cli.dry_run)?;
+    let verb = if cli.dry_run { "would tag" } else { "tagged" };
+    println!("{verb} {name}");
+    Ok(())
+}
+
+/// Report what a `release` or `candidate` did, or would do under `--dry-run`.
+fn report_release(outcome: &Outcome, dry_run: bool, verb: &str, done: &str) {
+    let verb = if dry_run {
+        format!("would {verb}")
+    } else {
+        done.to_owned()
+    };
+    println!("{verb} {}", outcome.version);
+
+    let wrote = if dry_run { "would write" } else { "wrote" };
+    println!("{wrote} {}", outcome.changelog.display());
+    if let Some(path) = &outcome.version_file {
+        println!("{wrote} {}", path.display());
+    }
+
+    let removed = if dry_run { "would remove" } else { "removed" };
+    for path in &outcome.consumed {
+        println!("{removed} {}", path.display());
+    }
+}
+
+/// The repository backing `root`, when one exists.
+fn detect_vcs(root: &Path) -> Option<Box<dyn Vcs>> {
+    momo_vcs::detect(root).ok()
+}
+
+/// Today's date, in UTC.
+fn today() -> Date {
+    time::OffsetDateTime::now_utc().date()
 }
 
 /// Scaffold `momo.toml` at the project root.
