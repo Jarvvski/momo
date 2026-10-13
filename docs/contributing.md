@@ -81,10 +81,20 @@ This repository uses **Jujutsu (jj)**, not git, in a colocated repo. Never invok
 
 ## Releases
 
-Releases are cut with momo itself — `momo release`, commit, `momo tag`. Pushing a
-`v*` tag triggers `.github/workflows/release.yml`, which builds Linux and macOS
-binaries and attaches them to a GitHub release. Those assets are what
-`mise use github:Jarvvski/momo@<version>` resolves.
+Releases are dispatched by hand from `main`: **Actions → Release → Run
+workflow**. The workflow drives momo itself — it derives the next version with
+`momo status`, mints it with `momo release`, and tags it with `momo tag` — then
+builds the Linux and macOS archives, publishes to crates.io, and cuts the GitHub
+Release. Those assets are what `mise use github:Jarvvski/momo@<version>`
+resolves; the crate is what `cargo install momo-cli` resolves.
+
+`dry_run` defaults to true and stops before anything irreversible. The `release`
+environment holds `RELEASE_TOKEN` (a PAT allowed to push to the protected
+`main`) and `CARGO_REGISTRY_TOKEN`, and requires a reviewer — a crates.io
+version number can never be reused, so the approval is deliberate.
+
+The same workflow runs its build matrix on every pull request, so a target that
+no longer compiles fails before a release rather than during one.
 
 ## More
 
