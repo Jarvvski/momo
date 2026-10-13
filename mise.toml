@@ -1,5 +1,8 @@
 [tools]
-rust = "1.99.0"
+# Pin rustfmt and clippy explicitly: a clean CI runner gets rustup's minimal
+# profile, so `mise run fmt`/`lint` would otherwise fail with
+# "'cargo-fmt' is not installed for the toolchain".
+rust = { version = "1.99.0", components = ["rustfmt", "clippy"] }
 
 [tasks.run]
 description = "Run momo"
