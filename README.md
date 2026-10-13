@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="momo" width="160">
+  <img src="assets/momo.png" alt="momo" width="200">
 </p>
 
 <h1 align="center">momo</h1>
