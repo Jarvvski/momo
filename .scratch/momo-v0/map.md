@@ -77,6 +77,14 @@ builder can implement momo v0 with nothing left to decide.
   `release` writes the changelog + manifests but does **not** commit or tag;
   `tag` is a separate step run after committing; git tags are **annotated**, jj
   tags lightweight; release drives manifest sync (18).
+- [momo config file & keys](issues/04-config-file.md): `momo.toml` at the repo root
+  (TOML); precedence flags > `MOMO_*` env > file > defaults; config is optional
+  with **lazy creation** (write commands create what they need; read-only ones
+  don't); `init` writes only `momo.toml`.
+- [Task-environment selection UX](issues/08-taskenv-selection.md): auto-detect
+  (`mise.toml`) with an explicit override, **no TUI in v0**; no environment found →
+  graceful **no-op + warning** (momo works standalone); the choice is stored as
+  `task_env` in config.
 
 ## Not yet specified
 

@@ -1,7 +1,7 @@
 # mise integration content
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 08, 16
 
 ## Question
