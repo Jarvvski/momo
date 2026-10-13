@@ -13,6 +13,12 @@ name: Release
 # `dry_run` defaults to true because a crates.io version number can never be
 # reused.
 #
+# `publish` is turned off only for the very first release. The repository's
+# crates.io token is scoped to publishing *updates*, and crates.io requires the
+# first publish of a new crate name to be done by hand, so the bootstrap is:
+# dispatch with `publish: false`, then `cargo publish` from the new tag. Every
+# release after that leaves it on.
+#
 # `pull_request` runs the same build matrix as a smoke test: it proves every
 # target still compiles without touching a release.
 on:
@@ -20,6 +26,10 @@ on:
     inputs:
       dry_run:
         description: "Stop before committing, tagging, publishing, or releasing"
+        type: boolean
+        default: true
+      publish:
+        description: "Publish to crates.io (off for the first release only)"
         type: boolean
         default: true
   pull_request:
@@ -78,7 +88,7 @@ jobs:
             echo "error: tag v$version already exists" >&2
             exit 1
           fi
-          if curl -sf -A "momo-release-workflow" \
+          if [[ "${{ inputs.publish }}" == "true" ]] && curl -sf -A "momo-release-workflow" \
               "https://crates.io/api/v1/crates/momo-cli/$version" >/dev/null; then
             echo "error: momo-cli $version is already published on crates.io" >&2
             exit 1
@@ -124,7 +134,7 @@ jobs:
       # but no release, which is recoverable. The reverse would leave a public
       # release pointing at a crate version that does not exist.
       - name: Publish to crates.io
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && inputs.publish }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish --locked
