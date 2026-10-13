@@ -11,10 +11,10 @@ no `git2`.
 
 **Spec:** `.scratch/momo-v0/spec.md` §5, §8, §14
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A `Vcs` trait in `momo-core` with git and jj implementations in `momo-vcs`, injectable in tests.
-- [ ] Detection prefers `.jj` over `.git`.
-- [ ] Reading the latest tag yields the version; with no tags it reports that none exists.
-- [ ] Creating a tag on git is annotated; on jj it is lightweight.
-- [ ] Creating a tag that already exists fails with a clear error.
+- [x] A `Vcs` trait in `momo-core` with git and jj implementations in `momo-vcs`, injectable in tests.
+- [x] Detection prefers `.jj` over `.git`.
+- [x] Reading the latest tag yields the version; with no tags it reports that none exists.
+- [x] Creating a tag on git is annotated; on jj it is lightweight.
+- [x] Creating a tag that already exists fails with a clear error.
