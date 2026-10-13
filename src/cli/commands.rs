@@ -103,14 +103,14 @@ fn record(cli: &Cli, kind: Kind, text: &str) -> Result<()> {
     let config = config::load(&root)?;
     let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::Cwd)?;
+    let change = Change::try_new(kind, text).with_context(|| format!("recording `{kind}`"))?;
 
     if !cli.dry_run {
         ensure_config(&root, &config)?;
     }
 
     for package in packages {
-        let change = Change::new(kind, text);
-        let path = recording::record(&root, &config, package, change, cli.dry_run)?;
+        let path = recording::record(&root, &config, package, &change, cli.dry_run)?;
         if cli.dry_run {
             println!("would write {}", path.display());
         } else {

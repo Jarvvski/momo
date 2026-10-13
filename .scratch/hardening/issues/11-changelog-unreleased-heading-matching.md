@@ -1,7 +1,7 @@
 # 11: Unreleased heading matching is exact and duplicates are mishandled
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/changelog
 Verified: yes — all three behaviours read in the source
@@ -79,3 +79,20 @@ split (safer for a hand-edited file).
 - Test: `## [unreleased]` with a bullet parses as Unreleased, and a `record`
   lands in that section without spawning a second heading.
 - Leave duplicate/out-of-order to 38.
+
+## Resolution
+
+Resolved in the `changelog-fidelity` change set.
+
+`is_unreleased` (`src/domain/changelog.rs`) now compares the heading
+case-insensitively (`eq_ignore_ascii_case`) for both `[Unreleased]` and
+`Unreleased`, so `## [unreleased]` parses as the Unreleased section and `record`
+lands in it instead of spawning a second heading.
+
+Duplicate and out-of-order Unreleased headings are **not** handled here: the
+triage ruled them into ticket 38 (the changelog document model), which is still
+`ready-for-human`. The ticket title's "duplicates" wording is therefore only
+partly addressed by this change.
+
+Tests: `parse_accepts_both_unreleased_spellings` (extended with lowercase
+spellings), `recording_into_a_lowercase_unreleased_heading_does_not_split_it`.

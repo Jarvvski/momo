@@ -160,6 +160,32 @@ fn release_consumes_fragments() {
 }
 
 #[test]
+fn release_in_fragments_mode_refuses_a_changelog_unreleased_section() {
+    let dir = TempDir::new().expect("temp dir");
+    seed_recording(&dir, "fragments");
+    let seeded = "# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- a hand-written fix\n";
+    fs::write(dir.path().join("CHANGELOG.md"), seeded).expect("seed the changelog");
+    fs::create_dir_all(dir.path().join(".momo/changes")).expect("create the changes dir");
+    fs::write(
+        dir.path().join(".momo/changes/add-a-thing.md"),
+        "Add a thing\n",
+    )
+    .expect("seed a fragment");
+
+    momo(&dir)
+        .arg("release")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unreleased").and(predicate::str::contains("fragments")));
+
+    assert_eq!(read(&dir, "CHANGELOG.md"), seeded);
+    assert!(
+        dir.path().join(".momo/changes/add-a-thing.md").exists(),
+        "a refused release consumed the fragment"
+    );
+}
+
+#[test]
 fn release_errors_when_nothing_is_unreleased() {
     let dir = TempDir::new().expect("temp dir");
     momo(&dir)

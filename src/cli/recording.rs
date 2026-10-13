@@ -39,7 +39,7 @@ pub fn record(
     repo_root: &Path,
     config: &Config,
     package: &Package,
-    change: Change,
+    change: &Change,
     dry_run: bool,
 ) -> Result<PathBuf> {
     match config.recording {
@@ -50,7 +50,7 @@ pub fn record(
                 Err(err) if err.kind() == ErrorKind::NotFound => Changelog::empty(),
                 Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
             };
-            changelog.record(change);
+            changelog.record(change.clone());
             if !dry_run {
                 fs::write(&path, changelog.render())
                     .with_context(|| format!("writing {}", path.display()))?;
@@ -59,10 +59,10 @@ pub fn record(
         }
         Recording::Fragments => {
             let dir = package.changes_dir(repo_root, config);
-            let path = unique_fragment_path(&dir, &change);
+            let path = unique_fragment_path(&dir, change);
             if !dry_run {
                 fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-                fs::write(&path, fragment_body(&change))
+                fs::write(&path, fragment_body(change))
                     .with_context(|| format!("writing {}", path.display()))?;
             }
             Ok(path)
@@ -117,6 +117,11 @@ pub fn consume(
 }
 
 /// Read every Fragment under `dir` into a Change, ordered by text.
+///
+/// Fragment text is normalised exactly as `momo add` normalises it, so a
+/// hand-authored multi-line Fragment cannot inject Changelog structure. A
+/// Fragment that is empty once normalised records nothing and is skipped: a
+/// stray blank file is a mistake, not a reason to fail the run.
 fn read_fragments(dir: &Path) -> Result<Vec<Change>> {
     let mut changes = Vec::new();
     for path in fragment_paths(dir)? {
@@ -125,7 +130,9 @@ fn read_fragments(dir: &Path) -> Result<Vec<Change>> {
         };
         let text =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        changes.push(Change::new(kind, text.trim()));
+        if let Ok(change) = Change::try_new(kind, &text) {
+            changes.push(change);
+        }
     }
     changes.sort_by(|a, b| a.text.cmp(&b.text));
     Ok(changes)
