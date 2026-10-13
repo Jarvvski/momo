@@ -4,8 +4,10 @@
 
 ## What this is
 
-momo is a new open-source project. Its scope is still being defined; the
-description in `Cargo.toml` and `README.md` is deliberately pending.
+momo is a standalone, monorepo-aware Rust CLI that turns a project's accumulated
+changes into semver releases, a changelog and VCS tags. The crate is `momo-cli`;
+the binary is `momo`. It is VCS-optional (git, jj, or no VCS at all) and treats
+`mise` as the task environment.
 
 ## Landing a change (jj, NOT git)
 
@@ -18,7 +20,8 @@ Land a change like this:
 
 1. Make **one focused change** per commit, on its own bookmark cut from `main`:
    `jj new main`, then `jj bookmark create <branch> -r @`.
-2. Run `mise run check` (fmt + lint + build + test); push only when it passes.
+2. Run `mise run check` (fmt + lint + domain purity + build + test); push only
+   when it passes.
    (jj fires no git hooks, so fmt is a task, not a pre-commit hook.)
 3. `jj describe -m "<imperative one-liner>"`, then
    `jj git push --bookmark <branch>`.
@@ -37,11 +40,26 @@ or missing check. The owner handles releases and tags.
 **mise** owns tasks and the Rust pin (see `mise.toml`, `rust-toolchain.toml`).
 Use the tasks, don't hand-roll cargo:
 
-- `mise run check` - the pre-land gate: fmt + lint + build + test.
+- `mise run check` - the pre-land gate: fmt + lint + domain purity + build + test.
 - `mise run run` / `build` / `test` / `fmt` / `lint` - individual steps.
+- `mise run lint:domain` - the domain purity guard: no I/O, processes, the
+  environment, clap or anyhow under `src/domain`.
 - `mise run install` - install the binary to `~/.cargo/bin`.
 
 Rust edition 2024. `Cargo.lock` is committed (this is an app, not a library).
+
+## Layout
+
+One crate: a library plus a thin binary. `src/domain/` is pure - kinds, bump
+policy, versions, changelog, config and the ports; `src/adapters/` implements
+those ports against git, jj, mise and `Cargo.toml`; `src/cli/` is private and
+reached through `momo_cli::run`. See `docs/contributing.md` for the tree, and
+ADR 0002 for why it is one crate.
+
+**Crate boundary.** Only `src/`, `tests/` and the top-level files ship in the
+published crate; `Cargo.toml`'s `exclude` list is what keeps `.claude/`,
+`.agents/`, `.scratch/`, `docs/` and `assets/` out of it. A new crate needs the
+same list repeated - nothing fails if it is forgotten.
 
 ## Rust conventions
 
