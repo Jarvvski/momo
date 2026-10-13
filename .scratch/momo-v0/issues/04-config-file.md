@@ -1,7 +1,7 @@
 # momo config file & keys
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 02, 06, 16
 
 ## Question

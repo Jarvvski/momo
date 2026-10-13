@@ -73,6 +73,10 @@ builder can implement momo v0 with nothing left to decide.
   `mise tasks graph --json`; fragments at `.momo/changes/<package>/…`; identity is
   the ecosystem ID + slug (config-overridable); tags `<slug>-v<version>`; targeting
   `cwd` / `-p` / `--all`; no cascade in v0.
+- [Release side-effects & tag format](issues/06-release-side-effects.md):
+  `release` writes the changelog + manifests but does **not** commit or tag;
+  `tag` is a separate step run after committing; git tags are **annotated**, jj
+  tags lightweight; release drives manifest sync (18).
 
 ## Not yet specified
 
