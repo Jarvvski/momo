@@ -43,7 +43,8 @@ pub trait ManifestSync {
 
     /// Write `version` into `manifest`, preserving the file's formatting.
     ///
-    /// Only the version scalar changes: comments, key order, and whitespace
+    /// Only the version scalar changes: comments, key order, whitespace and the
+    /// file's newline style (LF or CRLF, including whether it ends in a newline)
     /// survive byte-for-byte. `Ok(None)` when the manifest holds no version momo
     /// owns, or already carries `version` — either way the Release carries on.
     fn write(

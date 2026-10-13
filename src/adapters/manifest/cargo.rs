@@ -3,7 +3,9 @@
 //! The edit is format-preserving by construction: the document is parsed into
 //! `toml_edit`'s concrete syntax tree, one scalar is replaced, and the tree is
 //! rendered back. Comments, key order, and whitespace survive byte-for-byte —
-//! only the version value's own representation is rewritten.
+//! only the version value's own representation is rewritten. The source's
+//! newline style (LF or CRLF) and whether it ended in a newline are reapplied
+//! after rendering, because `toml_edit` normalises both.
 //!
 //! The lockfile is *not* touched. `Cargo.lock` embeds each workspace package's
 //! version and is maintained by Cargo, so momo reports it as possibly stale and
@@ -99,7 +101,30 @@ fn set_version(
     *current = Value::from(target);
     *current.decor_mut() = decor;
 
-    Ok(Some(doc.to_string()))
+    Ok(Some(preserve_line_endings(text, doc.to_string())))
+}
+
+/// Reapply `source`'s newline style and final-newline state to `rendered`.
+///
+/// `toml_edit` always renders LF and always terminates the document, so a CRLF
+/// manifest or one without a trailing newline would otherwise be rewritten
+/// wholesale. `rendered` is the untouched render of the parsed document.
+fn preserve_line_endings(source: &str, rendered: String) -> String {
+    let mut rendered = rendered;
+    if !source.ends_with('\n') && rendered.ends_with('\n') {
+        rendered.pop();
+    }
+    if uses_crlf(source) {
+        rendered = rendered.replace('\n', "\r\n");
+    }
+    rendered
+}
+
+/// Whether `source` uses CRLF line endings throughout.
+///
+/// A file with any bare `\n`, or no `\r\n` at all, is treated as LF.
+fn uses_crlf(source: &str) -> bool {
+    source.contains("\r\n") && !source.replace("\r\n", "").contains('\n')
 }
 
 /// The key holding a Cargo manifest's authoritative version.
@@ -283,5 +308,61 @@ version = \"0.2.0\"
         let err = set_version("version = \n", manifest(), &version("1.0.0"))
             .expect_err("invalid TOML is an error");
         assert!(err.to_string().contains("Cargo.toml"), "{err}");
+    }
+
+    #[test]
+    fn a_crlf_manifest_keeps_its_line_endings() {
+        let original =
+            "# The crate manifest.\r\n[package]\r\nname = \"momo\"\r\nversion = \"0.1.0\"\r\n";
+
+        let updated = set_version(original, manifest(), &version("1.2.3"))
+            .expect("valid TOML")
+            .expect("a version to write");
+
+        assert_eq!(
+            updated,
+            "# The crate manifest.\r\n[package]\r\nname = \"momo\"\r\nversion = \"1.2.3\"\r\n"
+        );
+        assert!(
+            !updated.replace("\r\n", "").contains('\n'),
+            "a bare LF leaked into a CRLF manifest: {updated:?}"
+        );
+    }
+
+    #[test]
+    fn a_manifest_without_a_trailing_newline_keeps_none() {
+        let original = "[package]\nname = \"momo\"\nversion = \"0.1.0\"";
+
+        let updated = set_version(original, manifest(), &version("1.2.3"))
+            .expect("valid TOML")
+            .expect("a version to write");
+
+        assert_eq!(updated, "[package]\nname = \"momo\"\nversion = \"1.2.3\"");
+        assert!(!updated.ends_with('\n'), "a trailing newline was added");
+    }
+
+    #[test]
+    fn a_crlf_manifest_without_a_trailing_newline_keeps_both() {
+        let original = "[package]\r\nname = \"momo\"\r\nversion = \"0.1.0\"";
+
+        let updated = set_version(original, manifest(), &version("1.2.3"))
+            .expect("valid TOML")
+            .expect("a version to write");
+
+        assert_eq!(
+            updated,
+            "[package]\r\nname = \"momo\"\r\nversion = \"1.2.3\""
+        );
+    }
+
+    #[test]
+    fn mixed_line_endings_are_treated_as_lf() {
+        let original = "[package]\r\nname = \"momo\"\nversion = \"0.1.0\"\n";
+
+        let updated = set_version(original, manifest(), &version("1.2.3"))
+            .expect("valid TOML")
+            .expect("a version to write");
+
+        assert_eq!(updated, "[package]\nname = \"momo\"\nversion = \"1.2.3\"\n");
     }
 }

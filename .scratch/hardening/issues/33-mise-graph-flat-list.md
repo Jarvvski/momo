@@ -1,7 +1,7 @@
 # 33: The mise "graph" is a flat list — dependencies, dedup and roots are ignored
 
 Type: refactor
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: adapters/taskenv
 Verified: no — reported by an agent; `graph.rs:60-71` read as cited
@@ -53,3 +53,18 @@ building the DAG/topo-sort until cascading exists.
 first, or error when duplicates disagree on `root`), and reject an absolute or
 `..`-containing `root` (mirror the config-path rule from ticket 24). Tests: a
 duplicate `id` yields one Package; an absolute `root` is rejected.
+
+## Resolution
+
+Narrowed scope, as triaged. `parse_projects` (`taskenv/graph.rs`) now dedups by
+identity — the first occurrence wins, and a duplicate that disagrees on `root` is
+an error rather than a silent second Package — and validates each `root` with a
+new `validate_root`: an absolute `root`, or one with a `..` component, is
+rejected. The `dependencies` edges are still ignored and there is still no
+topological sort: per spec §9 / `docs/usage.md` there is no cascading in v0, so
+ordering is not a correctness bug.
+
+Tests: `a_duplicate_id_yields_one_package`,
+`a_duplicate_id_with_a_different_root_is_rejected`,
+`an_absolute_root_is_rejected`, `a_parent_escaping_root_is_rejected`.
+

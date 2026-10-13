@@ -1,7 +1,7 @@
 # 30: Spawned VCS and mise commands have no timeout and no non-interactive env
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: adapters/vcs + adapters/taskenv
 Verified: no — reported by an agent; the spawn sites are as cited
@@ -67,3 +67,23 @@ so the env is testable. In it, set `GIT_TERMINAL_PROMPT=0`, `GIT_EDITOR=true`,
 non-prompt equivalent; use the same helper in `graph.rs`. Test: assert the built
 `Command`'s environment contains the vars (a `Command` exposes them via
 `get_envs()`), so no real process is needed.
+
+## Resolution
+
+Implemented **30a only**. A new `src/adapters/spawn.rs` exposes
+`pub(crate) fn command(program, args, cwd) -> Command`, which applies a
+`NON_INTERACTIVE` environment: `GIT_TERMINAL_PROMPT=0`, `GIT_EDITOR=true`,
+`GIT_SEQUENCE_EDITOR=true`, `GIT_PAGER=cat`, `GIT_OPTIONAL_LOCKS=0` and
+`MISE_YES=1` (mise's non-prompt equivalent, confirmed against mise's docs and
+`--yes`). Both `SystemRunner::run` (`vcs/process.rs`) and `discover`
+(`taskenv/graph.rs`) now build their child through it, so there is one spawn site
+per module and one place the environment is defined.
+
+Tests (no process spawned): `a_command_carries_the_non_interactive_environment`
+asserts every var via `Command::get_envs()`, and
+`a_command_carries_the_program_arguments_and_directory` pins the program, args
+and cwd.
+
+**No timeout was added** — that is ticket 48's policy decision (30b), which
+remains `ready-for-human`.
+
