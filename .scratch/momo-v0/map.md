@@ -5,6 +5,11 @@ Type: map
 **Status: complete.** Every ticket is resolved and `.scratch/momo-v0/spec.md` is
 locked — nothing left to decide before implementation.
 
+**Implemented.** The v0 spec was built across 13 tickets in
+`.scratch/momo-v0/implementation/` — 11 for the spec itself, plus 2 conformance
+follow-ups for gaps the work surfaced. Where the implementation found the spec
+wrong, the spec was amended rather than left aspirational.
+
 ## Destination
 
 A locked **v0 spec for `momo`**: a short, standalone Rust CLI that manages a
@@ -82,9 +87,11 @@ builder can implement momo v0 with nothing left to decide.
   `tag` is a separate step run after committing; git tags are **annotated**, jj
   tags lightweight; release drives manifest sync (18).
 - [momo config file & keys](issues/04-config-file.md): `momo.toml` at the repo root
-  (TOML); precedence flags > `MOMO_*` env > file > defaults; config is optional
-  with **lazy creation** (write commands create what they need; read-only ones
-  don't); `init` writes only `momo.toml`.
+  (TOML); precedence `MOMO_*` env > file > defaults (the flag layer this ticket
+  reserved was dropped in implementation ticket 12 — no flag maps to a config
+  key); config is optional with **lazy creation** (write commands create what
+  they need; read-only ones don't); `init` writes only `momo.toml`, plus
+  `.momo/version` when given `--version`.
 - [Task-environment selection UX](issues/08-taskenv-selection.md): auto-detect
   (`mise.toml`) with an explicit override, **no TUI in v0**; no environment found →
   graceful **no-op + warning** (momo works standalone); the choice is stored as
