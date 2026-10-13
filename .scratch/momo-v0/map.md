@@ -68,6 +68,11 @@ builder can implement momo v0 with nothing left to decide.
   per-ecosystem manifest locations + safe writes (`toml_edit`, `jsonc-parser`,
   line-oriented properties, XML splice); never reserialize; watch inheritance,
   dynamic versions, duplicates, and lockfiles.
+- [Monorepo / workspace model](issues/16-monorepo-model.md): the **package** is the
+  unit of versioning (per-package version/changelog/tag); discovery via
+  `mise tasks graph --json`; fragments at `.momo/changes/<package>/…`; identity is
+  the ecosystem ID + slug (config-overridable); tags `<slug>-v<version>`; targeting
+  `cwd` / `-p` / `--all`; no cascade in v0.
 
 ## Not yet specified
 

@@ -1,7 +1,7 @@
 # Release side-effects & tag format
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 12, 16
 
 ## Question
