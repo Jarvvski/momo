@@ -176,7 +176,7 @@ fn a_read_only_command_creates_no_config() {
 #[test]
 fn unimplemented_verbs_exit_non_zero_with_a_clear_message() {
     let dir = TempDir::new().expect("temp dir");
-    let invocations: [&[&str]; 10] = [
+    let invocations: [&[&str]; 8] = [
         &["break", "text"],
         &["add", "text"],
         &["fix", "text"],
@@ -185,8 +185,6 @@ fn unimplemented_verbs_exit_non_zero_with_a_clear_message() {
         &["candidate"],
         &["rc"],
         &["tag"],
-        &["install"],
-        &["install", "mise"],
     ];
     for args in invocations {
         momo(&dir)

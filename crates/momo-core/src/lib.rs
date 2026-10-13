@@ -5,4 +5,5 @@
 //! world sits behind a port so it can be substituted in tests.
 
 pub mod config;
+pub mod taskenv;
 pub mod vcs;

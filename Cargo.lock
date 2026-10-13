@@ -259,7 +259,9 @@ dependencies = [
  "assert_cmd",
  "clap",
  "momo-core",
+ "momo-taskenv",
  "predicates",
+ "semver",
  "tempfile",
 ]
 
@@ -275,6 +277,11 @@ dependencies = [
 [[package]]
 name = "momo-taskenv"
 version = "0.1.0"
+dependencies = [
+ "momo-core",
+ "semver",
+ "tempfile",
+]
 
 [[package]]
 name = "momo-vcs"

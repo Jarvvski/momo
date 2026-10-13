@@ -90,6 +90,14 @@ pub enum Command {
     Install {
         /// The task environment to install into (auto-detected when omitted).
         env: Option<String>,
+
+        /// Refresh the pinned CLI version of an existing install.
+        #[arg(long, conflicts_with = "uninstall")]
+        update: bool,
+
+        /// Remove what a previous install wrote.
+        #[arg(long)]
+        uninstall: bool,
     },
 }
 

@@ -313,6 +313,22 @@ impl FromStr for ConfigOverrides {
     }
 }
 
+/// Set the `task_env` key in `text`, or remove it when `name` is `None`.
+///
+/// The edit is format-preserving: every other key, comment, and blank line is
+/// left exactly as written, so a hand-formatted `momo.toml` survives a
+/// `momo install`.
+pub fn with_task_env(text: &str, name: Option<&str>) -> Result<String, ConfigError> {
+    let mut doc: DocumentMut = text.parse()?;
+    match name {
+        Some(name) => doc["task_env"] = value(name),
+        None => {
+            doc.as_table_mut().remove("task_env");
+        }
+    }
+    Ok(doc.to_string())
+}
+
 /// Errors that can occur while reading configuration.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -563,5 +579,32 @@ slug = \"cargo-momo\"
             .parse::<ConfigOverrides>()
             .expect_err("invalid TOML fails");
         assert!(err.to_string().contains("invalid TOML"));
+    }
+
+    #[test]
+    fn with_task_env_sets_the_key_and_preserves_the_rest() {
+        let original = "# my config\nrecording = \"fragments\" # keep me\n";
+        let updated = with_task_env(original, Some("mise")).expect("valid TOML");
+        assert!(updated.contains("# my config"), "{updated}");
+        assert!(
+            updated.contains("recording = \"fragments\" # keep me"),
+            "{updated}"
+        );
+        assert!(updated.contains("task_env = \"mise\""), "{updated}");
+    }
+
+    #[test]
+    fn with_task_env_none_removes_the_key() {
+        let original = "task_env = \"mise\"\nrecording = \"changelog\"\n";
+        let updated = with_task_env(original, None).expect("valid TOML");
+        assert!(!updated.contains("task_env"), "{updated}");
+        assert!(updated.contains("recording = \"changelog\""), "{updated}");
+    }
+
+    #[test]
+    fn with_task_env_is_idempotent() {
+        let once = with_task_env("recording = \"changelog\"\n", Some("mise")).expect("valid TOML");
+        let twice = with_task_env(&once, Some("mise")).expect("valid TOML");
+        assert_eq!(once, twice);
     }
 }
