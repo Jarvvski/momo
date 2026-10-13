@@ -1,7 +1,7 @@
 # Task-environment selection UX
 
 Type: grilling
-Status: open
+Status: claimed
 
 ## Question
 
