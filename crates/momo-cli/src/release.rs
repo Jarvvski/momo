@@ -485,6 +485,46 @@ mod tests {
             changelog.contains("[0.1.0]: https://github.com/Jarvvski/momo/releases/tag/v0.1.0"),
             "{changelog}"
         );
+        // The release consumed the Unreleased section, so the footer must not
+        // define a link to it.
+        assert!(!changelog.contains("[Unreleased]:"), "{changelog}");
+    }
+
+    #[test]
+    fn a_candidate_keeps_the_unreleased_reference_link() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fs::write(
+            root.join("CHANGELOG.md"),
+            "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- Add a thing\n",
+        )
+        .expect("seed the changelog");
+        let vcs = FakeVcs::new().remote("git@github.com:Jarvvski/momo.git");
+
+        candidate(
+            root,
+            &Config::default(),
+            &package(),
+            Some(&vcs),
+            date(),
+            false,
+        )
+        .expect("candidate");
+
+        let changelog = read(root, "CHANGELOG.md");
+        assert!(changelog.contains("## [Unreleased]"), "{changelog}");
+        assert!(
+            changelog.contains(
+                "[Unreleased]: https://github.com/Jarvvski/momo/compare/v0.1.0-rc.1...HEAD"
+            ),
+            "{changelog}"
+        );
+        assert!(
+            changelog.contains(
+                "[0.1.0-rc.1]: https://github.com/Jarvvski/momo/releases/tag/v0.1.0-rc.1"
+            ),
+            "{changelog}"
+        );
     }
 
     #[test]

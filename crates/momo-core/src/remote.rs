@@ -57,13 +57,15 @@ impl Remote {
 
     /// The reference-link footer for `versions`, newest first.
     ///
-    /// `prefix` is the tag prefix, so a Version `1.2.0` links to `v1.2.0`. The
-    /// Unreleased link compares the newest Release to `HEAD`; each Release links
+    /// `prefix` is the tag prefix, so a Version `1.2.0` links to `v1.2.0`. When
+    /// `unreleased`, an Unreleased link compares the newest Release to `HEAD`;
+    /// without one the footer defines no `[Unreleased]` link, so a document with
+    /// no Unreleased section carries no dangling definition. Each Release links
     /// to the comparison with the one below it, and the oldest links to its tag.
-    pub fn footer(&self, versions: &[Version], prefix: &str) -> Vec<String> {
+    pub fn footer(&self, versions: &[Version], prefix: &str, unreleased: bool) -> Vec<String> {
         let tag = |version: &Version| format!("{prefix}{version}");
         let mut lines = Vec::new();
-        if let Some(newest) = versions.first() {
+        if unreleased && let Some(newest) = versions.first() {
             lines.push(format!(
                 "[Unreleased]: {}",
                 self.compare(&tag(newest), "HEAD")
@@ -214,7 +216,7 @@ mod tests {
         let versions = [version(1, 2, 0), version(1, 1, 0), version(1, 0, 0)];
 
         assert_eq!(
-            remote.footer(&versions, "v"),
+            remote.footer(&versions, "v", true),
             vec![
                 "[Unreleased]: https://github.com/Jarvvski/momo/compare/v1.2.0...HEAD",
                 "[1.2.0]: https://github.com/Jarvvski/momo/compare/v1.1.0...v1.2.0",
@@ -225,15 +227,39 @@ mod tests {
     }
 
     #[test]
+    fn the_footer_omits_the_unreleased_link_when_there_is_no_unreleased_section() {
+        let remote = remote("git@github.com:Jarvvski/momo.git");
+        let versions = [version(1, 1, 0), version(1, 0, 0)];
+
+        assert_eq!(
+            remote.footer(&versions, "v", false),
+            vec![
+                "[1.1.0]: https://github.com/Jarvvski/momo/compare/v1.0.0...v1.1.0",
+                "[1.0.0]: https://github.com/Jarvvski/momo/releases/tag/v1.0.0",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_single_release_without_unreleased_links_only_its_tag() {
+        let remote = remote("git@github.com:Jarvvski/momo.git");
+
+        assert_eq!(
+            remote.footer(&[version(0, 1, 0)], "v", false),
+            vec!["[0.1.0]: https://github.com/Jarvvski/momo/releases/tag/v0.1.0"]
+        );
+    }
+
+    #[test]
     fn the_footer_is_empty_before_any_release() {
         let remote = remote("https://github.com/a/b");
-        assert!(remote.footer(&[], "v").is_empty());
+        assert!(remote.footer(&[], "v", true).is_empty());
     }
 
     #[test]
     fn a_monorepo_prefix_reaches_the_footer() {
         let remote = remote("https://github.com/a/b");
-        let footer = remote.footer(&[version(0, 1, 0)], "cargo-momo-v");
+        let footer = remote.footer(&[version(0, 1, 0)], "cargo-momo-v", true);
         assert_eq!(
             footer,
             vec![
