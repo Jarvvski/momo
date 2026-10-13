@@ -79,7 +79,13 @@ impl<R: CommandRunner> Vcs for JjVcs<R> {
             return Err(VcsError::TagAlreadyExists { tag });
         }
 
-        let set = ["tag", "set", tag.as_str()];
+        // jj defaults `-r` to `@`, the working-copy commit. That is right only
+        // when the working copy holds the release; after `jj commit`, or above
+        // `main` after a merge, `@` is an empty commit, so tagging it would
+        // publish a dangling commit. Anchor to the parent when the working copy
+        // has no changes of its own.
+        let revision = if self.is_dirty()? { "@" } else { "@-" };
+        let set = ["tag", "set", tag.as_str(), "-r", revision];
         require_success("jj", &set, self.jj(&set)?)?;
         Ok(())
     }
@@ -125,14 +131,27 @@ mod tests {
     }
 
     #[test]
-    fn create_tag_sets_a_lightweight_tag() {
-        // `jj tag set <name>` and nothing else: no message, so the tag stays
-        // lightweight, which is all jj supports.
-        let runner = FakeRunner::new().ok("jj", &["tag", "list"], "").ok(
-            "jj",
-            &["tag", "set", "v0.1.0"],
-            "",
-        );
+    fn create_tag_anchors_to_a_dirty_working_copy() {
+        // When `@` holds the release, the tag must name `@` — a lightweight
+        // `jj tag set` (no message), which is all jj supports.
+        let runner = FakeRunner::new()
+            .ok("jj", &["tag", "list"], "")
+            .ok("jj", &["diff", "--summary"], "M CHANGELOG.md\n")
+            .ok("jj", &["tag", "set", "v0.1.0", "-r", "@"], "");
+        adapter(runner)
+            .create_tag("v", &Version::new(0, 1, 0), "Release 0.1.0")
+            .unwrap();
+    }
+
+    #[test]
+    fn create_tag_anchors_to_the_parent_of_an_empty_working_copy() {
+        // After `jj commit` — or above `main` after a merge — `@` is an empty
+        // commit; the tag must name its parent instead, or it would publish a
+        // dangling commit.
+        let runner = FakeRunner::new()
+            .ok("jj", &["tag", "list"], "")
+            .ok("jj", &["diff", "--summary"], "")
+            .ok("jj", &["tag", "set", "v0.1.0", "-r", "@-"], "");
         adapter(runner)
             .create_tag("v", &Version::new(0, 1, 0), "Release 0.1.0")
             .unwrap();

@@ -23,10 +23,10 @@ Document the jj rule (spec §8 and the README), because it differs from git's.
 
 **Spec:** `.scratch/momo-v0/spec.md` §8
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] In a jj repo where `@` has changes, `momo tag` names `@`.
-- [ ] In a jj repo where `@` is empty (after `jj commit`, or above `main` after a merge), `momo tag` names `@`'s parent.
-- [ ] A jj round-trip test proves the tag lands on the commit holding the changelog, not on an empty commit.
-- [ ] The git adapter's behaviour is unchanged.
-- [ ] Spec §8 and the README state the jj anchoring rule.
+- [x] In a jj repo where `@` has changes, `momo tag` names `@`.
+- [x] In a jj repo where `@` is empty (after `jj commit`, or above `main` after a merge), `momo tag` names `@`'s parent.
+- [x] A jj round-trip test proves the tag lands on the commit holding the changelog, not on an empty commit.
+- [x] The git adapter's behaviour is unchanged.
+- [x] Spec §8 and the README state the jj anchoring rule.
