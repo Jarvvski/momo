@@ -8,49 +8,99 @@
 use std::env;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use momo_core::config::Config;
 use momo_core::package::Package;
+use momo_core::taskenv::TaskEnvError;
 use momo_core::workspace::{DefaultTarget, Workspace};
 
 use crate::cli::Cli;
+
+/// A repo's Packages, plus why a configured monorepo's graph could not be read.
+///
+/// Discovery is best-effort. When it fails, `workspace` is the single-Package
+/// fallback and `unavailable` records the reason — but only when the mise
+/// configuration declares a monorepo. In a repo that simply is not a monorepo
+/// the graph's refusal is expected, so nothing is recorded and nothing is said.
+pub struct Discovery {
+    workspace: Workspace,
+    unavailable: Option<TaskEnvError>,
+}
+
+impl Discovery {
+    /// A repo whose Packages were resolved, or that is not a monorepo at all.
+    fn resolved(workspace: Workspace) -> Self {
+        Self {
+            workspace,
+            unavailable: None,
+        }
+    }
+
+    /// The fallback for a graph momo could not read.
+    ///
+    /// A repo without `monorepo_root = true` is not a monorepo, so the failure
+    /// is expected and stays silent; a configured monorepo's failure is kept.
+    fn degraded(root: &Path, workspace: Workspace, error: TaskEnvError) -> Self {
+        if momo_taskenv::is_monorepo(root) {
+            Self {
+                workspace,
+                unavailable: Some(error),
+            }
+        } else {
+            Self::resolved(workspace)
+        }
+    }
+}
 
 /// Load the Workspace for the repo at `root`.
 ///
 /// Discovery goes through `mise tasks graph --json`. With no task environment
 /// there is nothing to discover, so momo silently falls back to a single
-/// Package; when a task environment exists but the graph cannot be read, momo
-/// warns and falls back the same way.
-pub fn load(root: &Path, config: &Config) -> Workspace {
+/// Package. When a monorepo's graph cannot be read the fallback is recorded, so
+/// the caller can warn — or fail, when packages were explicitly requested.
+pub fn load(root: &Path, config: &Config) -> Discovery {
+    let single = || Workspace::single(root, &root_name(root), config);
+
     if momo_taskenv::detect(root).is_none() {
-        return Workspace::single(root, &root_name(root), config);
+        return Discovery::resolved(single());
     }
 
     match momo_taskenv::discover(root) {
-        Ok(packages) if !packages.is_empty() => Workspace::new(root, packages, config),
-        Ok(_) => {
-            eprintln!(
-                "warning: package discovery found no packages; treating this as a single-package repo"
-            );
-            Workspace::single(root, &root_name(root), config)
+        Ok(packages) if !packages.is_empty() => {
+            Discovery::resolved(Workspace::new(root, packages, config))
         }
-        Err(err) => {
-            eprintln!(
-                "warning: package discovery unavailable ({err}); treating this as a single-package repo"
-            );
-            Workspace::single(root, &root_name(root), config)
-        }
+        Ok(_) => Discovery::degraded(root, single(), empty_graph()),
+        Err(err) => Discovery::degraded(root, single(), err),
     }
 }
 
 /// Resolve the Packages a command targets, reading the current directory.
+///
+/// An unreadable monorepo graph is reported here: loudly, because `-p`/`--all`
+/// asked for Packages momo could not enumerate; as a warning otherwise, because
+/// momo can still act on the single-Package fallback.
 pub fn select<'a>(
-    workspace: &'a Workspace,
+    discovery: &'a Discovery,
     cli: &Cli,
     default: DefaultTarget,
 ) -> Result<Vec<&'a Package>> {
+    if let Some(err) = &discovery.unavailable {
+        if cli.package.is_some() || cli.all {
+            bail!("package discovery failed ({err}); cannot resolve `-p`/`--all`");
+        }
+        eprintln!(
+            "warning: package discovery unavailable ({err}); treating this as a single-package repo"
+        );
+    }
     let cwd = env::current_dir().context("resolving the current directory")?;
-    Ok(workspace.select(cli.package.as_deref(), cli.all, default, &cwd)?)
+    Ok(discovery
+        .workspace
+        .select(cli.package.as_deref(), cli.all, default, &cwd)?)
+}
+
+/// The error for a monorepo whose graph listed no projects.
+fn empty_graph() -> TaskEnvError {
+    TaskEnvError::Graph("`mise tasks graph` listed no projects".to_owned())
 }
 
 /// The name of the project root directory, or `package` when it has none.

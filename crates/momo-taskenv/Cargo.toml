@@ -11,6 +11,7 @@ rust-version.workspace = true
 momo-core = { path = "../momo-core" }
 semver.workspace = true
 serde_json.workspace = true
+toml_edit.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

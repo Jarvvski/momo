@@ -285,20 +285,90 @@ fn a_configured_slug_overrides_the_derived_one() {
 }
 
 #[test]
-fn discovery_failure_degrades_to_a_single_package_with_a_warning() {
+fn a_mise_toml_without_monorepo_root_is_silent() {
     let dir = TempDir::new().expect("temp dir");
-    // A task environment with no `monorepo_root`, so discovery cannot succeed.
+    // A task environment that is not a monorepo: the graph's refusal is
+    // expected, so momo degrades to a single Package without a word.
     fs::write(dir.path().join("mise.toml"), "[tools]\n").expect("seed mise.toml");
 
     momo(&dir)
         .arg("status")
         .assert()
         .success()
-        .stderr(predicate::str::contains("single-package"));
+        .stderr(predicate::str::is_empty());
 
     // The single-package fallback still records and reports as before.
     momo(&dir).args(["add", "Add a thing"]).assert().success();
     assert!(dir.path().join("CHANGELOG.md").exists());
+}
+
+/// A `PATH` whose `mise` always fails, so the graph cannot be read.
+#[cfg(unix)]
+fn failing_mise_path(dir: &TempDir) -> std::ffi::OsString {
+    use std::os::unix::fs::PermissionsExt;
+
+    let bin = dir.path().join("bin");
+    fs::create_dir_all(&bin).expect("create the shim directory");
+    let shim = bin.join("mise");
+    fs::write(
+        &shim,
+        "#!/bin/sh\necho 'mise: cannot read the graph' >&2\nexit 1\n",
+    )
+    .expect("write the mise shim");
+    fs::set_permissions(&shim, fs::Permissions::from_mode(0o755))
+        .expect("make the shim executable");
+
+    let mut path = bin.into_os_string();
+    if let Some(existing) = std::env::var_os("PATH") {
+        path.push(":");
+        path.push(existing);
+    }
+    path
+}
+
+#[test]
+#[cfg(unix)]
+fn a_monorepo_whose_graph_cannot_be_read_warns() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(dir.path().join("mise.toml"), "monorepo_root = true\n").expect("seed mise.toml");
+    let path = failing_mise_path(&dir);
+
+    momo(&dir)
+        .env("PATH", path)
+        .arg("status")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("package discovery unavailable"));
+}
+
+#[test]
+#[cfg(unix)]
+fn requesting_all_on_an_unreadable_monorepo_fails_loudly() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(dir.path().join("mise.toml"), "monorepo_root = true\n").expect("seed mise.toml");
+    let path = failing_mise_path(&dir);
+
+    momo(&dir)
+        .env("PATH", path)
+        .args(["--all", "status"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("package discovery failed"));
+}
+
+#[test]
+#[cfg(unix)]
+fn requesting_a_package_on_an_unreadable_monorepo_fails_loudly() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(dir.path().join("mise.toml"), "monorepo_root = true\n").expect("seed mise.toml");
+    let path = failing_mise_path(&dir);
+
+    momo(&dir)
+        .env("PATH", path)
+        .args(["-p", "cargo:a", "status"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("package discovery failed"));
 }
 
 #[test]
