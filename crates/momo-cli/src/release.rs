@@ -33,7 +33,8 @@ pub struct Outcome {
     pub version: Version,
     /// The Changelog the run wrote.
     pub changelog: PathBuf,
-    /// The version file a Release wrote; `None` for a Candidate.
+    /// The version file the run wrote. Always present: both `release` and
+    /// `candidate` advance it, so the run can be tagged.
     pub version_file: Option<PathBuf>,
     /// The Fragments a Release consumed.
     pub consumed: Vec<PathBuf>,

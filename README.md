@@ -140,8 +140,8 @@ candidate shares them with the eventual release.
 ## Releases and release candidates
 
 - **`momo release`** mints the version from the Unreleased changes, writes the
-  changelog and `.momo/version`, and consumes fragments. It errors when there is
-  nothing Unreleased.
+  changelog and `.momo/version`, syncs the package manifest's version scalar, and
+  consumes fragments. It errors when there is nothing Unreleased.
 - **`momo candidate`** (alias `rc`) bumps exactly as `release` would, then
   appends `-rc.N`. It writes the same files but leaves fragments in place, and it
   advances `.momo/version` so the candidate can be tagged. The counter is scoped
@@ -193,6 +193,7 @@ ecosystem identity:
 [packages."cargo:momo"]
 identity = "cargo:renamed"   # override the identity
 slug = "alpha"               # override the ref/path-safe slug
+manifest = "crates/momo/Cargo.toml"  # override the discovered manifest
 ```
 
 ### Precedence
@@ -391,9 +392,14 @@ run *would* have written.
 
 ## Not in v0
 
-Manifest version-sync (rewriting the version scalar in a package's `Cargo.toml`
-on release) is specified but not yet implemented; `release` updates the
-changelog and `.momo/version` only. Lockfiles are never touched.
+- Task environments beyond `mise` (gradle, bun).
+- Manifest sync beyond Rust: `release` rewrites the version scalar in a
+  `Cargo.toml`, format-preserving, and warns when a neighbouring lockfile may be
+  stale — but never rewrites the lockfile and never runs `cargo`. Node, Gradle
+  and Python are later adapters behind the same port.
+- Monorepo discovery independent of `mise` — momo reads mise's project graph.
+- A config override for the reference-link remote; the changelog footer is
+  derived from the VCS remote.
 
 ## License
 

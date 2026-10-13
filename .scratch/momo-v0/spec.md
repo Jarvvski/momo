@@ -157,6 +157,7 @@ integrates into a task environment (`mise` in v0).
     the **ports** (`Vcs`, `TaskEnvironment`, `ManifestSync`). Pure: no I/O, no clap.
   - `momo-vcs` — git + jj adapters.
   - `momo-taskenv` — mise adapter.
+  - `momo-manifest` — manifest adapters (`Cargo.toml`).
   - `momo-cli` — the `momo` binary (clap tree + handlers); wires the adapters.
 
 ## 15. Dependencies
