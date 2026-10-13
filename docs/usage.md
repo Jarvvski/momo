@@ -166,3 +166,6 @@ as soon as it exists. `status` and `--dry-run` never write.
   stale — but never rewrites the lockfile and never runs `cargo`. Node, Gradle and
   Python are later adapters behind the same port.
 - Monorepo discovery independent of `mise` — momo reads mise's project graph.
+- CRLF line endings in a `CHANGELOG.md`: recording and releasing rewrite it with
+  LF, so a CRLF changelog gets a whole-file diff on first write. A `Cargo.toml`'s
+  line endings are preserved.
