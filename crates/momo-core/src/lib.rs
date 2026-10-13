@@ -13,3 +13,4 @@ mod slug;
 pub mod taskenv;
 pub mod vcs;
 pub mod version;
+pub mod workspace;

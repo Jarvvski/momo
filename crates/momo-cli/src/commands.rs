@@ -4,6 +4,11 @@
 //! (`break`/`add`/`fix`) record a Change, `status` reports the Unreleased
 //! Changes and the Version they imply, `release`/`candidate` mint one, `tag`
 //! creates the VCS tag, and `init`/`install` scaffold config and task wrappers.
+//!
+//! Package-aware verbs resolve the Packages they act on through
+//! [`crate::workspace`]: `-p` scopes to one, `--all` covers every one, and the
+//! cwd-relative default applies otherwise. Each Package is reported through
+//! [`crate::output`].
 
 use std::env;
 use std::fs;
@@ -12,20 +17,21 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use momo_core::taskenv::{InstallMode, InstallPlan, TaskEnvironment};
 use momo_core::vcs::Vcs;
+use momo_core::workspace::DefaultTarget;
 use semver::Version;
 use time::Date;
 
 use momo_core::change::{Change, Kind};
 use momo_core::config::Config;
-use momo_core::package::Package;
 use momo_core::version::{VersionSource, release_version};
 
 use crate::cli::{Cli, Command};
 use crate::config::{self, CONFIG_FILE};
-use crate::output::{self, Verb};
+use crate::output::{self, StatusPackage, Verb};
 use crate::recording;
 use crate::release::{self, Outcome};
 use crate::version::{self, FileVersionSource};
+use crate::workspace;
 
 /// The momo verbs exposed as `momo:*` tasks, in command-surface order.
 const VERBS: [&str; 9] = [
@@ -69,40 +75,52 @@ pub fn run(cli: &Cli) -> Result<()> {
 fn record(cli: &Cli, kind: Kind, text: &str) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
+    let workspace = workspace::load(&root, &config);
+    let packages = workspace::select(&workspace, cli, DefaultTarget::Cwd)?;
 
     if !cli.dry_run {
         ensure_config(&root, &config)?;
     }
 
-    let path = recording::record(&root, &config, Change::new(kind, text), cli.dry_run)?;
-    if cli.dry_run {
-        println!("would write {}", path.display());
-    } else {
-        println!("wrote {}", path.display());
+    for package in packages {
+        let change = Change::new(kind, text);
+        let path = recording::record(&root, &config, package, change, cli.dry_run)?;
+        if cli.dry_run {
+            println!("would write {}", path.display());
+        } else {
+            println!("wrote {}", path.display());
+        }
     }
     Ok(())
 }
 
-/// Show the Unreleased Changes and the Version they imply.
+/// Show the Unreleased Changes and the Version they imply, per Package.
 ///
 /// Read-only: it never writes. `check` turns it into the CI skip gate, exiting
 /// non-zero when there is nothing Unreleased to release.
 fn status(cli: &Cli, check: bool) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
-    let package = Package::single(&root_name(&root));
+    let workspace = workspace::load(&root, &config);
+    let packages = workspace::select(&workspace, cli, DefaultTarget::All)?;
     let vcs = detect_vcs(&root);
 
-    let changes = recording::unreleased(&root, &config)?;
-    let current = version::source(&root, &config, vcs.as_deref()).current()?;
-    let next = release_version(&changes, &current);
-
-    let report = output::Status {
-        package: package.identity(),
-        current,
-        next,
-        changes: &changes,
+    let mut report = output::Status {
+        packages: Vec::new(),
     };
+    for package in packages {
+        let changes = recording::unreleased(&root, &config, package)?;
+        let prefix = package.tag_prefix(&config.tag_prefix);
+        let current = version::source(&package.dir(&root), &prefix, vcs.as_deref()).current()?;
+        let next = release_version(&changes, &current);
+        report.packages.push(StatusPackage {
+            package: package.identity().to_owned(),
+            current,
+            next,
+            changes,
+        });
+    }
+
     output::emit(cli, &report)?;
 
     if check && !report.unreleased() {
@@ -113,15 +131,40 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
 
 /// Mint a Release from the Unreleased Changes.
 ///
-/// Writes the Changelog and `.momo/version` and consumes the Fragments; it never
-/// commits and never tags.
+/// With no `-p`, every Package that has Unreleased Changes is released. Writes
+/// each Package's Changelog and version file and consumes its Fragments; it
+/// never commits and never tags.
 fn release(cli: &Cli) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
+    let workspace = workspace::load(&root, &config);
+    let packages = workspace::select(&workspace, cli, DefaultTarget::All)?;
     let vcs = detect_vcs(&root);
+    let explicit = cli.package.is_some();
 
-    let outcome = release::release(&root, &config, vcs.as_deref(), today(), cli.dry_run)?;
-    report_release(cli, &outcome, Verb::Release)
+    let mut released = 0;
+    for package in packages {
+        let outcome = release::release(
+            &root,
+            &config,
+            package,
+            vcs.as_deref(),
+            today(),
+            cli.dry_run,
+        )?;
+        match outcome {
+            Some(outcome) => {
+                report_release(cli, &outcome, Verb::Release)?;
+                released += 1;
+            }
+            None if explicit => bail!("nothing unreleased to release"),
+            None => {}
+        }
+    }
+    if released == 0 {
+        bail!("nothing unreleased to release");
+    }
+    Ok(())
 }
 
 /// Cut a Release Candidate from the Unreleased Changes.
@@ -131,30 +174,70 @@ fn release(cli: &Cli) -> Result<()> {
 fn candidate(cli: &Cli) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
+    let workspace = workspace::load(&root, &config);
+    let packages = workspace::select(&workspace, cli, DefaultTarget::All)?;
     let vcs = detect_vcs(&root);
+    let explicit = cli.package.is_some();
 
-    let outcome = release::candidate(&root, &config, vcs.as_deref(), today(), cli.dry_run)?;
-    report_release(cli, &outcome, Verb::Candidate)
+    let mut cut = 0;
+    for package in packages {
+        let outcome = release::candidate(
+            &root,
+            &config,
+            package,
+            vcs.as_deref(),
+            today(),
+            cli.dry_run,
+        )?;
+        match outcome {
+            Some(outcome) => {
+                report_release(cli, &outcome, Verb::Candidate)?;
+                cut += 1;
+            }
+            None if explicit => bail!("nothing unreleased to release"),
+            None => {}
+        }
+    }
+    if cut == 0 {
+        bail!("nothing unreleased to release");
+    }
+    Ok(())
 }
 
-/// Create the VCS tag for the current Version.
+/// Create the VCS tag for each selected Package's current Version.
 fn tag(cli: &Cli) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
+    let workspace = workspace::load(&root, &config);
+    let packages = workspace::select(&workspace, cli, DefaultTarget::All)?;
     let Some(vcs) = detect_vcs(&root) else {
         bail!("no VCS detected — nothing to tag");
     };
+    let explicit = cli.package.is_some();
 
-    let name = release::tag(&root, &config, vcs.as_ref(), cli.dry_run)?;
-    let version = FileVersionSource::new(&root).current()?;
-    output::emit(
-        cli,
-        &output::Tag {
-            name: &name,
-            version: &version,
-            dry_run: cli.dry_run,
-        },
-    )
+    let mut tagged = 0;
+    for package in packages {
+        let Some(name) = release::tag(&root, &config, package, vcs.as_ref(), cli.dry_run)? else {
+            if explicit {
+                bail!("nothing to tag: run `momo release` first");
+            }
+            continue;
+        };
+        let version = FileVersionSource::new(&package.dir(&root)).current()?;
+        output::emit(
+            cli,
+            &output::Tag {
+                name: &name,
+                version: &version,
+                dry_run: cli.dry_run,
+            },
+        )?;
+        tagged += 1;
+    }
+    if tagged == 0 {
+        bail!("nothing to tag: run `momo release` first");
+    }
+    Ok(())
 }
 
 /// Report what a `release` or `candidate` did, or would do under `--dry-run`.
@@ -312,14 +395,6 @@ fn ensure_config(root: &Path, config: &Config) -> Result<()> {
     }
     fs::write(&path, config.to_string()).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
-}
-
-/// The name of the project root directory, or `package` when it has none.
-fn root_name(root: &Path) -> String {
-    root.file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("package")
-        .to_owned()
 }
 
 #[cfg(test)]

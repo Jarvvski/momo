@@ -7,12 +7,10 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use momo_core::config::Config;
 use momo_core::vcs::Vcs;
 use momo_core::version::{TagVersionSource, Version, VersionError, VersionSource};
 
-/// The momo-managed version file, relative to the project root.
-pub const VERSION_FILE: &str = ".momo/version";
+pub use momo_core::package::VERSION_FILE;
 
 /// A [`VersionSource`] backed by `.momo/version`.
 ///
@@ -69,16 +67,17 @@ impl VersionSource for FileVersionSource {
     }
 }
 
-/// The authoritative Version source for a project rooted at `root`.
+/// The authoritative Version source for a Package rooted at `package_dir`.
 ///
-/// The latest VCS tag when a repository is present, else `.momo/version`.
+/// The latest VCS tag under `tag_prefix` when a repository is present, else the
+/// Package's `.momo/version`.
 pub fn source<'a>(
-    root: &Path,
-    config: &'a Config,
+    package_dir: &Path,
+    tag_prefix: &'a str,
     vcs: Option<&'a dyn Vcs>,
 ) -> Box<dyn VersionSource + 'a> {
     match vcs {
-        Some(vcs) => Box::new(TagVersionSource::new(vcs, &config.tag_prefix)),
-        None => Box::new(FileVersionSource::new(root)),
+        Some(vcs) => Box::new(TagVersionSource::new(vcs, tag_prefix)),
+        None => Box::new(FileVersionSource::new(package_dir)),
     }
 }

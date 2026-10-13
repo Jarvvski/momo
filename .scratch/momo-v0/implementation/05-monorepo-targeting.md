@@ -10,10 +10,10 @@ ref-safe slug, overridable in config. No cascading to dependents.
 
 **Spec:** `.scratch/momo-v0/spec.md` §9
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] In a repo with several Packages, `momo status` reports each Package and its next version.
-- [ ] `-p <package>` scopes a command to one Package; `--all` covers every Package.
-- [ ] Tags are created per Package as `<slug>-v<version>`.
-- [ ] A single-package repo behaves exactly as it did before this ticket.
-- [ ] Discovery failure (no `monorepo_root`) degrades to single-Package behaviour with a warning.
+- [x] In a repo with several Packages, `momo status` reports each Package and its next version.
+- [x] `-p <package>` scopes a command to one Package; `--all` covers every Package.
+- [x] Tags are created per Package as `<slug>-v<version>`.
+- [x] A single-package repo behaves exactly as it did before this ticket.
+- [x] Discovery failure (no `monorepo_root`) degrades to single-Package behaviour with a warning.

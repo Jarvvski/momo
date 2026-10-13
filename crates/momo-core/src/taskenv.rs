@@ -123,6 +123,31 @@ pub enum TaskEnvError {
         #[source]
         source: std::io::Error,
     },
+
+    /// The task-environment binary could not be started.
+    #[error("failed to run `{program}`")]
+    Spawn {
+        /// The program that could not be started.
+        program: String,
+        /// Why the process could not be spawned.
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// The task-environment binary ran but exited non-zero.
+    #[error("`{program} {args}` failed: {stderr}")]
+    Command {
+        /// The program that failed.
+        program: String,
+        /// The arguments it was given, space-separated.
+        args: String,
+        /// The trimmed standard error it produced.
+        stderr: String,
+    },
+
+    /// The project graph could not be read.
+    #[error("reading the project graph: {0}")]
+    Graph(String),
 }
 
 #[cfg(test)]

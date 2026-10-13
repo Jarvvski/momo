@@ -50,7 +50,32 @@ fn render(cli: &Cli, report: &impl Report) -> String {
     }
 }
 
-/// What `momo status` reports: the Unreleased Changes and the Version they imply.
+/// One Package's line in a `status` report.
+pub struct StatusPackage {
+    /// The Package's identity, e.g. `cargo:momo`.
+    pub package: String,
+    /// The Package's current Version.
+    pub current: Version,
+    /// The Version a Release would mint; `None` when nothing is Unreleased.
+    pub next: Option<Version>,
+    /// The Unreleased Changes.
+    pub changes: Vec<Change>,
+}
+
+impl StatusPackage {
+    /// Whether this Package has anything Unreleased to release.
+    fn unreleased(&self) -> bool {
+        !self.changes.is_empty()
+    }
+
+    /// The Version to report: the one a Release would mint, or the current one.
+    fn computed(&self) -> &Version {
+        self.next.as_ref().unwrap_or(&self.current)
+    }
+}
+
+/// What `momo status` reports: the Unreleased Changes and the Version they
+/// imply, per Package.
 ///
 /// The JSON shape is:
 ///
@@ -71,77 +96,81 @@ fn render(cli: &Cli, report: &impl Report) -> String {
 /// `unreleased` is the CI skip gate — `true` when at least one Change is
 /// Unreleased. `next` is the Version a Release would mint, or the current
 /// Version when nothing is Unreleased; `changes` is empty in that case.
-pub struct Status<'a> {
-    /// The Package's identity, e.g. `cargo:momo`.
-    pub package: &'a str,
-    /// The Package's current Version.
-    pub current: Version,
-    /// The Version a Release would mint; `None` when nothing is Unreleased.
-    pub next: Option<Version>,
-    /// The Unreleased Changes.
-    pub changes: &'a [Change],
+pub struct Status {
+    /// The Packages, in discovery order.
+    pub packages: Vec<StatusPackage>,
 }
 
-impl Status<'_> {
-    /// Whether there is anything Unreleased to release — the `--check` gate.
+impl Status {
+    /// Whether any Package has anything Unreleased — the `--check` gate.
     pub fn unreleased(&self) -> bool {
-        !self.changes.is_empty()
-    }
-
-    /// The Version to report: the one a Release would mint, or the current one.
-    fn computed(&self) -> &Version {
-        self.next.as_ref().unwrap_or(&self.current)
+        self.packages.iter().any(StatusPackage::unreleased)
     }
 }
 
-impl Report for Status<'_> {
+impl Report for Status {
     fn human(&self) -> String {
         let mut out = String::from("Unreleased\n\n");
-        out.push_str(&format!("  {}\n", self.package));
-        for kind in Kind::ALL {
-            let mut matching = self
-                .changes
-                .iter()
-                .filter(|change| change.kind == kind)
-                .peekable();
-            if matching.peek().is_none() {
-                continue;
+        for (index, package) in self.packages.iter().enumerate() {
+            if index > 0 {
+                out.push('\n');
             }
-            out.push_str(&format!("    {}\n", kind.heading()));
-            for change in matching {
-                out.push_str(&format!("      - {}\n", change.text));
+            out.push_str(&format!("  {}\n", package.package));
+            for kind in Kind::ALL {
+                let mut matching = package
+                    .changes
+                    .iter()
+                    .filter(|change| change.kind == kind)
+                    .peekable();
+                if matching.peek().is_none() {
+                    continue;
+                }
+                out.push_str(&format!("    {}\n", kind.heading()));
+                for change in matching {
+                    out.push_str(&format!("      - {}\n", change.text));
+                }
             }
+            out.push_str(&format!("    → next: {}\n", package.computed()));
         }
-        out.push_str(&format!("    → next: {}\n", self.computed()));
         out
     }
 
     fn json(&self) -> String {
-        let changes = self
-            .changes
+        let packages = self
+            .packages
             .iter()
-            .map(|change| {
+            .map(|package| {
+                let changes = package
+                    .changes
+                    .iter()
+                    .map(|change| {
+                        Json::object(vec![
+                            ("kind", Json::from(change.kind.to_string())),
+                            ("text", Json::from(change.text.as_str())),
+                        ])
+                    })
+                    .collect();
                 Json::object(vec![
-                    ("kind", Json::from(change.kind.to_string())),
-                    ("text", Json::from(change.text.as_str())),
+                    ("name", Json::from(package.package.as_str())),
+                    ("current", Json::from(&package.current)),
+                    ("next", Json::from(package.computed())),
+                    ("changes", Json::Array(changes)),
                 ])
             })
             .collect();
-        let package = Json::object(vec![
-            ("name", Json::from(self.package)),
-            ("current", Json::from(&self.current)),
-            ("next", Json::from(self.computed())),
-            ("changes", Json::Array(changes)),
-        ]);
         Json::object(vec![
             ("unreleased", Json::from(self.unreleased())),
-            ("packages", Json::Array(vec![package])),
+            ("packages", Json::Array(packages)),
         ])
         .to_document()
     }
 
     fn version(&self) -> String {
-        self.computed().to_string()
+        self.packages
+            .iter()
+            .map(|package| package.computed().to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -443,14 +472,16 @@ mod tests {
     }
 
     /// A status report with one `add` Change at the bootstrap baseline.
-    fn status<'a>(changes: &'a [Change]) -> Status<'a> {
+    fn status(changes: &[Change]) -> Status {
         let current = Version::new(0, 0, 0);
         let next = momo_core::version::release_version(changes, &current);
         Status {
-            package: "momo",
-            current,
-            next,
-            changes,
+            packages: vec![StatusPackage {
+                package: "momo".to_owned(),
+                current,
+                next,
+                changes: changes.to_vec(),
+            }],
         }
     }
 
@@ -557,6 +588,39 @@ mod tests {
     fn status_check_gate_tracks_the_unreleased_changes() {
         assert!(status(&[Change::new(Kind::Add, "Add it")]).unreleased());
         assert!(!status(&[]).unreleased());
+    }
+
+    #[test]
+    fn status_reports_every_package() {
+        let report = Status {
+            packages: vec![
+                StatusPackage {
+                    package: "cargo:a".to_owned(),
+                    current: Version::new(0, 0, 0),
+                    next: Some(Version::new(0, 1, 0)),
+                    changes: vec![Change::new(Kind::Add, "Add a thing")],
+                },
+                StatusPackage {
+                    package: "cargo:b".to_owned(),
+                    current: Version::new(0, 0, 0),
+                    next: None,
+                    changes: Vec::new(),
+                },
+            ],
+        };
+
+        let human = report.human();
+        assert!(human.contains("  cargo:a"), "{human}");
+        assert!(human.contains("  cargo:b"), "{human}");
+        assert!(human.contains("→ next: 0.1.0"), "{human}");
+        assert!(human.contains("→ next: 0.0.0"), "{human}");
+        assert!(report.unreleased());
+        assert_eq!(report.version(), "0.1.0\n0.0.0");
+
+        let json = report.json();
+        assert!(json.contains("\"unreleased\": true"), "{json}");
+        assert!(json.contains("\"name\": \"cargo:a\""), "{json}");
+        assert!(json.contains("\"name\": \"cargo:b\""), "{json}");
     }
 
     #[test]
