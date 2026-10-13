@@ -32,7 +32,10 @@ description = "The domain stays pure: no I/O, processes, env, clap or anyhow"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-if grep -rnE 'std::(fs|process|env|net)|clap|anyhow' src/domain; then
+# The source of truth is tests/domain_purity.rs, which `cargo test` runs; this
+# grep is the fast pre-flight. Both catch the bare (`env::var`) and grouped
+# (`use std::{env, fs};`) forms; `io` is left out until ticket 39 lands.
+if grep -rnE '(^|[^[:alnum:]_])(fs|process|env|net)::|use std[^;]*[^[:alnum:]_](fs|process|env|net)([^[:alnum:]_]|$)|clap|anyhow' src/domain; then
   echo "error: src/domain must not touch I/O, processes, the environment, clap or anyhow" >&2
   exit 1
 fi

@@ -155,6 +155,8 @@ fn status_lists_unreleased_changes_and_ends_with_the_next_version() {
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
     assert!(stdout.contains("- Add a shiny thing"), "{stdout}");
     assert!(stdout.contains("- Fix a nasty bug"), "{stdout}");
+    // Deliberate UX contract: the indentation of the closing `→ next:` line is
+    // part of the human rendering, so it is pinned exactly rather than loosely.
     assert_eq!(stdout.lines().last(), Some("    → next: 0.1.0"), "{stdout}");
 }
 

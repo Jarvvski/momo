@@ -168,16 +168,12 @@ fn release(cli: &Cli) -> Result<()> {
     let vcs = detect_vcs(&root);
     let explicit = cli.package.is_some();
 
+    // Read the date once for the whole run: `today()` inside the loop could
+    // straddle UTC midnight and stamp a multi-package release with two dates.
+    let date = today();
     let mut released = 0;
     for package in packages {
-        let outcome = release::release(
-            &root,
-            &config,
-            package,
-            vcs.as_deref(),
-            today(),
-            cli.dry_run,
-        )?;
+        let outcome = release::release(&root, &config, package, vcs.as_deref(), date, cli.dry_run)?;
         match outcome {
             Some(outcome) => {
                 report_release(cli, &outcome, Verb::Release)?;
@@ -206,16 +202,13 @@ fn candidate(cli: &Cli) -> Result<()> {
     let vcs = detect_vcs(&root);
     let explicit = cli.package.is_some();
 
+    // Read the date once for the whole run: `today()` inside the loop could
+    // straddle UTC midnight and stamp a multi-package release with two dates.
+    let date = today();
     let mut cut = 0;
     for package in packages {
-        let outcome = release::candidate(
-            &root,
-            &config,
-            package,
-            vcs.as_deref(),
-            today(),
-            cli.dry_run,
-        )?;
+        let outcome =
+            release::candidate(&root, &config, package, vcs.as_deref(), date, cli.dry_run)?;
         match outcome {
             Some(outcome) => {
                 report_release(cli, &outcome, Verb::Candidate)?;
@@ -307,6 +300,10 @@ fn detect_vcs(root: &Path) -> Option<Box<dyn Vcs>> {
 }
 
 /// Today's date, in UTC.
+///
+/// UTC is deliberate: a changelog date must be reproducible across machines and
+/// CI runners, whatever the local timezone. Callers read it once per run so a
+/// multi-package release cannot straddle midnight and stamp two dates.
 fn today() -> Date {
     time::OffsetDateTime::now_utc().date()
 }

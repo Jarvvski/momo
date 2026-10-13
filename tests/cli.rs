@@ -67,6 +67,8 @@ fn help_lists_every_verb_alias_and_global_flag() {
             "`momo --help` is missing the `{flag}` flag:\n{stdout}"
         );
     }
+    // Deliberate clap contract: the `[alias: …]` marker is clap's own
+    // rendering, pinned here as a smoke check on the command surface.
     for alias in ["b", "a", "f", "rc"] {
         assert!(
             stdout.contains(&format!("[alias: {alias}]")),

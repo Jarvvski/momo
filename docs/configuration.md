@@ -35,6 +35,11 @@ tag_kind = "auto"
 
 `task_env` is written by `momo install`. `remote` and `rc_format` are optional.
 
+The changelog's release heading is stamped with the **UTC** date
+(`## [0.1.0] - 2026-10-13`), so a release is reproducible across machines and CI
+runners regardless of the local timezone. Every package in one run shares the
+date: it is read once, before the per-package loop.
+
 `remote` overrides the remote derived from the VCS and supplies one when there is
 no VCS; with neither, the changelog omits its reference-link footer. A value that
 is set but is not a recognisable remote URL is an error, not a silent omission:

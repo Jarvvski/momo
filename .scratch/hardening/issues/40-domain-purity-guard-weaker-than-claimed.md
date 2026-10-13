@@ -1,7 +1,7 @@
 # 40: The domain purity guard is weaker than it claims
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: mise.toml (tooling)
 Verified: yes — read the task definition
@@ -78,3 +78,17 @@ and bare forms.
   (`use std::{env, fs};`, `std::process::Command`, `env::var`) and negative
   (`std::collections::BTreeMap`).
 - Broaden the `mise.toml` regex to the same effect; leave `io` out until 39 lands.
+
+## Resolution
+
+`tests/domain_purity.rs` is now the source of truth: it walks `src/domain/**` and
+fails on `std::fs`/`process`/`env`/`net` paths, the bare `env::var`/`fs::read`
+forms, grouped `use std::{env, fs};` imports (wrapped or not), and `clap`/
+`anyhow`. It is dependency-free, and its checker is unit-tested against synthetic
+positive and negative snippets so both the walk and the pattern are pinned. The
+`mise run lint:domain` grep was broadened to the same forms as a fast pre-flight.
+`std::io` stays out of both bans until ticket 39 removes the domain's
+`std::io::Error` fields.
+
+Verified by planting `use std::{env, fs};` in `src/domain/slug.rs` and watching
+the test fail, then reverting.

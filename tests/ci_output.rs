@@ -11,6 +11,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
+mod common;
+
+use common::require_tool;
+
 /// The `MOMO_*` variables the CLI reads; every test clears them.
 const MOMO_VARS: [&str; 8] = [
     "MOMO_RECORDING",
@@ -269,8 +273,7 @@ fn release_format_json_reports_the_minted_version() {
 
 #[test]
 fn tag_output_writes_the_tag_to_a_file() {
-    if !std_command_available("jj") {
-        eprintln!("skipping: jj is not on PATH");
+    if !require_tool("jj") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");
@@ -320,14 +323,6 @@ fn no_ci_environment_variable_changes_the_output() {
 
         assert_eq!(sniffed, plain, "CI variables changed `{args:?}`");
     }
-}
-
-/// Whether `program` can be spawned at all.
-fn std_command_available(program: &str) -> bool {
-    std::process::Command::new(program)
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success())
 }
 
 /// Run `program args` in `cwd`, asserting success.

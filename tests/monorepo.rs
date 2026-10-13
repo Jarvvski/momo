@@ -12,6 +12,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
+mod common;
+
+use common::{release_date, require_tool, today_or_yesterday};
+
 /// A `momo` command rooted at `dir`, with every `MOMO_*` variable cleared.
 fn momo(dir: &TempDir) -> Command {
     let mut cmd = Command::cargo_bin("momo").expect("the momo binary is built");
@@ -29,14 +33,6 @@ fn momo(dir: &TempDir) -> Command {
         cmd.env_remove(name);
     }
     cmd
-}
-
-/// Whether `program` can be spawned at all.
-fn have(program: &str) -> bool {
-    StdCommand::new(program)
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success())
 }
 
 /// Run `program args` in `cwd` and return its trimmed stdout.
@@ -97,19 +93,9 @@ fn jj_repo(dir: &TempDir) {
     fs::write(dir.path().join("a.txt"), "hi\n").expect("seed a tracked file");
 }
 
-/// Skip a test when discovery or tagging is unavailable on this machine.
-fn require(program: &str) -> bool {
-    if have(program) {
-        true
-    } else {
-        eprintln!("skipping: {program} is not on PATH");
-        false
-    }
-}
-
 #[test]
 fn status_reports_each_package_and_its_next_version() {
-    if !require("mise") {
+    if !require_tool("mise") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");
@@ -132,7 +118,7 @@ fn status_reports_each_package_and_its_next_version() {
 
 #[test]
 fn package_scopes_a_command_and_all_covers_every_package() {
-    if !require("mise") {
+    if !require_tool("mise") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");
@@ -161,8 +147,43 @@ fn package_scopes_a_command_and_all_covers_every_package() {
 }
 
 #[test]
+fn a_multi_package_release_stamps_one_date() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    monorepo(&dir);
+    for package in ["cargo:a", "cargo:b"] {
+        momo(&dir)
+            .args(["-p", package, "add", "Add a thing"])
+            .assert()
+            .success();
+    }
+
+    momo(&dir).args(["--all", "release"]).assert().success();
+
+    // The date is read once, before the package loop, so every heading in a
+    // single run carries the same day. The midnight-UTC straddle that motivated
+    // the hoist cannot be forced here, but the shared date can be pinned.
+    let a =
+        fs::read_to_string(dir.path().join("crates/a/CHANGELOG.md")).expect("crate a changelog");
+    let b =
+        fs::read_to_string(dir.path().join("crates/b/CHANGELOG.md")).expect("crate b changelog");
+    let date_a = release_date(&a, "0.1.0");
+    let date_b = release_date(&b, "0.1.0");
+    assert!(
+        today_or_yesterday().contains(&date_a),
+        "release stamped `{date_a}`, not today or yesterday UTC"
+    );
+    assert_eq!(
+        date_a, date_b,
+        "a multi-package release stamped two different dates"
+    );
+}
+
+#[test]
 fn a_recording_verb_defaults_to_the_current_directory() {
-    if !require("mise") {
+    if !require_tool("mise") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");
@@ -185,7 +206,7 @@ fn a_recording_verb_defaults_to_the_current_directory() {
 
 #[test]
 fn an_unknown_package_is_rejected() {
-    if !require("mise") {
+    if !require_tool("mise") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");
@@ -200,7 +221,7 @@ fn an_unknown_package_is_rejected() {
 
 #[test]
 fn a_slug_collision_is_rejected() {
-    if !require("mise") {
+    if !require_tool("mise") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");
@@ -222,7 +243,7 @@ fn a_slug_collision_is_rejected() {
 
 #[test]
 fn an_ambiguous_package_name_is_rejected() {
-    if !require("mise") {
+    if !require_tool("mise") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");
@@ -246,7 +267,7 @@ fn an_ambiguous_package_name_is_rejected() {
 
 #[test]
 fn fragments_are_stored_per_package() {
-    if !require("mise") {
+    if !require_tool("mise") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");
@@ -274,7 +295,7 @@ fn fragments_are_stored_per_package() {
 
 #[test]
 fn tags_are_created_per_package_as_slug_v_version() {
-    if !require("mise") || !require("jj") {
+    if !require_tool("mise") || !require_tool("jj") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");
@@ -303,7 +324,7 @@ fn tags_are_created_per_package_as_slug_v_version() {
 
 #[test]
 fn a_configured_slug_overrides_the_derived_one() {
-    if !require("mise") || !require("jj") {
+    if !require_tool("mise") || !require_tool("jj") {
         return;
     }
     let dir = TempDir::new().expect("temp dir");

@@ -1,7 +1,7 @@
 # 45: The release date is UTC, not the user's local date
 
 Type: judgement
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: cli/commands
 Verified: yes — read at the cited lines
@@ -73,3 +73,14 @@ keeping it here is fine.
   hoist exists.
 - Docs: note in `docs/configuration.md` (or `docs/ci.md`) that the changelog date
   is UTC, closing the judgement.
+
+## Resolution
+
+The per-package re-read is fixed: `today()` is hoisted above the package loop in
+both `release` and `candidate` (`src/cli/commands.rs`), so one run stamps one
+date. `tests/monorepo.rs::a_multi_package_release_stamps_one_date` pins both
+headings to the same day.
+
+The local-vs-UTC half is **`wontfix`**: UTC is deliberate
+(`.scratch/momo-v0/research/rust-crates.md`), so `today()` keeps `now_utc()`. The
+choice is now documented in `docs/configuration.md`.
