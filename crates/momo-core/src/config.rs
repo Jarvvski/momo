@@ -111,6 +111,10 @@ pub struct PackageConfig {
     pub identity: Option<String>,
     /// Override the package's derived, ref-safe slug.
     pub slug: Option<String>,
+    /// Override the manifest synced with the Release version, relative to the
+    /// package's directory. Without one the ecosystem's conventional manifest
+    /// is discovered.
+    pub manifest: Option<PathBuf>,
 }
 
 impl PackageConfig {
@@ -121,6 +125,9 @@ impl PackageConfig {
         }
         if let Some(slug) = other.slug {
             self.slug = Some(slug);
+        }
+        if let Some(manifest) = other.manifest {
+            self.manifest = Some(manifest);
         }
     }
 }
@@ -230,6 +237,9 @@ impl fmt::Display for Config {
                 }
                 if let Some(slug) = &package.slug {
                     entry["slug"] = value(slug.as_str());
+                }
+                if let Some(manifest) = &package.manifest {
+                    entry["manifest"] = value(manifest.to_string_lossy().as_ref());
                 }
                 packages[identity.as_str()] = Item::Table(entry);
             }
@@ -426,6 +436,7 @@ fn parse_packages(doc: &DocumentMut) -> Result<BTreeMap<String, PackageConfig>, 
                 PackageConfig {
                     identity: field("identity")?,
                     slug: field("slug")?,
+                    manifest: field("manifest")?.map(PathBuf::from),
                 },
             ))
         })
@@ -444,6 +455,8 @@ fn parse_value<T: FromStr<Err = UnknownValue>>(key: &str, value: &str) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::path::Path;
 
     #[test]
     fn defaults_match_the_spec() {
@@ -538,6 +551,23 @@ slug = \"cargo-momo\"
         let package = config.packages.get("cargo:momo").expect("package present");
         assert_eq!(package.slug.as_deref(), Some("cargo-momo"));
         assert_eq!(package.identity, None);
+        assert_eq!(package.manifest, None);
+    }
+
+    #[test]
+    fn a_package_manifest_override_is_parsed() {
+        let file: ConfigOverrides = "\
+[packages.\"cargo:momo\"]
+manifest = \"crates/momo/Cargo.toml\"
+"
+        .parse()
+        .expect("valid TOML");
+        let config = Config::resolve(file, ConfigOverrides::default(), ConfigOverrides::default());
+        let package = config.packages.get("cargo:momo").expect("package present");
+        assert_eq!(
+            package.manifest.as_deref(),
+            Some(Path::new("crates/momo/Cargo.toml"))
+        );
     }
 
     #[test]
@@ -552,6 +582,7 @@ slug = \"cargo-momo\"
             PackageConfig {
                 identity: None,
                 slug: Some("cargo-momo".to_owned()),
+                manifest: Some(PathBuf::from("crates/momo/Cargo.toml")),
             },
         );
 

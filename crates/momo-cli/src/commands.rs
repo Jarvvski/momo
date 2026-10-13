@@ -155,6 +155,7 @@ fn release(cli: &Cli) -> Result<()> {
         match outcome {
             Some(outcome) => {
                 report_release(cli, &outcome, Verb::Release)?;
+                warn_stale_lockfile(&outcome);
                 released += 1;
             }
             None if explicit => bail!("nothing unreleased to release"),
@@ -192,6 +193,7 @@ fn candidate(cli: &Cli) -> Result<()> {
         match outcome {
             Some(outcome) => {
                 report_release(cli, &outcome, Verb::Candidate)?;
+                warn_stale_lockfile(&outcome);
                 cut += 1;
             }
             None if explicit => bail!("nothing unreleased to release"),
@@ -253,6 +255,24 @@ fn report_release(cli: &Cli, outcome: &Outcome, verb: Verb) -> Result<()> {
             dry_run: cli.dry_run,
         },
     )
+}
+
+/// Warn that syncing a manifest left its ecosystem's lockfile stale.
+///
+/// The lockfile embeds the Package's version and is the package manager's to
+/// refresh: momo never rewrites it and never runs the package manager.
+fn warn_stale_lockfile(outcome: &Outcome) {
+    let Some(update) = &outcome.manifest else {
+        return;
+    };
+    let Some(lockfile) = &update.stale_lockfile else {
+        return;
+    };
+    eprintln!(
+        "warning: {} may be stale after syncing {}; refresh it with your package manager",
+        lockfile.display(),
+        update.manifest.display()
+    );
 }
 
 /// The repository backing `root`, when one exists.

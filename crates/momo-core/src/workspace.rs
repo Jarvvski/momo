@@ -231,6 +231,7 @@ mod tests {
             PackageConfig {
                 identity: None,
                 slug: Some("alpha".to_owned()),
+                manifest: None,
             },
         );
         let workspace = Workspace::new(

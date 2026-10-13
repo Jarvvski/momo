@@ -15,6 +15,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 momo-core = { path = "../momo-core" }
+momo-manifest = { path = "../momo-manifest" }
 momo-taskenv = { path = "../momo-taskenv" }
 momo-vcs = { path = "../momo-vcs" }
 semver.workspace = true

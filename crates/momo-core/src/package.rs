@@ -21,6 +21,7 @@ pub struct Package {
     slug: String,
     root: PathBuf,
     monorepo: bool,
+    manifest: Option<PathBuf>,
 }
 
 impl Package {
@@ -36,6 +37,7 @@ impl Package {
             slug: slug.into(),
             root: root.into(),
             monorepo,
+            manifest: None,
         }
     }
 
@@ -64,6 +66,9 @@ impl Package {
             }
             if let Some(slug) = &overrides.slug {
                 self.slug = slug.clone();
+            }
+            if let Some(manifest) = &overrides.manifest {
+                self.manifest = Some(manifest.clone());
             }
         }
         self
@@ -121,6 +126,14 @@ impl Package {
     /// The Package's version-file path.
     pub fn version_file(&self, repo_root: &Path) -> PathBuf {
         self.dir(repo_root).join(VERSION_FILE)
+    }
+
+    /// The configured manifest path override, relative to the Package's
+    /// directory.
+    ///
+    /// `None` when the Package's ecosystem manifest is left to auto-discovery.
+    pub fn manifest_override(&self) -> Option<&Path> {
+        self.manifest.as_deref()
     }
 
     /// The Package's tag prefix: `<slug>-<base>` in a monorepo, `<base>` alone
@@ -258,6 +271,7 @@ mod tests {
             crate::config::PackageConfig {
                 identity: Some("cargo:renamed".to_owned()),
                 slug: Some("alpha".to_owned()),
+                manifest: None,
             },
         );
         let package = Package::from_identity("cargo:momo", "crates/momo").configured(&config);
@@ -266,9 +280,28 @@ mod tests {
     }
 
     #[test]
+    fn configured_takes_the_manifest_override() {
+        let mut config = Config::default();
+        config.packages.insert(
+            "cargo:momo".to_owned(),
+            crate::config::PackageConfig {
+                identity: None,
+                slug: None,
+                manifest: Some(PathBuf::from("manifest.toml")),
+            },
+        );
+        let package = Package::from_identity("cargo:momo", "crates/momo").configured(&config);
+        assert_eq!(
+            package.manifest_override(),
+            Some(Path::new("manifest.toml"))
+        );
+    }
+
+    #[test]
     fn configured_leaves_an_unmentioned_package_alone() {
         let package = Package::from_identity("cargo:momo", "crates/momo").configured(&config());
         assert_eq!(package.identity(), "cargo:momo");
         assert_eq!(package.slug(), "cargo-momo");
+        assert_eq!(package.manifest_override(), None);
     }
 }

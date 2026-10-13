@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use momo_core::changelog::{Changelog, Links};
 use momo_core::config::Config;
+use momo_core::manifest::ManifestUpdate;
 use momo_core::package::Package;
 use momo_core::remote::Remote;
 use momo_core::vcs::Vcs;
@@ -36,6 +37,8 @@ pub struct Outcome {
     pub version_file: Option<PathBuf>,
     /// The Fragments a Release consumed.
     pub consumed: Vec<PathBuf>,
+    /// The ecosystem manifest the run synced, when it found one.
+    pub manifest: Option<ManifestUpdate>,
 }
 
 /// Which end of the Release lifecycle a run is minting.
@@ -183,12 +186,40 @@ fn run(
     }
     let version_file = Some(package.version_file(repo_root));
 
+    // The ecosystem manifest follows the version file. It is a Release step, so
+    // a `--dry-run` writes nothing and a Package with no manifest is skipped.
+    let manifest = sync_manifest(&package_dir, package, &version, dry_run)?;
+
     Ok(Some(Outcome {
         version,
         changelog: changelog_path,
         version_file,
         consumed,
+        manifest,
     }))
+}
+
+/// Write `version` into the Package's ecosystem manifest, when it has one.
+///
+/// A Release step only: `--dry-run` writes nothing. A Package whose ecosystem
+/// has no adapter, or that has no manifest on disk, is skipped — the Release
+/// still succeeds. The manifest's lockfile is reported, never rewritten.
+fn sync_manifest(
+    package_dir: &Path,
+    package: &Package,
+    version: &Version,
+    dry_run: bool,
+) -> Result<Option<ManifestUpdate>> {
+    let Some(sync) = momo_manifest::for_package(package) else {
+        return Ok(None);
+    };
+    let Some(manifest) = sync.locate(package_dir, package.manifest_override()) else {
+        return Ok(None);
+    };
+    if dry_run {
+        return Ok(None);
+    }
+    Ok(sync.write(&manifest, version)?)
 }
 
 /// The Changelog on disk, or a new one when the file is missing.
@@ -543,5 +574,117 @@ mod tests {
             .expect("tag")
             .expect("something to tag");
         assert_eq!(name, "cargo-a-v0.1.0");
+    }
+
+    /// Seed a Cargo manifest at `path` with the bootstrap version.
+    fn manifest(root: &Path, path: &str) -> String {
+        let contents = "[package]\nname = \"momo\"\nversion = \"0.0.0\"\n";
+        let full = root.join(path);
+        if let Some(parent) = full.parent() {
+            fs::create_dir_all(parent).expect("create the manifest dir");
+        }
+        fs::write(&full, contents).expect("write the manifest");
+        contents.to_owned()
+    }
+
+    #[test]
+    fn a_release_syncs_the_ecosystem_manifest() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        manifest(root, "Cargo.toml");
+
+        let outcome = release(root, &fragments(), &package(), None, date(), false)
+            .expect("release")
+            .expect("something to release");
+
+        assert_eq!(outcome.version, Version::new(0, 1, 0));
+        let update = outcome.manifest.as_ref().expect("a manifest was synced");
+        assert_eq!(update.manifest, root.join("Cargo.toml"));
+        assert_eq!(
+            read(root, "Cargo.toml"),
+            "[package]\nname = \"momo\"\nversion = \"0.1.0\"\n"
+        );
+    }
+
+    #[test]
+    fn a_release_without_a_manifest_skips_sync() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+
+        let outcome = release(root, &fragments(), &package(), None, date(), false)
+            .expect("release")
+            .expect("something to release");
+
+        assert!(outcome.manifest.is_none());
+    }
+
+    #[test]
+    fn a_dry_run_release_writes_no_manifest() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        let seeded = manifest(root, "Cargo.toml");
+
+        let outcome = release(root, &fragments(), &package(), None, date(), true)
+            .expect("dry-run release")
+            .expect("something to release");
+
+        assert!(outcome.manifest.is_none());
+        assert_eq!(read(root, "Cargo.toml"), seeded);
+    }
+
+    #[test]
+    fn a_monorepo_release_syncs_the_package_manifest() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        let package = Package::from_identity("cargo:a", "crates/a");
+        fs::create_dir_all(root.join("crates/a")).expect("package dir");
+        fs::create_dir_all(root.join(".momo/changes/cargo-a")).expect("package changes dir");
+        fs::write(
+            root.join(".momo/changes/cargo-a/add-a-thing.md"),
+            "Add a thing\n",
+        )
+        .expect("write a fragment");
+        manifest(root, "crates/a/Cargo.toml");
+
+        release(root, &fragments(), &package, None, date(), false)
+            .expect("release")
+            .expect("something to release");
+
+        assert_eq!(
+            read(root, "crates/a/Cargo.toml"),
+            "[package]\nname = \"momo\"\nversion = \"0.1.0\"\n"
+        );
+    }
+
+    #[test]
+    fn a_configured_manifest_override_wins_over_discovery() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        let conventional = manifest(root, "Cargo.toml");
+        manifest(root, "alt.toml");
+
+        let mut config = fragments();
+        config.packages.insert(
+            "momo".to_owned(),
+            momo_core::config::PackageConfig {
+                manifest: Some(PathBuf::from("alt.toml")),
+                ..momo_core::config::PackageConfig::default()
+            },
+        );
+
+        let package = package().configured(&config);
+        release(root, &config, &package, None, date(), false)
+            .expect("release")
+            .expect("something to release");
+
+        assert_eq!(
+            read(root, "alt.toml"),
+            "[package]\nname = \"momo\"\nversion = \"0.1.0\"\n"
+        );
+        assert_eq!(read(root, "Cargo.toml"), conventional);
     }
 }
