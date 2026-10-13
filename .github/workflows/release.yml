@@ -47,9 +47,11 @@ jobs:
         with:
           # momo reads the current version from the newest tag, and the guards
           # below need every tag. The PAT, not GITHUB_TOKEN, because the release
-          # commit is pushed to the protected default branch.
+          # commit is pushed to the protected default branch — the fallback only
+          # keeps a dry run working before the secret exists, since a real push
+          # with GITHUB_TOKEN would be rejected.
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
       - uses: jdx/mise-action@v2
         with:
           # Rustup components live outside mise's cached data directory.
