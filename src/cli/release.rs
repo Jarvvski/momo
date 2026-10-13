@@ -23,6 +23,7 @@ use anyhow::{Context, Result, bail};
 use semver::Version;
 use time::Date;
 
+use crate::cli::atomic;
 use crate::cli::recording;
 use crate::cli::version::{FileVersionSource, source};
 
@@ -186,58 +187,133 @@ fn run(
     };
 
     let changelog_path = package.changelog(repo_root, config);
-    if !dry_run {
-        fs::write(&changelog_path, changelog.render())
-            .with_context(|| format!("writing {}", changelog_path.display()))?;
-    }
+    let version_file = package.version_file(repo_root);
 
+    // Validate before mutating. Rendering the manifest parses it — the step
+    // that can fail on a malformed manifest — so it runs here, before a single
+    // target is touched. The Fragments are collected, not deleted.
+    let manifest = render_manifest(&package_dir, package, &version)?;
     let consumed = match mode {
-        Mode::Release => recording::consume(repo_root, config, package, dry_run)?,
+        Mode::Release => recording::fragments(repo_root, config, package)?,
         Mode::Candidate => Vec::new(),
     };
 
-    // Both verbs advance the version source. A Candidate has to be taggable —
-    // that is the point of cutting one — and the eventual Release reads the
-    // Candidate's version back and drops the `-rc.N` suffix.
-    if !dry_run {
-        FileVersionSource::new(&package_dir).write(&version)?;
-    }
-    let version_file = package.version_file(repo_root);
-
-    // The ecosystem manifest follows the version file. It is a Release step, so
-    // a `--dry-run` writes nothing and a Package with no manifest is skipped.
-    let manifest = sync_manifest(&package_dir, package, &version, dry_run)?;
-
-    Ok(Some(Outcome {
+    let outcome = Outcome {
         version,
-        changelog: changelog_path,
-        version_file,
+        changelog: changelog_path.clone(),
+        version_file: version_file.clone(),
         consumed,
-        manifest,
-    }))
+        manifest: manifest.as_ref().map(|(_, update)| update.clone()),
+    };
+    let version_text = format!("{}\n", outcome.version);
+
+    // Stage every artefact beside its own target. Any failure here — a
+    // read-only directory, a full disk — leaves the tree exactly as it was.
+    let mut writes: Vec<(&Path, String)> = vec![
+        (changelog_path.as_path(), changelog.render()),
+        (version_file.as_path(), version_text),
+    ];
+    if let Some((text, update)) = &manifest {
+        writes.push((update.manifest.as_path(), text.clone()));
+    }
+
+    let mut staged = Staged::default();
+    for (target, contents) in &writes {
+        if let Err(err) = staged.add(target, contents) {
+            staged.discard();
+            return Err(err);
+        }
+    }
+
+    if dry_run {
+        staged.discard();
+        return Ok(Some(outcome));
+    }
+
+    // Commit: rename every staged file over its target, then delete the
+    // Fragments last, so a retry can still see them if anything goes wrong.
+    staged.commit()?;
+    recording::consume(&outcome.consumed)?;
+
+    Ok(Some(outcome))
 }
 
-/// Write `version` into the Package's ecosystem manifest, when it has one.
+/// A Release's rendered artefacts, staged as temporary files until every one is
+/// ready to be renamed into place.
 ///
-/// A Release step only: `--dry-run` writes nothing. A Package whose ecosystem
-/// has no adapter, or that has no manifest on disk, is skipped — the Release
-/// still succeeds. The manifest's lockfile is reported, never rewritten.
-fn sync_manifest(
+/// Staging is what makes the transaction all-or-nothing: no target named here
+/// changes until [`Staged::commit`], and any failure before it is undone by
+/// [`Staged::discard`].
+#[derive(Default)]
+struct Staged {
+    /// Each staged write: its temporary file and the target it will replace.
+    writes: Vec<(PathBuf, PathBuf)>,
+    /// Directories staging created, removed again on discard when still empty.
+    created: Vec<PathBuf>,
+}
+
+impl Staged {
+    /// Stage `contents` for `target`, creating its directory when needed.
+    fn add(&mut self, target: &Path, contents: &str) -> Result<()> {
+        if let Some(parent) = target.parent()
+            && !parent.as_os_str().is_empty()
+            && !parent.exists()
+        {
+            fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+            self.created.push(parent.to_path_buf());
+        }
+        let temp = atomic::stage(target, contents)
+            .with_context(|| format!("writing {}", target.display()))?;
+        self.writes.push((temp, target.to_path_buf()));
+        Ok(())
+    }
+
+    /// Rename every staged file over its target, in order.
+    ///
+    /// A failure removes the temporary files that have not been renamed yet; the
+    /// targets already renamed stay committed.
+    fn commit(self) -> Result<()> {
+        for (index, (temp, target)) in self.writes.iter().enumerate() {
+            if let Err(err) = fs::rename(temp, target) {
+                for (temp, _) in &self.writes[index..] {
+                    let _ = fs::remove_file(temp);
+                }
+                return Err(err).with_context(|| format!("replacing {}", target.display()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove every staged file, leaving the tree as it was.
+    fn discard(self) {
+        for (temp, _) in &self.writes {
+            let _ = fs::remove_file(temp);
+        }
+        for dir in &self.created {
+            let _ = fs::remove_dir(dir);
+        }
+    }
+}
+
+/// Render `version` into the Package's ecosystem manifest, when it has one.
+///
+/// A read-only step: it parses the manifest, so a malformed one fails before
+/// anything is written, and returns the text to stage. A Package whose
+/// ecosystem has no adapter, or that has no manifest on disk, is skipped — the
+/// Release still succeeds. An inherited version momo cannot resolve is an error,
+/// never a silent skip.
+fn render_manifest(
     package_dir: &Path,
     package: &Package,
     version: &Version,
-    dry_run: bool,
-) -> Result<Option<ManifestUpdate>> {
+) -> Result<Option<(String, ManifestUpdate)>> {
     let Some(sync) = crate::adapters::manifest::for_package(package) else {
         return Ok(None);
     };
     let Some(manifest) = sync.locate(package_dir, package.manifest_override()) else {
         return Ok(None);
     };
-    if dry_run {
-        return Ok(None);
-    }
-    Ok(sync.write(&manifest, version)?)
+    Ok(sync.render(&manifest, version)?)
 }
 
 /// The Changelog on disk, or a new one when the file is missing.
@@ -699,6 +775,26 @@ mod tests {
     }
 
     #[test]
+    fn a_dry_run_release_leaves_no_new_directory_behind() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        // Changelog mode: nothing pre-creates `.momo`, so the version file's
+        // directory is the only thing staging would add.
+        let seeded = "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- Add a thing\n";
+        fs::write(root.join("CHANGELOG.md"), seeded).expect("seed the changelog");
+
+        release(root, &Config::default(), &package(), None, date(), true)
+            .expect("dry-run release")
+            .expect("something to release");
+
+        assert!(
+            !root.join(".momo").exists(),
+            "the dry run left a `.momo` directory behind"
+        );
+        assert_eq!(read(root, "CHANGELOG.md"), seeded);
+    }
+
+    #[test]
     fn a_tag_names_the_version_momo_last_released() {
         let dir = TempDir::new().expect("temp dir");
         let root = dir.path();
@@ -821,7 +917,7 @@ mod tests {
     }
 
     #[test]
-    fn a_dry_run_release_writes_no_manifest() {
+    fn a_dry_run_release_reports_the_manifest_without_writing_it() {
         let dir = TempDir::new().expect("temp dir");
         let root = dir.path();
         fragment(root, "add-a-thing.md", "Add a thing");
@@ -831,8 +927,114 @@ mod tests {
             .expect("dry-run release")
             .expect("something to release");
 
-        assert!(outcome.manifest.is_none());
-        assert_eq!(read(root, "Cargo.toml"), seeded);
+        let update = outcome
+            .manifest
+            .as_ref()
+            .expect("the manifest is reported under --dry-run");
+        assert_eq!(update.manifest, root.join("Cargo.toml"));
+        assert_eq!(
+            read(root, "Cargo.toml"),
+            seeded,
+            "the dry run wrote the manifest"
+        );
+    }
+
+    /// Every staging file under `root`, recursively.
+    fn staging_files(root: &Path) -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.ends_with(".tmp"))
+                {
+                    found.push(path);
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn a_release_leaves_no_staging_files_behind() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        manifest(root, "Cargo.toml");
+
+        release(root, &fragments(), &package(), None, date(), false).expect("release");
+
+        assert_eq!(staging_files(root), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn an_invalid_manifest_leaves_the_release_unpromoted() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        fs::write(root.join("Cargo.toml"), "version = \n").expect("seed an invalid manifest");
+
+        let err = release(root, &fragments(), &package(), None, date(), false)
+            .expect_err("an invalid manifest is an error");
+        assert!(err.to_string().contains("Cargo.toml"), "{err}");
+
+        assert!(
+            !root.join("CHANGELOG.md").exists(),
+            "the changelog was promoted"
+        );
+        assert!(
+            !root.join(".momo/version").exists(),
+            "the version file was advanced"
+        );
+        assert!(
+            root.join(".momo/changes/add-a-thing.md").exists(),
+            "the fragment was consumed"
+        );
+        assert_eq!(staging_files(root), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn a_dry_run_with_an_invalid_manifest_is_an_error() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        fs::write(root.join("Cargo.toml"), "version = \n").expect("seed an invalid manifest");
+
+        let err = release(root, &fragments(), &package(), None, date(), true)
+            .expect_err("a dry run must validate the manifest too");
+        assert!(err.to_string().contains("Cargo.toml"), "{err}");
+        assert!(!root.join("CHANGELOG.md").exists());
+    }
+
+    #[test]
+    fn an_inherited_manifest_version_is_reported() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"momo\"\nversion.workspace = true\n",
+        )
+        .expect("seed an inherited manifest");
+
+        let err = release(root, &fragments(), &package(), None, date(), false)
+            .expect_err("an unresolvable inherited version is not silent");
+        assert!(err.to_string().contains("inherits its version"), "{err}");
+
+        assert!(
+            !root.join("CHANGELOG.md").exists(),
+            "the changelog was promoted"
+        );
+        assert!(!root.join(".momo/version").exists());
+        assert!(root.join(".momo/changes/add-a-thing.md").exists());
     }
 
     #[test]

@@ -121,6 +121,26 @@ fn writing_a_crlf_manifest_preserves_its_line_endings() {
 }
 
 #[test]
+fn rendering_a_manifest_leaves_the_file_untouched() {
+    let dir = TempDir::new().expect("temp dir");
+    let path = dir.path().join("Cargo.toml");
+    fs::write(&path, MANIFEST).expect("seed the manifest");
+
+    let (rendered, update) = CargoManifest
+        .render(&path, &version("0.2.0"))
+        .expect("render the manifest")
+        .expect("a manifest to sync");
+
+    assert_eq!(rendered, UPDATED);
+    assert_eq!(update.manifest, path);
+    assert_eq!(
+        fs::read_to_string(&path).expect("read the manifest"),
+        MANIFEST,
+        "render rewrote the manifest"
+    );
+}
+
+#[test]
 fn locate_finds_the_conventional_manifest() {
     let dir = TempDir::new().expect("temp dir");
     assert_eq!(CargoManifest.locate(dir.path(), None), None);

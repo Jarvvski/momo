@@ -6,8 +6,9 @@
 //! in production, a fake in tests — so the domain logic stays free of I/O.
 //!
 //! Syncing is split into a read-only [`ManifestSync::locate`] and a
-//! [`ManifestSync::write`], so a caller can report a `--dry-run` without
-//! mutating anything.
+//! [`ManifestSync::render`], plus [`ManifestSync::write`] which composes them.
+//! A caller can render a `--dry-run` — or stage the write in a transaction —
+//! without mutating anything.
 //!
 //! The write is deliberately conservative: only the version scalar changes, and
 //! a lockfile the ecosystem maintains is *reported* rather than rewritten —
@@ -40,6 +41,22 @@ pub trait ManifestSync {
     /// conventional manifest is discovered in `package_dir`. `None` when no
     /// manifest is present — nothing to sync, which is not an error.
     fn locate(&self, package_dir: &Path, override_path: Option<&Path>) -> Option<PathBuf>;
+
+    /// Render `manifest` with `version` set, without writing it.
+    ///
+    /// The read-only half of [`ManifestSync::write`]: the manifest is read and
+    /// parsed and the new text plus the [`ManifestUpdate`] are returned. `None`
+    /// when the manifest holds no version momo owns, or already carries
+    /// `version`.
+    ///
+    /// [`ManifestError::InheritedVersion`] when the manifest inherits its
+    /// version from a workspace root that is not in the same document: momo
+    /// cannot resolve it, so it must not be silently skipped.
+    fn render(
+        &self,
+        manifest: &Path,
+        version: &Version,
+    ) -> Result<Option<(String, ManifestUpdate)>, ManifestError>;
 
     /// Write `version` into `manifest`, preserving the file's formatting.
     ///
@@ -85,5 +102,13 @@ pub enum ManifestError {
         /// Why the parse failed.
         #[source]
         source: toml_edit::TomlError,
+    },
+
+    /// The manifest inherits its version from a workspace root that is not in
+    /// the same document, so momo cannot resolve the version to write.
+    #[error("`{manifest}` inherits its version from a workspace root momo cannot see")]
+    InheritedVersion {
+        /// The manifest whose version is inherited.
+        manifest: PathBuf,
     },
 }

@@ -1,7 +1,7 @@
 # 35: Recording writes are non-atomic, and fragment naming has a TOCTOU race
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: cli/recording
 Verified: yes — read at the cited lines
@@ -80,3 +80,29 @@ out. The atomic-write helper is shared with 37 — build it once
   the race).
 - **Out of scope:** mutual exclusion for concurrent changelog-mode writers;
   raise it as its own decision if concurrent `momo add` is a real workflow.
+
+## Resolution
+
+Added the shared `src/cli/atomic.rs` helper: `stage(target, contents)` writes a
+temp file beside the target with `create_new` and returns its path;
+`write(target, contents)` stages then renames it over the target, removing the
+temp on any failure. Used by:
+
+- `src/cli/recording.rs` changelog mode (replaces the bare `fs::write`), and
+- `FileVersionSource::write` in `src/cli/version.rs`.
+
+Fragment naming no longer checks `exists()` before writing: `create_fragment`
+opens each candidate with `OpenOptions::create_new`, advancing the `-N` suffix on
+`AlreadyExists`, so two concurrent `momo add` runs cannot clobber each other. The
+`exists()`-based `unique_fragment_path` is kept for the `--dry-run` preview only.
+
+Changelog-mode *lost-update* concurrency stays out of scope, per the triage
+correction (temp+rename fixes torn writes, not last-writer-wins).
+
+**Tests:** `atomic` unit — `write` replaces content and leaves no temp; creates a
+missing file; `stage` leaves the target alone; a parent-less target stages in the
+current directory. `recording` unit — the `create_new` retry picks `-2` when the
+base name exists; the dry-run preview picks `-2` without writing.
+`tests/recording.rs` — after `add` the project dir holds only `CHANGELOG.md` and
+`momo.toml` (no temp artefacts); a pre-seeded base fragment makes `add` land on
+`add-add-a-thing-2.md`.

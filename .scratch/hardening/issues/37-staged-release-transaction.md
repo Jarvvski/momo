@@ -1,7 +1,7 @@
 # 37: A staged release transaction
 
 Type: refactor
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: cli/release
 Verified: yes — the current ordering is read at the cited lines
@@ -102,3 +102,41 @@ directory.
     `release --dry-run` on a malformed `Cargo.toml` fails.
   - Update the existing `a_dry_run_release_writes_no_manifest` expectation: the
     manifest is now *reported* under dry-run, still unwritten.
+
+## Resolution
+
+Landed the staged release transaction in `src/cli/release.rs`. `run()` is now
+prepare-then-commit:
+
+- **Prepare (no target touched):** read the Changelog, mint the Version, render
+  the Changelog text, render the manifest through a new read-only
+  `ManifestSync::render` (parse + `set_version`, no write), and collect the
+  Fragment paths. Then stage each artefact — Changelog, `.momo/version`,
+  manifest — as a temp file beside its own target via the shared
+  `src/cli/atomic.rs` helper.
+- **Commit:** rename every temp over its target, then delete the Fragments last.
+- Any prepare error discards the temps (and any directory staging created) and
+  returns `Err`; the tree is untouched.
+
+`--dry-run` runs prepare — so it now parses the manifest and fails on a malformed
+one (ticket 02) — discards the temps, and builds `Outcome` with
+`manifest: Some(ManifestUpdate { .. })`. `output::Release` gained a `manifest`
+key/line (human + JSON), so the report and `warn_stale_lockfile` both fire under
+dry-run; `docs/ci.md` documents the new key.
+
+This subsumes 01 (ordering/atomicity) and 02 (validate-before-mutate, incl.
+dry-run reporting), which stay `wontfix` as superseded.
+
+**Deviation:** the sketch's "a read-only `Cargo.toml` makes `release` fail" does
+not hold under temp+rename — a read-only file is still replaceable when its
+directory is writable. The integration test therefore makes the *directory*
+read-only to force a staging failure, then restores it and asserts the retry
+completes.
+
+**Tests:** `src/cli/release.rs` unit — invalid TOML leaves the release
+unpromoted; dry-run rejects invalid TOML; dry-run reports the manifest without
+writing it; an inherited version is reported; a successful release leaves no
+`.tmp`; a dry-run leaves no new directory. `tests/release.rs` — a failed manifest
+parse promotes nothing and the retry succeeds; a read-only directory promotes
+nothing and the retry succeeds; dry-run rejects an unparseable manifest; dry-run
+reports the manifest without writing it.

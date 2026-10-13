@@ -7,6 +7,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
+use crate::cli::atomic;
 use crate::domain::vcs::Vcs;
 use crate::domain::version::{TagVersionSource, Version, VersionError, VersionSource};
 
@@ -36,7 +37,7 @@ impl FileVersionSource {
                 source,
             })?;
         }
-        fs::write(&self.path, format!("{version}\n")).map_err(|source| VersionError::Write {
+        atomic::write(&self.path, &format!("{version}\n")).map_err(|source| VersionError::Write {
             path: self.path.clone(),
             source,
         })

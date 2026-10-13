@@ -485,3 +485,190 @@ fn an_unparseable_remote_in_the_environment_fails_the_run() {
             predicate::str::contains("MOMO_REMOTE").and(predicate::str::contains("not a remote")),
         );
 }
+
+/// Every staging file left anywhere under `dir`.
+fn staging_files(dir: &TempDir) -> Vec<String> {
+    fn walk(path: &Path, found: &mut Vec<String>) {
+        let Ok(entries) = fs::read_dir(path) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, found);
+            } else if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".tmp"))
+            {
+                found.push(path.display().to_string());
+            }
+        }
+    }
+
+    let mut found = Vec::new();
+    walk(dir.path(), &mut found);
+    found.sort();
+    found
+}
+
+#[test]
+fn a_failed_manifest_parse_promotes_nothing() {
+    let dir = TempDir::new().expect("temp dir");
+    seed_recording(&dir, "fragments");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    fs::write(dir.path().join("Cargo.toml"), "version = \n").expect("seed an invalid manifest");
+
+    momo(&dir)
+        .arg("release")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Cargo.toml"));
+
+    assert!(
+        !dir.path().join("CHANGELOG.md").exists(),
+        "the changelog was promoted"
+    );
+    assert!(
+        !dir.path().join(".momo/version").exists(),
+        "the version file was advanced"
+    );
+    assert!(
+        dir.path()
+            .join(".momo/changes/add-add-a-shiny-thing.md")
+            .exists(),
+        "the fragment was consumed"
+    );
+    assert_eq!(staging_files(&dir), Vec::<String>::new());
+
+    // The retry finishes the job once the manifest is valid.
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"proj\"\nversion = \"0.0.0\"\n",
+    )
+    .expect("fix the manifest");
+    momo(&dir).arg("release").assert().success();
+
+    assert!(read(&dir, "CHANGELOG.md").contains("## [0.1.0]"));
+    assert_eq!(
+        read(&dir, "Cargo.toml"),
+        "[package]\nname = \"proj\"\nversion = \"0.1.0\"\n"
+    );
+}
+
+#[test]
+fn a_dry_run_rejects_an_unparseable_manifest() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    fs::write(dir.path().join("Cargo.toml"), "version = \n").expect("seed an invalid manifest");
+
+    momo(&dir)
+        .args(["release", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Cargo.toml"));
+
+    assert!(!dir.path().join(".momo/version").exists());
+}
+
+#[test]
+fn a_dry_run_reports_the_manifest_without_writing_it() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    let seeded = "[package]\nname = \"proj\"\nversion = \"0.0.0\"\n";
+    fs::write(dir.path().join("Cargo.toml"), seeded).expect("seed the manifest");
+
+    momo(&dir)
+        .args(["release", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("would write").and(predicate::str::contains("Cargo.toml")),
+        );
+
+    assert_eq!(
+        read(&dir, "Cargo.toml"),
+        seeded,
+        "the dry run wrote the manifest"
+    );
+    assert!(!dir.path().join(".momo/version").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unwritable_directory_fails_before_anything_is_promoted() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().expect("temp dir");
+    seed_recording(&dir, "fragments");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555))
+        .expect("make the project read-only");
+    let failed = momo(&dir).arg("release").assert().failure();
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755))
+        .expect("restore the project");
+
+    failed.stderr(predicate::str::contains("writing"));
+    assert!(
+        !dir.path().join("CHANGELOG.md").exists(),
+        "the changelog was promoted"
+    );
+    assert!(
+        !dir.path().join(".momo/version").exists(),
+        "the version file was advanced"
+    );
+    assert!(
+        dir.path()
+            .join(".momo/changes/add-add-a-shiny-thing.md")
+            .exists(),
+        "the fragment was consumed"
+    );
+    assert_eq!(staging_files(&dir), Vec::<String>::new());
+
+    // With the directory writable again, the retry finishes the release.
+    momo(&dir).arg("release").assert().success();
+    assert!(read(&dir, "CHANGELOG.md").contains("## [0.1.0]"));
+    assert_eq!(read(&dir, ".momo/version"), "0.1.0\n");
+}
+
+#[test]
+fn an_inherited_manifest_version_fails_the_release() {
+    let dir = TempDir::new().expect("temp dir");
+    seed_recording(&dir, "fragments");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"proj\"\nversion.workspace = true\n",
+    )
+    .expect("seed an inherited manifest");
+
+    momo(&dir)
+        .arg("release")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("inherits its version"));
+
+    assert!(!dir.path().join("CHANGELOG.md").exists());
+    assert!(!dir.path().join(".momo/version").exists());
+    assert!(
+        dir.path()
+            .join(".momo/changes/add-add-a-shiny-thing.md")
+            .exists()
+    );
+}

@@ -36,11 +36,11 @@ impl ManifestSync for CargoManifest {
         path.is_file().then_some(path)
     }
 
-    fn write(
+    fn render(
         &self,
         manifest: &Path,
         version: &Version,
-    ) -> Result<Option<ManifestUpdate>, ManifestError> {
+    ) -> Result<Option<(String, ManifestUpdate)>, ManifestError> {
         let text = fs::read_to_string(manifest).map_err(|source| ManifestError::Read {
             path: manifest.to_path_buf(),
             source,
@@ -49,15 +49,29 @@ impl ManifestSync for CargoManifest {
         let Some(updated) = set_version(&text, manifest, version)? else {
             return Ok(None);
         };
+        Ok(Some((
+            updated,
+            ManifestUpdate {
+                manifest: manifest.to_path_buf(),
+                stale_lockfile: lockfile(manifest),
+            },
+        )))
+    }
+
+    fn write(
+        &self,
+        manifest: &Path,
+        version: &Version,
+    ) -> Result<Option<ManifestUpdate>, ManifestError> {
+        let Some((updated, update)) = self.render(manifest, version)? else {
+            return Ok(None);
+        };
         fs::write(manifest, updated).map_err(|source| ManifestError::Write {
             path: manifest.to_path_buf(),
             source,
         })?;
 
-        Ok(Some(ManifestUpdate {
-            manifest: manifest.to_path_buf(),
-            stale_lockfile: lockfile(manifest),
-        }))
+        Ok(Some(update))
     }
 }
 
@@ -83,6 +97,14 @@ fn set_version(
 
     let Some(key) = version_key(&doc) else {
         return Ok(None);
+    };
+    let key = match key {
+        Key::Inherited => {
+            return Err(ManifestError::InheritedVersion {
+                manifest: manifest.to_path_buf(),
+            });
+        }
+        resolvable => resolvable,
     };
     let target = version.to_string();
     let Some(item) = item_mut(&mut doc, key) else {
@@ -135,6 +157,9 @@ enum Key {
     /// `[workspace.package].version` — the workspace root a member inherits
     /// from, or a virtual manifest.
     Workspace,
+    /// `version.workspace = true` with no `[workspace.package].version` in the
+    /// same document — an inherited version momo cannot resolve.
+    Inherited,
 }
 
 /// Resolve the key holding `doc`'s authoritative version.
@@ -142,7 +167,10 @@ enum Key {
 /// `[package].version` wins when it is a string. When it is inherited
 /// (`version.workspace = true`), or the manifest has no member version at all
 /// (a virtual workspace), the workspace root's `[workspace.package].version` is
-/// authoritative. `None` when neither exists, so the manifest is left alone.
+/// authoritative. `Key::Inherited` when the version is inherited from a
+/// workspace root that is not in this document — [`set_version`] reports that
+/// rather than silently skipping. `None` when neither exists, so the manifest
+/// is left alone.
 fn version_key(doc: &DocumentMut) -> Option<Key> {
     if let Some(item) = doc
         .get("package")
@@ -152,7 +180,11 @@ fn version_key(doc: &DocumentMut) -> Option<Key> {
             return Some(Key::Package);
         }
         if item.get("workspace").and_then(Item::as_bool) == Some(true) {
-            return workspace_version(doc).map(|_| Key::Workspace);
+            return Some(if workspace_version(doc).is_some() {
+                Key::Workspace
+            } else {
+                Key::Inherited
+            });
         }
         return None;
     }
@@ -172,6 +204,8 @@ fn item_mut(doc: &mut DocumentMut, key: Key) -> Option<&mut Item> {
             .get_mut("workspace")?
             .get_mut("package")?
             .get_mut("version"),
+        // `Inherited` is rejected before an item is looked up.
+        Key::Inherited => None,
     }
 }
 
@@ -277,12 +311,15 @@ version = \"0.2.0\"
     }
 
     #[test]
-    fn an_inherited_version_without_a_workspace_root_is_skipped() {
+    fn an_inherited_version_without_a_workspace_root_is_reported() {
         let original = "[package]\nname = \"bar\"\nversion.workspace = true\n";
-        assert_eq!(
-            set_version(original, manifest(), &version("1.0.0")).expect("valid TOML"),
-            None
+        let err = set_version(original, manifest(), &version("1.0.0"))
+            .expect_err("an unresolvable inherited version is an error");
+        assert!(
+            matches!(err, ManifestError::InheritedVersion { .. }),
+            "{err}"
         );
+        assert!(err.to_string().contains("Cargo.toml"), "{err}");
     }
 
     #[test]

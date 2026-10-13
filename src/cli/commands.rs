@@ -269,6 +269,10 @@ fn report_release(cli: &Cli, outcome: &Outcome, verb: Verb) -> Result<()> {
             version: &outcome.version,
             changelog: &outcome.changelog,
             version_file: &outcome.version_file,
+            manifest: outcome
+                .manifest
+                .as_ref()
+                .map(|update| update.manifest.as_path()),
             consumed: &outcome.consumed,
             verb,
             dry_run: cli.dry_run,

@@ -80,6 +80,7 @@ an array, even for a single-package repo.
   "version": "0.1.0",
   "changelog": "/repo/CHANGELOG.md",
   "version_file": "/repo/.momo/version",
+  "manifest": "/repo/Cargo.toml",
   "consumed": [
     "/repo/.momo/changes/add-a-shiny-thing.md"
   ],
@@ -87,9 +88,11 @@ an array, even for a single-package repo.
 }
 ```
 
-`version_file` is the version file the run wrote. `consumed` lists the fragments
-the run deleted (empty for `candidate`). Under `--dry-run` the paths are what the
-run *would* have written.
+`version_file` is the version file the run wrote. `manifest` is the ecosystem
+manifest whose version scalar the run synced, or `null` when the package has
+none. `consumed` lists the fragments the run deleted (empty for `candidate`).
+Under `--dry-run` the paths are what the run *would* have written — including the
+manifest, which the dry run parses but does not write.
 
 ### `tag` (`--format json`)
 
