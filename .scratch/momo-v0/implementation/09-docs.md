@@ -9,9 +9,9 @@ debt recorded by the CI-output decision.
 
 **Spec:** `.scratch/momo-v0/spec.md` §13 (the documented exit-code contract)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] README covers installation, the verb surface, the three Kinds, and the semver rules.
-- [ ] The `status --check` exit-code contract is documented explicitly.
-- [ ] The config file, its keys, and the precedence order are documented.
-- [ ] Every command shown in the README has been run and works.
+- [x] README covers installation, the verb surface, the three Kinds, and the semver rules.
+- [x] The `status --check` exit-code contract is documented explicitly.
+- [x] The config file, its keys, and the precedence order are documented.
+- [x] Every command shown in the README has been run and works.
