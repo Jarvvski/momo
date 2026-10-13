@@ -77,6 +77,11 @@ impl FromStr for Kind {
     }
 }
 
+/// The error produced when a Change's text is empty once normalised.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("a change needs some text")]
+pub struct EmptyChange;
+
 /// One recorded unit of work, classified by exactly one Kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
@@ -87,7 +92,10 @@ pub struct Change {
 }
 
 impl Change {
-    /// Record a Change of `kind` with `text`.
+    /// Record a Change of `kind` with `text`, trusting `text` verbatim.
+    ///
+    /// The parsing path uses this: the text it recovers from a Changelog is
+    /// already a single line. Text from a user goes through [`Self::try_new`].
     pub fn new(kind: Kind, text: impl Into<String>) -> Self {
         Self {
             kind,
@@ -95,10 +103,29 @@ impl Change {
         }
     }
 
+    /// Record a Change of `kind` with `text`, normalising and validating it.
+    ///
+    /// `text` is trimmed and every run of whitespace — newlines and tabs
+    /// included — collapses to a single space, so a Change can never forge a
+    /// second Changelog line or heading. Whitespace-only text is rejected:
+    /// there is nothing to record, and it would otherwise mint a Release.
+    pub fn try_new(kind: Kind, text: &str) -> Result<Self, EmptyChange> {
+        let text = collapse_whitespace(text);
+        if text.is_empty() {
+            return Err(EmptyChange);
+        }
+        Ok(Self { kind, text })
+    }
+
     /// The Fragment file name for this Change: `<kind>-<slug>.md`.
     pub fn fragment_file_name(&self) -> String {
         format!("{}-{}.md", self.kind, slugify(&self.text))
     }
+}
+
+/// Trim `text` and collapse every run of whitespace to a single space.
+fn collapse_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
@@ -143,5 +170,25 @@ mod tests {
             change.fragment_file_name(),
             "add-momo-status-format-json-for-ci.md"
         );
+    }
+
+    #[test]
+    fn try_new_rejects_empty_or_whitespace_only_text() {
+        assert_eq!(Change::try_new(Kind::Add, ""), Err(EmptyChange));
+        assert_eq!(Change::try_new(Kind::Fix, " \n\t "), Err(EmptyChange));
+    }
+
+    #[test]
+    fn try_new_trims_and_collapses_whitespace_runs() {
+        assert_eq!(
+            Change::try_new(Kind::Add, "  a \n b\t\tc  ").expect("some text"),
+            Change::new(Kind::Add, "a b c")
+        );
+    }
+
+    #[test]
+    fn try_new_flattens_an_injected_section_heading_onto_one_line() {
+        let change = Change::try_new(Kind::Add, "x\n## [9.9.9] - 2000-01-01").expect("some text");
+        assert_eq!(change.text, "x ## [9.9.9] - 2000-01-01");
     }
 }

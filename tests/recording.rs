@@ -54,6 +54,44 @@ fn add_records_a_change_under_unreleased() {
 }
 
 #[test]
+fn a_change_verb_rejects_empty_text() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "   "])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("recording `add`"));
+
+    assert!(
+        !dir.path().join("CHANGELOG.md").exists(),
+        "an empty change wrote a changelog"
+    );
+    assert!(
+        !dir.path().join("momo.toml").exists(),
+        "a rejected change created the config"
+    );
+}
+
+#[test]
+fn a_change_verb_flattens_an_injected_section_heading() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "x\n## [9.9.9] - 2000-01-01"])
+        .assert()
+        .success();
+
+    let changelog = read(&dir, "CHANGELOG.md");
+    assert!(
+        changelog.contains("- x ## [9.9.9] - 2000-01-01"),
+        "{changelog}"
+    );
+    assert!(
+        !changelog.lines().any(|line| line.starts_with("## [9.9.9]")),
+        "a Change forged a released section:\n{changelog}"
+    );
+}
+
+#[test]
 fn each_verb_records_its_kind() {
     let dir = TempDir::new().expect("temp dir");
     for (verb, heading, text) in [
@@ -73,7 +111,6 @@ fn each_verb_records_its_kind() {
         );
     }
 }
-
 #[test]
 fn fragments_mode_writes_one_fragment_per_change() {
     let dir = TempDir::new().expect("temp dir");

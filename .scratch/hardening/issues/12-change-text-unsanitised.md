@@ -1,7 +1,7 @@
 # 12: Change text is unsanitised and injected verbatim into the changelog
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: cli + domain/changelog
 Verified: yes — read at the cited lines
@@ -80,3 +80,26 @@ Apply the same normalisation when reading fragments.
 - Tests: empty and whitespace-only rejected; `"a\nb"` → `"a b"`;
   `"x\n## [9.9.9] - 2000-01-01"` renders one bullet and no section; a multi-line
   fragment is collapsed.
+
+## Resolution
+
+Resolved in the `changelog-fidelity` change set.
+
+`Change::try_new` (`src/domain/change.rs`) trims the text and collapses every run
+of whitespace — newlines and tabs included — to a single space, rejecting
+whitespace-only text with `EmptyChange`. `momo break|add|fix` builds the Change
+through it (`src/cli/commands.rs`), so a newline can no longer forge a released
+section and `momo add ""` no longer mints a Release; the config is not scaffolded
+on rejection either. Fragment reads (`src/cli/recording.rs`) normalise the same
+way; a Fragment that is empty once normalised is skipped rather than failing the
+run. `Change::new` remains the verbatim constructor the parser uses for text it
+recovers from an existing changelog.
+
+Tests: `try_new_rejects_empty_or_whitespace_only_text`,
+`try_new_trims_and_collapses_whitespace_runs`,
+`try_new_flattens_an_injected_section_heading_onto_one_line`,
+`a_change_cannot_forge_a_released_section`,
+`a_multiline_fragment_is_collapsed_into_one_entry`,
+`an_empty_fragment_records_no_change`; integration:
+`a_change_verb_rejects_empty_text`,
+`a_change_verb_flattens_an_injected_section_heading`.

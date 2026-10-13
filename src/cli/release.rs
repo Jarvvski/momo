@@ -11,7 +11,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use crate::domain::changelog::{Changelog, Links};
-use crate::domain::config::Config;
+use crate::domain::config::{Config, Recording};
 use crate::domain::manifest::ManifestUpdate;
 use crate::domain::package::Package;
 use crate::domain::remote::Remote;
@@ -19,7 +19,7 @@ use crate::domain::vcs::Vcs;
 use crate::domain::version::{
     DEFAULT_RC_FORMAT, VersionSource, candidate_version, next_candidate, release_version,
 };
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use semver::Version;
 use time::Date;
 
@@ -144,6 +144,18 @@ fn run(
     };
 
     let mut changelog = read_changelog(repo_root, config, package)?;
+    // In fragments mode the Changelog holds releases only. A hand-written
+    // Unreleased section would be dropped without ever being promoted, so
+    // refuse rather than silently discard it.
+    if config.recording == Recording::Fragments && changelog.has_unreleased() {
+        let path = package.changelog(repo_root, config);
+        bail!(
+            "{} holds an Unreleased section, but this package records changes as fragments; \
+             move those entries into {} as fragments, or set recording = \"changelog\"",
+            path.display(),
+            config.changes_dir.display(),
+        );
+    }
     // A configured `remote` wins; otherwise link to the remote the VCS has.
     let derived = if config.remote.is_some() {
         None
@@ -387,6 +399,82 @@ mod tests {
         release(root, &fragments(), &package(), None, date(), false).expect("release");
 
         assert_eq!(read(root, ".momo/version"), "0.1.0\n");
+    }
+
+    #[test]
+    fn a_fragments_release_refuses_a_changelog_resident_unreleased_section() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        let seeded = "# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- a hand-written fix\n";
+        fs::write(root.join("CHANGELOG.md"), seeded).expect("seed the changelog");
+
+        let err = release(root, &fragments(), &package(), None, date(), false)
+            .expect_err("a mixed recording state is refused");
+        let message = err.to_string();
+        assert!(message.contains("CHANGELOG.md"), "{message}");
+        assert!(message.contains("fragments"), "{message}");
+
+        // Nothing was written, and the fragment was not consumed.
+        assert_eq!(read(root, "CHANGELOG.md"), seeded);
+        assert!(root.join(".momo/changes/add-a-thing.md").exists());
+        assert!(!root.join(".momo/version").exists());
+    }
+
+    #[test]
+    fn a_fragments_release_ignores_an_empty_changelog_unreleased_heading() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        fs::write(
+            root.join("CHANGELOG.md"),
+            "# Changelog\n\n## [Unreleased]\n",
+        )
+        .expect("seed the changelog");
+
+        release(root, &fragments(), &package(), None, date(), false)
+            .expect("release")
+            .expect("something to release");
+
+        let changelog = read(root, "CHANGELOG.md");
+        assert!(changelog.contains("## [0.1.0]"), "{changelog}");
+        assert!(changelog.contains("- Add a thing"), "{changelog}");
+    }
+
+    #[test]
+    fn a_multiline_fragment_is_collapsed_into_one_entry() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(
+            root,
+            "add-a-thing.md",
+            "Add a thing\n## [9.9.9] - 2000-01-01",
+        );
+
+        release(root, &fragments(), &package(), None, date(), false)
+            .expect("release")
+            .expect("something to release");
+
+        let changelog = read(root, "CHANGELOG.md");
+        assert!(
+            changelog.contains("- Add a thing ## [9.9.9] - 2000-01-01"),
+            "{changelog}"
+        );
+        assert!(
+            !changelog.lines().any(|line| line.starts_with("## [9.9.9]")),
+            "{changelog}"
+        );
+    }
+
+    #[test]
+    fn an_empty_fragment_records_no_change() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-blank.md", "   ");
+
+        let outcome = release(root, &fragments(), &package(), None, date(), false)
+            .expect("an empty fragment is not an error");
+        assert!(outcome.is_none());
     }
 
     #[test]

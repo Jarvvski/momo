@@ -1,7 +1,7 @@
 # 14: In fragments mode a release discards a changelog-resident Unreleased section
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: cli/release + domain/changelog
 Verified: yes — read at the cited lines
@@ -73,3 +73,19 @@ don't merge). Orthogonal to 38.
 - Tests (`release.rs` `mod tests`): fragments config + a changelog with
   `## [Unreleased]` and a bullet → `release` errors and writes nothing; fragments
   config + no Unreleased section → succeeds (existing tests).
+
+## Resolution
+
+Resolved in the `changelog-fidelity` change set.
+
+`Changelog::has_unreleased` reports a *non-empty* Unreleased section, and `run`
+(`src/cli/release.rs`) refuses with a message naming the changelog and the fix
+when `recording = "fragments"` and the parsed changelog has one. An empty
+`## [Unreleased]` heading (the fresh-template case) is left alone, so switching a
+repo to fragments does not block every release. Nothing is written and no
+Fragment is consumed when the guard fires.
+
+Tests: `has_unreleased_reports_a_non_empty_unreleased_section`,
+`a_fragments_release_refuses_a_changelog_resident_unreleased_section`,
+`a_fragments_release_ignores_an_empty_changelog_unreleased_heading`;
+integration: `release_in_fragments_mode_refuses_a_changelog_unreleased_section`.

@@ -1,7 +1,7 @@
 # 09: Rewriting the changelog footer deletes user-authored reference links
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: domain/changelog
 Verified: yes — read at the cited lines
@@ -92,3 +92,18 @@ not depend on it. Not a duplicate of 10/13. Keep.
   `[Semantic Versioning]:` plus momo links survives a `release` with a remote
   and has its version links updated; a footer survives a `release` with no
   remote; unit-test `is_owned_link`.
+
+## Resolution
+
+Resolved in the `changelog-fidelity` change set.
+
+`refresh_footer` (`src/domain/changelog.rs`) now merges instead of replacing.
+`is_owned_link`/`link_label` decide which footer lines momo owns — the
+`[Unreleased]` link and any label that parses as a semver `Version`. Every other
+definition is kept, in its original order, ahead of the regenerated owned lines
+(a small reorder: user definitions now lead). With `links.remote == None` the
+footer is left exactly as it was rather than emptied.
+
+Tests: `is_owned_link_matches_only_momo_reference_links`,
+`a_release_preserves_user_authored_footer_links`,
+`a_release_without_a_remote_leaves_the_footer_alone`.
