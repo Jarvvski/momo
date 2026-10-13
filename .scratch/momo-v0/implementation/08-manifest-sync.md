@@ -12,10 +12,21 @@ only; `status` and `--dry-run` never write.
 
 **Spec:** `.scratch/momo-v0/spec.md` §11
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `momo release` updates the version in `Cargo.toml` while preserving comments, ordering and whitespace.
-- [ ] No other key in the manifest is touched.
-- [ ] A stale `Cargo.lock` produces a warning, not a rewrite.
-- [ ] With no manifest present, release succeeds and skips sync.
-- [ ] `momo status` and `--dry-run` never write a manifest.
+- [x] `momo release` updates the version in `Cargo.toml` while preserving comments, ordering and whitespace.
+- [x] No other key in the manifest is touched.
+- [x] A stale `Cargo.lock` produces a warning, not a rewrite.
+- [x] With no manifest present, release succeeds and skips sync.
+- [x] `momo status` and `--dry-run` never write a manifest.
+
+## Comments
+
+Implemented as a new `momo-manifest` adapter crate (mirroring `momo-vcs` /
+`momo-taskenv`) behind a `ManifestSync` port in `momo-core`. The write resolves
+the authoritative version key: `[package].version` when it is a plain string,
+else `[workspace.package].version` for a member that inherits
+(`version.workspace = true`) or a virtual manifest — the workspace pitfall in
+`research/version-file-formats.md`. A manifest with neither key is skipped, never
+grown a new key. The path is overridable per Package via
+`[packages."<identity>"] manifest = "..."` in `momo.toml`.
