@@ -7,6 +7,7 @@ mod output;
 mod recording;
 mod release;
 mod version;
+mod workspace;
 
 use std::process::ExitCode;
 
