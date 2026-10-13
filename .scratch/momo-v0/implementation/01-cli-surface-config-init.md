@@ -15,10 +15,10 @@ nothing but `momo.toml`.
 
 **Spec:** `.scratch/momo-v0/spec.md` §3, §12
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `momo --help` and each verb's `--help` show the full surface above, including aliases and global flags.
-- [ ] `momo init` writes a valid `momo.toml` at the repo root and leaves every other file untouched.
-- [ ] Config precedence is observable: a flag beats `MOMO_*`, which beats the file, which beats the defaults.
-- [ ] A read-only command run where no `momo.toml` exists creates nothing.
-- [ ] Unimplemented verbs exit non-zero with a clear message.
+- [x] `momo --help` and each verb's `--help` show the full surface above, including aliases and global flags.
+- [x] `momo init` writes a valid `momo.toml` at the repo root and leaves every other file untouched.
+- [x] Config precedence is observable: a flag beats `MOMO_*`, which beats the file, which beats the defaults.
+- [x] A read-only command run where no `momo.toml` exists creates nothing.
+- [x] Unimplemented verbs exit non-zero with a clear message.
