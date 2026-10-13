@@ -367,3 +367,29 @@ fn a_remote_key_in_the_config_writes_the_changelog_footer() {
         "{changelog}"
     );
 }
+
+#[test]
+fn an_unparseable_remote_in_the_config_fails_the_run() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(dir.path().join("momo.toml"), "remote = \"not a remote\"\n").expect("seed momo.toml");
+
+    momo(&dir)
+        .arg("release")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("remote").and(predicate::str::contains("not a remote")));
+}
+
+#[test]
+fn an_unparseable_remote_in_the_environment_fails_the_run() {
+    let dir = TempDir::new().expect("temp dir");
+
+    momo(&dir)
+        .env("MOMO_REMOTE", "not a remote")
+        .arg("status")
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("MOMO_REMOTE").and(predicate::str::contains("not a remote")),
+        );
+}

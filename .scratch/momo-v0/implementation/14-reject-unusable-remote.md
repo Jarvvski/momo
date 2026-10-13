@@ -19,9 +19,9 @@ workflow builds **Linux and macOS only** — four Unix targets, no Windows.
 
 **Spec:** `.scratch/momo-v0/spec.md` §6
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A `remote` value that cannot be parsed as a remote URL makes the run fail, naming the key and the value.
-- [ ] An absent `remote` still derives the footer from the VCS, or omits it when there is no VCS.
-- [ ] A valid `remote` continues to work, with and without a VCS.
-- [ ] The README and the mise playbook state that releases are built for Linux and macOS only.
+- [x] A `remote` value that cannot be parsed as a remote URL makes the run fail, naming the key and the value.
+- [x] An absent `remote` still derives the footer from the VCS, or omits it when there is no VCS.
+- [x] A valid `remote` continues to work, with and without a VCS.
+- [x] The README and the mise playbook state that releases are built for Linux and macOS only.
