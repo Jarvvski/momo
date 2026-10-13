@@ -71,7 +71,11 @@ pub enum Command {
     },
 
     /// Show unreleased changes and the version they would mint.
-    Status,
+    Status {
+        /// Exit non-zero when there is nothing Unreleased (the CI skip gate).
+        #[arg(long)]
+        check: bool,
+    },
 
     /// Mint a version from the unreleased changes.
     Release,
@@ -108,7 +112,7 @@ impl fmt::Display for Command {
             Self::Break { .. } => "break",
             Self::Add { .. } => "add",
             Self::Fix { .. } => "fix",
-            Self::Status => "status",
+            Self::Status { .. } => "status",
             Self::Release => "release",
             Self::Candidate => "candidate",
             Self::Tag => "tag",

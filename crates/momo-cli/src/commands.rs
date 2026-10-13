@@ -18,13 +18,14 @@ use time::Date;
 use momo_core::change::{Change, Kind};
 use momo_core::config::Config;
 use momo_core::package::Package;
-use momo_core::version::release_version;
+use momo_core::version::{VersionSource, release_version};
 
 use crate::cli::{Cli, Command};
 use crate::config::{self, CONFIG_FILE};
+use crate::output::{self, Verb};
 use crate::recording;
 use crate::release::{self, Outcome};
-use crate::version;
+use crate::version::{self, FileVersionSource};
 
 /// The momo verbs exposed as `momo:*` tasks, in command-surface order.
 const VERBS: [&str; 9] = [
@@ -48,7 +49,7 @@ pub fn run(cli: &Cli) -> Result<()> {
         Command::Break { text } => record(cli, Kind::Break, text),
         Command::Add { text } => record(cli, Kind::Add, text),
         Command::Fix { text } => record(cli, Kind::Fix, text),
-        Command::Status => status(),
+        Command::Status { check } => status(cli, *check),
         Command::Release => release(cli),
         Command::Candidate => candidate(cli),
         Command::Tag => tag(cli),
@@ -83,7 +84,10 @@ fn record(cli: &Cli, kind: Kind, text: &str) -> Result<()> {
 }
 
 /// Show the Unreleased Changes and the Version they imply.
-fn status() -> Result<()> {
+///
+/// Read-only: it never writes. `check` turns it into the CI skip gate, exiting
+/// non-zero when there is nothing Unreleased to release.
+fn status(cli: &Cli, check: bool) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
     let package = Package::single(&root_name(&root));
@@ -91,25 +95,19 @@ fn status() -> Result<()> {
 
     let changes = recording::unreleased(&root, &config)?;
     let current = version::source(&root, &config, vcs.as_deref()).current()?;
-    let next = release_version(&changes, &current).unwrap_or(current);
+    let next = release_version(&changes, &current);
 
-    let mut out = String::from("Unreleased\n\n");
-    out.push_str(&format!("  {}\n", package.identity()));
-    for kind in Kind::ALL {
-        let matching: Vec<&Change> = changes
-            .iter()
-            .filter(|change| change.kind == kind)
-            .collect();
-        if matching.is_empty() {
-            continue;
-        }
-        out.push_str(&format!("    {}\n", kind.heading()));
-        for change in matching {
-            out.push_str(&format!("      - {}\n", change.text));
-        }
+    let report = output::Status {
+        package: package.identity(),
+        current,
+        next,
+        changes: &changes,
+    };
+    output::emit(cli, &report)?;
+
+    if check && !report.unreleased() {
+        bail!("nothing unreleased");
     }
-    out.push_str(&format!("    → next: {next}\n"));
-    print!("{out}");
     Ok(())
 }
 
@@ -123,8 +121,7 @@ fn release(cli: &Cli) -> Result<()> {
     let vcs = detect_vcs(&root);
 
     let outcome = release::release(&root, &config, vcs.as_deref(), today(), cli.dry_run)?;
-    report_release(&outcome, cli.dry_run, "release", "released");
-    Ok(())
+    report_release(cli, &outcome, Verb::Release)
 }
 
 /// Cut a Release Candidate from the Unreleased Changes.
@@ -137,8 +134,7 @@ fn candidate(cli: &Cli) -> Result<()> {
     let vcs = detect_vcs(&root);
 
     let outcome = release::candidate(&root, &config, vcs.as_deref(), today(), cli.dry_run)?;
-    report_release(&outcome, cli.dry_run, "cut", "cut");
-    Ok(())
+    report_release(cli, &outcome, Verb::Candidate)
 }
 
 /// Create the VCS tag for the current Version.
@@ -150,30 +146,30 @@ fn tag(cli: &Cli) -> Result<()> {
     };
 
     let name = release::tag(&root, &config, vcs.as_ref(), cli.dry_run)?;
-    let verb = if cli.dry_run { "would tag" } else { "tagged" };
-    println!("{verb} {name}");
-    Ok(())
+    let version = FileVersionSource::new(&root).current()?;
+    output::emit(
+        cli,
+        &output::Tag {
+            name: &name,
+            version: &version,
+            dry_run: cli.dry_run,
+        },
+    )
 }
 
 /// Report what a `release` or `candidate` did, or would do under `--dry-run`.
-fn report_release(outcome: &Outcome, dry_run: bool, verb: &str, done: &str) {
-    let verb = if dry_run {
-        format!("would {verb}")
-    } else {
-        done.to_owned()
-    };
-    println!("{verb} {}", outcome.version);
-
-    let wrote = if dry_run { "would write" } else { "wrote" };
-    println!("{wrote} {}", outcome.changelog.display());
-    if let Some(path) = &outcome.version_file {
-        println!("{wrote} {}", path.display());
-    }
-
-    let removed = if dry_run { "would remove" } else { "removed" };
-    for path in &outcome.consumed {
-        println!("{removed} {}", path.display());
-    }
+fn report_release(cli: &Cli, outcome: &Outcome, verb: Verb) -> Result<()> {
+    output::emit(
+        cli,
+        &output::Release {
+            version: &outcome.version,
+            changelog: &outcome.changelog,
+            version_file: outcome.version_file.as_deref(),
+            consumed: &outcome.consumed,
+            verb,
+            dry_run: cli.dry_run,
+        },
+    )
 }
 
 /// The repository backing `root`, when one exists.
@@ -342,7 +338,7 @@ mod tests {
             Command::Fix {
                 text: String::new(),
             },
-            Command::Status,
+            Command::Status { check: false },
             Command::Release,
             Command::Candidate,
             Command::Tag,
