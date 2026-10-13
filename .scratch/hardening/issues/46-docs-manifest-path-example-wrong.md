@@ -1,7 +1,7 @@
 # 46: The `manifest` override example in the docs is wrong
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: docs
 Verified: yes — read `docs/configuration.md:55` and `src/adapters/manifest/cargo.rs:29-34`
@@ -54,3 +54,10 @@ decide whether `..` is allowed here.
 
 - None — this is a documentation correction. It should land with ticket 24 so the
   path semantics are documented once.
+
+## Resolution
+
+`docs/configuration.md` now shows `manifest = "Cargo.toml"` and states that the
+value is resolved relative to the package directory, spelling out the
+repo-relative mistake (`crates/momo/Cargo.toml` → doubled path). The per-package
+path is now also validated as relative (ticket 24).

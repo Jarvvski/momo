@@ -1,7 +1,7 @@
 # 23: Unknown `momo.toml` keys are silently ignored
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/config
 Verified: yes — read at the cited lines
@@ -81,3 +81,12 @@ key itself.
 - Tests: `recordingg = "fragments"` errors naming the key;
   `[packages."cargo:momo"] slgu = "x"` errors; a fully-valid file still parses;
   `unknown_env_vars_are_ignored` (`:590`) stays green (env is unchanged).
+
+## Resolution
+
+`ConfigOverrides::from_str` and `parse_packages` now share `reject_unknown_keys`,
+erroring with `ConfigError::UnknownKey` and naming the key (qualified as
+`packages.<id>.<name>` inside a package table). The known sets are the `KNOWN_KEYS`
+and `KNOWN_PACKAGE_KEYS` consts; the `packages` key itself is allowed. Unknown
+*environment* names stay ignored. Tests: `an_unknown_top_level_key_is_rejected`,
+`an_unknown_package_key_is_rejected`; `unknown_env_vars_are_ignored` is green.

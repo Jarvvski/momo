@@ -1,7 +1,7 @@
 # 24: `changelog` and `changes_dir` accept absolute and `..` paths
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/config + domain/package
 Verified: yes — read at the cited lines
@@ -90,3 +90,13 @@ paths.
 - Tests: absolute `changelog` errors; `changes_dir = "../x"` errors;
   `MOMO_CHANGELOG=/tmp/x` errors; `packages."cargo:momo".manifest = "a/../b"`
   errors; an ordinary relative path still parses.
+
+## Resolution
+
+Added `validate_path` (shared with 19), rejecting empty paths
+(`ConfigError::EmptyPath`) and absolute / `..`-escaping paths
+(`ConfigError::InvalidPath`). It is called from `parse_path` (file `changelog` and
+`changes_dir`), from the `MOMO_CHANGELOG`/`MOMO_CHANGES_DIR` env arms, and from
+`parse_packages` for the per-package `manifest`. Tests cover each key plus the
+happy path. `docs/configuration.md` now states the rule and the package-relative
+`manifest` semantics (see 46).

@@ -1,7 +1,7 @@
 # 19: An empty `MOMO_*` value counts as "set" and can redirect writes
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/config
 Verified: yes — read at the cited lines
@@ -75,3 +75,11 @@ handling — but they can land as one "validate path-valued config" change.
 - Tests: `from_env([("MOMO_CHANGELOG", "")])` yields
   `ConfigOverrides::default()`; `changelog = ""` in the file errors; a set
   `MOMO_TAG_PREFIX` still wins over the file.
+
+## Resolution
+
+`ConfigOverrides::from_env` now skips empty values before the match, documented
+as "an empty `MOMO_*` is treated as unset", so `MOMO_CHANGES_DIR=""` can no
+longer point the Fragment store at the repo root. The file layer rejects an empty
+path through the shared `validate_path` helper (`ConfigError::EmptyPath`). Tests:
+`an_empty_env_value_is_treated_as_unset`, `an_empty_path_in_the_file_is_rejected`.

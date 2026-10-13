@@ -33,7 +33,6 @@ fn momo(dir: &TempDir) -> Command {
         "MOMO_CHANGELOG",
         "MOMO_CHANGES_DIR",
         "MOMO_TAG_PREFIX",
-        "MOMO_TAG_KIND",
         "MOMO_REMOTE",
         "MOMO_TASK_ENV",
         "MOMO_RC_FORMAT",
@@ -164,6 +163,45 @@ fn install_rejects_an_unknown_environment() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("unknown task environment"));
+}
+
+#[test]
+fn install_prefers_the_recorded_environment_over_detection() {
+    let dir = TempDir::new().expect("temp dir");
+    // No mise.toml on disk: only the recorded choice points at mise.
+    fs::write(dir.path().join("momo.toml"), "task_env = \"mise\"\n").expect("seed config");
+
+    momo(&dir).arg("install").assert().success();
+
+    assert!(
+        dir.path().join("mise-tasks/momo/status").is_file(),
+        "the recorded environment was not used"
+    );
+}
+
+#[test]
+fn install_uninstall_resolves_the_recorded_environment() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(dir.path().join("momo.toml"), "task_env = \"mise\"\n").expect("seed config");
+    fs::create_dir_all(dir.path().join("mise-tasks/momo")).expect("seed the task dir");
+
+    momo(&dir)
+        .args(["install", "--uninstall"])
+        .assert()
+        .success();
+
+    assert!(!dir.path().join("mise-tasks/momo").exists());
+    assert!(!read(&dir.path().join("momo.toml")).contains("task_env"));
+}
+
+#[test]
+fn install_explicit_environment_beats_the_recorded_one() {
+    let dir = TempDir::new().expect("temp dir");
+    // The recorded name is unknown; an explicit `mise` must win over it.
+    fs::write(dir.path().join("momo.toml"), "task_env = \"nonsense\"\n").expect("seed config");
+
+    momo(&dir).args(["install", "mise"]).assert().success();
+    assert!(dir.path().join("mise-tasks/momo/status").is_file());
 }
 
 #[test]

@@ -1,7 +1,7 @@
 # 22: `task_env` is write-only configuration
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: domain/config + cli/commands
 Verified: yes — grepped every reference in `src/`
@@ -83,3 +83,12 @@ recorded choice. An unknown recorded name should error (via `named`'s
 `task_env = "mise"` with no `mise.toml` on disk and assert `install --uninstall`
 still resolves the environment; assert an explicit CLI `env` still beats the
 config.
+
+## Resolution
+
+`install` now prefers the recorded `config.task_env` over `taskenv::detect` when
+no CLI `env` is given (CLI > config > detection), so `--update`/`--uninstall`
+resolve the environment even with no `mise.toml` on disk. Tests:
+`install_prefers_the_recorded_environment_over_detection`,
+`install_uninstall_resolves_the_recorded_environment`,
+`install_explicit_environment_beats_the_recorded_one`.

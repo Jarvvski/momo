@@ -1,7 +1,7 @@
 # 21: `tag_kind` is dead configuration
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/config + adapters/vcs
 Verified: yes — grepped every reference in `src/`
@@ -80,3 +80,13 @@ document it. Those must change too.
 - `tests/*`: drop `MOMO_TAG_KIND` from the `env_remove` lists (cli, install,
   recording, manifest, monorepo, ci_output, release) and note this in 43.
 - No adapter change: git stays annotated, jj stays lightweight.
+
+## Resolution
+
+Removed `TagKind` (enum, `FromStr`/`Display`), `Config.tag_kind`,
+`ConfigOverrides.tag_kind`, the `MOMO_TAG_KIND` arm, the render line, and the
+`defaults_match_the_spec` assertion. Dropped `tag_kind` from the init block, keys
+table and env list in `docs/configuration.md`, from spec §12, from every test
+`env_remove` list, and `tag_kind = "auto"` from this repo's own `momo.toml` (so
+the strict key check from 23 still parses it). No adapter change: git stays
+annotated, jj stays lightweight.

@@ -1,10 +1,9 @@
 //! Integration tests for the `MOMO_*` environment layer.
 //!
-//! `ConfigOverrides::from_env` parses eight keys; the rest of the suite sets
+//! `ConfigOverrides::from_env` parses seven keys; the rest of the suite sets
 //! only `MOMO_RECORDING`, `MOMO_TAG_PREFIX` and `MOMO_REMOTE`. These drive the
 //! live keys end to end, proving the documented precedence `env > file >
-//! default`. `MOMO_TAG_KIND` and `MOMO_TASK_ENV` are inert today (tickets 21/22)
-//! and are deliberately absent until those decide their fate.
+//! default`. `MOMO_TASK_ENV` is exercised by `tests/install.rs`.
 
 use std::fs;
 
@@ -20,7 +19,6 @@ fn momo(dir: &TempDir) -> Command {
         "MOMO_CHANGELOG",
         "MOMO_CHANGES_DIR",
         "MOMO_TAG_PREFIX",
-        "MOMO_TAG_KIND",
         "MOMO_REMOTE",
         "MOMO_TASK_ENV",
         "MOMO_RC_FORMAT",
