@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120" width="320" height="120" role="img" aria-label="momo">
-  <title>momo</title>
-  <rect width="320" height="120" rx="16" fill="#1f2430"/>
-  <circle cx="70" cy="60" r="26" fill="none" stroke="#7aa2f7" stroke-width="8"/>
-  <circle cx="70" cy="60" r="7" fill="#7aa2f7"/>
-  <text x="120" y="76" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="44" fill="#c0caf5">momo</text>
-</svg>
