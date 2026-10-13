@@ -85,6 +85,10 @@ builder can implement momo v0 with nothing left to decide.
   (`mise.toml`) with an explicit override, **no TUI in v0**; no environment found →
   graceful **no-op + warning** (momo works standalone); the choice is stored as
   `task_env` in config.
+- [mise integration content](issues/09-mise-integration.md): one thin task wrapper
+  per verb (`momo:*`) at the repo root, delegating package routing to momo; each
+  pins the running CLI via `#MISE tools={…}`; idempotent, `--update`, `uninstall`;
+  **no `mise.toml` edit** (playbook Shape B).
 
 ## Not yet specified
 

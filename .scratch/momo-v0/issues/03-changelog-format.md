@@ -1,7 +1,7 @@
 # Changelog format & entry shape
 
 Type: prototype
-Status: open
+Status: claimed
 Blocked by: 02, 16
 
 ## Question
