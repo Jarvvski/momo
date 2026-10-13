@@ -13,17 +13,24 @@ The owner uses **Jujutsu exclusively** in a colocated repo. **Never invoke
 `git`** - it can corrupt jj's operation log. jj has no staging area; the working
 copy is always a commit.
 
-1. Make **one focused change** per commit.
-2. Run `mise run check` (fmt + lint + build + test); land only when it passes.
-   (jj fires no git hooks, so fmt is a task, not a pre-commit hook.)
-3. `jj describe -m "<imperative one-liner>"` then `jj bookmark set main --to @`
-   then `jj new`.
-4. Invariant: every time `main` moves, the next command is `jj new`, so `@` is
-   always an empty commit one above main.
+`main` is **protected**: it moves only through a pull request whose CI is green.
+Land a change like this:
 
-**Landing is strictly local. Agents must NEVER push from this repository.** Do
-not run `jj git push`, create a PR as part of landing, or otherwise publish a
-landed change. The owner handles all pushes.
+1. Make **one focused change** per commit, on its own bookmark cut from `main`:
+   `jj new main`, then `jj bookmark create <branch> -r @`.
+2. Run `mise run check` (fmt + lint + build + test); push only when it passes.
+   (jj fires no git hooks, so fmt is a task, not a pre-commit hook.)
+3. `jj describe -m "<imperative one-liner>"`, then
+   `jj git push --bookmark <branch>`.
+4. Open a PR: `gh pr create -R Jarvvski/momo --base main --head <branch>`.
+5. Merge **only** once the `check` job is green: `gh pr checks <n>`, then
+   `gh pr merge <n> --squash`.
+6. Resync: `jj git fetch`, then `jj bookmark set main -r main@origin`, then
+   `jj new`, so `@` is again an empty commit above `main`.
+
+Agents may push feature branches, open PRs, and merge green PRs. Agents must
+**never** push or force-push directly to `main`, and never merge past a failing
+or missing check. The owner handles releases and tags.
 
 ## Toolchain
 
