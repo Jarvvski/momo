@@ -139,9 +139,9 @@ integrates into a task environment (`mise` in v0).
 - **Optional**, with **lazy creation** — each write command creates what it needs on
   first use; `momo init` writes only `momo.toml` (plus `.momo/version` when given
   `--version`).
-- Keys: `recording`, `changelog` path, `changes_dir`, `tag_prefix`, `tag_kind`,
-  `remote`, per-package overrides (identity/slug), `task_env`, `rc_format`
-  (optional).
+- Keys: `recording`, `changelog` path, `changes_dir`, `tag_prefix`,
+  `remote`, per-package overrides (identity/slug/manifest), `task_env`,
+  `rc_format` (optional).
 
 ## 13. CLI & CI behaviour
 

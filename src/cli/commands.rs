@@ -106,7 +106,7 @@ fn record(cli: &Cli, kind: Kind, text: &str) -> Result<()> {
     let change = Change::try_new(kind, text).with_context(|| format!("recording `{kind}`"))?;
 
     if !cli.dry_run {
-        ensure_config(&root, &config)?;
+        ensure_config(&root)?;
     }
 
     for package in packages {
@@ -310,14 +310,16 @@ fn today() -> Date {
 
 /// Scaffold `momo.toml` at the project root.
 ///
-/// Writes the effective configuration, and with `--version <x.y.z>` records that
-/// version in `.momo/version` so a fresh repo starts above the `0.0.0` bootstrap
-/// baseline. With `--dry-run`, prints what would be written and leaves the tree
-/// untouched. Refuses to overwrite an existing `momo.toml`.
+/// Writes the default configuration - never the `MOMO_*` environment, which is
+/// transient and must not be baked into the committed file - and with
+/// `--version <x.y.z>` records that version in `.momo/version` so a fresh repo
+/// starts above the `0.0.0` bootstrap baseline. With `--dry-run`, prints what
+/// would be written and leaves the tree untouched. Refuses to overwrite an
+/// existing `momo.toml`.
 fn init(cli: &Cli, version: Option<&Version>) -> Result<()> {
     let root = project_root()?;
     let path = root.join(CONFIG_FILE);
-    let config = config::load(&root)?;
+    let config = Config::default();
 
     if cli.dry_run {
         eprintln!("would write {}", path.display());
@@ -344,25 +346,32 @@ fn init(cli: &Cli, version: Option<&Version>) -> Result<()> {
 
 /// Install momo's task wrappers into a task environment.
 ///
-/// Auto-detects mise at or above the project root, or uses the explicit `env`
-/// override. With no environment and no override this is a warning and a no-op.
-/// `update` refreshes the pinned version; `uninstall` removes what install wrote.
+/// Uses the explicit `env` override, else the environment recorded in
+/// `momo.toml` by a previous install, else auto-detection of mise at or above
+/// the project root. With none of these this is a warning and a no-op. `update`
+/// refreshes the pinned version; `uninstall` removes what install wrote.
 fn install(cli: &Cli, env: Option<&str>, update: bool, uninstall: bool) -> Result<()> {
     let cwd = env::current_dir().context("resolving the current directory")?;
     let root = config::project_root(&cwd);
 
     let environment = match env {
         Some(name) => crate::adapters::taskenv::named(name, &root)?,
-        None => match crate::adapters::taskenv::detect(&root) {
-            Some(environment) => environment,
-            None => {
-                eprintln!(
-                    "warning: no task environment detected at or above {}; nothing to do",
-                    root.display()
-                );
-                return Ok(());
+        None => {
+            let recorded = config::load(&root)?.task_env;
+            match recorded.as_deref() {
+                Some(name) => crate::adapters::taskenv::named(name, &root)?,
+                None => match crate::adapters::taskenv::detect(&root) {
+                    Some(environment) => environment,
+                    None => {
+                        eprintln!(
+                            "warning: no task environment detected at or above {}; nothing to do",
+                            root.display()
+                        );
+                        return Ok(());
+                    }
+                },
             }
-        },
+        }
     };
 
     if uninstall {
@@ -439,12 +448,17 @@ fn project_root() -> Result<PathBuf> {
     Ok(config::project_root(&cwd))
 }
 
-/// Create `momo.toml` on first write, so the config is optional.
-fn ensure_config(root: &Path, config: &Config) -> Result<()> {
+/// Create `momo.toml` with the defaults on first write, so the config is
+/// optional.
+///
+/// Only the default layer is persisted: an environment override is transient,
+/// and baking it into the committed file would invert the documented precedence.
+fn ensure_config(root: &Path) -> Result<()> {
     let path = root.join(CONFIG_FILE);
     if path.exists() {
         return Ok(());
     }
+    let config = Config::default();
     fs::write(&path, config.to_string()).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }

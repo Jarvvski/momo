@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Component, PathBuf};
 use std::str::FromStr;
 
 use toml_edit::{DocumentMut, Item, Table, value};
@@ -24,6 +24,21 @@ const HEADER: &str = "\
 # momo configuration.
 # Precedence: MOMO_* environment variables > this file > built-in defaults.
 ";
+
+/// The top-level keys a `momo.toml` may set.
+const KNOWN_KEYS: [&str; 8] = [
+    "recording",
+    "changelog",
+    "changes_dir",
+    "tag_prefix",
+    "remote",
+    "task_env",
+    "rc_format",
+    "packages",
+];
+
+/// The keys a `[packages.<id>]` table may set.
+const KNOWN_PACKAGE_KEYS: [&str; 3] = ["identity", "slug", "manifest"];
 
 /// The error produced when a value is not one of the accepted variants.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -69,44 +84,6 @@ impl fmt::Display for Recording {
     }
 }
 
-/// The kind of VCS tag momo creates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TagKind {
-    /// Defer to the VCS: annotated on git, lightweight on jj.
-    #[default]
-    Auto,
-    /// Force a lightweight tag.
-    Lightweight,
-    /// Force an annotated tag.
-    Annotated,
-}
-
-impl FromStr for TagKind {
-    type Err = UnknownValue;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "auto" => Ok(Self::Auto),
-            "lightweight" => Ok(Self::Lightweight),
-            "annotated" => Ok(Self::Annotated),
-            other => Err(UnknownValue {
-                value: other.to_owned(),
-                expected: "auto, lightweight, annotated",
-            }),
-        }
-    }
-}
-
-impl fmt::Display for TagKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Auto => "auto",
-            Self::Lightweight => "lightweight",
-            Self::Annotated => "annotated",
-        })
-    }
-}
-
 /// Per-package overrides, keyed by the package's ecosystem identity.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PackageConfig {
@@ -146,8 +123,6 @@ pub struct Config {
     pub changes_dir: PathBuf,
     /// Prefix prepended to tag versions.
     pub tag_prefix: String,
-    /// The kind of VCS tag to create.
-    pub tag_kind: TagKind,
     /// The code-host remote the Changelog's reference links point at, when
     /// configured. It overrides the remote derived from the VCS.
     ///
@@ -169,7 +144,6 @@ impl Default for Config {
             changelog: PathBuf::from("CHANGELOG.md"),
             changes_dir: PathBuf::from(".momo/changes"),
             tag_prefix: "v".to_owned(),
-            tag_kind: TagKind::default(),
             remote: None,
             task_env: None,
             rc_format: None,
@@ -202,9 +176,6 @@ impl Config {
         }
         if let Some(tag_prefix) = overrides.tag_prefix {
             self.tag_prefix = tag_prefix;
-        }
-        if let Some(tag_kind) = overrides.tag_kind {
-            self.tag_kind = tag_kind;
         }
         if let Some(remote) = overrides.remote {
             self.remote = Some(remote);
@@ -251,7 +222,6 @@ impl fmt::Display for Config {
         table["changelog"] = value(self.changelog.to_string_lossy().as_ref());
         table["changes_dir"] = value(self.changes_dir.to_string_lossy().as_ref());
         table["tag_prefix"] = value(self.tag_prefix.as_str());
-        table["tag_kind"] = value(self.tag_kind.to_string());
         if let Some(remote) = &self.remote {
             table["remote"] = value(remote.base());
         }
@@ -294,8 +264,6 @@ pub struct ConfigOverrides {
     pub changes_dir: Option<PathBuf>,
     /// Override for [`Config::tag_prefix`].
     pub tag_prefix: Option<String>,
-    /// Override for [`Config::tag_kind`].
-    pub tag_kind: Option<TagKind>,
     /// Override for [`Config::remote`].
     pub remote: Option<Remote>,
     /// Override for [`Config::task_env`].
@@ -309,8 +277,11 @@ pub struct ConfigOverrides {
 impl ConfigOverrides {
     /// Parse overrides from `MOMO_*` environment entries.
     ///
-    /// Entries whose name is outside the known set are ignored, so unrelated
-    /// `MOMO_*` variables never break a run.
+    /// An empty value is treated as unset: an accidentally empty
+    /// `MOMO_CHANGES_DIR=` must not redirect the Fragment store, and an empty
+    /// `MOMO_TAG_PREFIX=` must not match every tag. Entries whose name is outside
+    /// the known set are ignored, so unrelated `MOMO_*` variables never break a
+    /// run.
     pub fn from_env<I, K, V>(vars: I) -> Result<Self, ConfigError>
     where
         I: IntoIterator<Item = (K, V)>,
@@ -319,19 +290,24 @@ impl ConfigOverrides {
     {
         let mut overrides = Self::default();
         for (name, raw) in vars {
+            let name = name.as_ref();
             let value = raw.as_ref();
-            match name.as_ref() {
+            if value.is_empty() {
+                continue;
+            }
+            match name {
                 "MOMO_RECORDING" => {
-                    overrides.recording = Some(parse_value::<Recording>(name.as_ref(), value)?);
+                    overrides.recording = Some(parse_value::<Recording>(name, value)?);
                 }
-                "MOMO_CHANGELOG" => overrides.changelog = Some(PathBuf::from(value)),
-                "MOMO_CHANGES_DIR" => overrides.changes_dir = Some(PathBuf::from(value)),
+                "MOMO_CHANGELOG" => {
+                    overrides.changelog = Some(validate_path(name, PathBuf::from(value))?);
+                }
+                "MOMO_CHANGES_DIR" => {
+                    overrides.changes_dir = Some(validate_path(name, PathBuf::from(value))?);
+                }
                 "MOMO_TAG_PREFIX" => overrides.tag_prefix = Some(value.to_owned()),
-                "MOMO_TAG_KIND" => {
-                    overrides.tag_kind = Some(parse_value::<TagKind>(name.as_ref(), value)?);
-                }
                 "MOMO_REMOTE" => {
-                    overrides.remote = Some(parse_remote_value(name.as_ref(), value)?);
+                    overrides.remote = Some(parse_remote_value(name, value)?);
                 }
                 "MOMO_TASK_ENV" => overrides.task_env = Some(value.to_owned()),
                 "MOMO_RC_FORMAT" => overrides.rc_format = Some(value.to_owned()),
@@ -348,12 +324,12 @@ impl FromStr for ConfigOverrides {
     /// Parse overrides from `momo.toml` text.
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let doc: DocumentMut = input.parse()?;
+        reject_unknown_keys(doc.as_table().iter().map(|(key, _)| key), &KNOWN_KEYS, "")?;
         Ok(Self {
             recording: parse_scalar::<Recording>(&doc, "recording")?,
             changelog: parse_path(&doc, "changelog")?,
             changes_dir: parse_path(&doc, "changes_dir")?,
             tag_prefix: parse_string(&doc, "tag_prefix")?,
-            tag_kind: parse_scalar::<TagKind>(&doc, "tag_kind")?,
             remote: parse_remote(&doc, "remote")?,
             task_env: parse_string(&doc, "task_env")?,
             rc_format: parse_string(&doc, "rc_format")?,
@@ -402,6 +378,26 @@ pub enum ConfigError {
         /// The accepted variants, comma-separated.
         expected: &'static str,
     },
+    /// The document sets a key momo does not recognise.
+    #[error("unknown key `{key}`")]
+    UnknownKey {
+        /// The unrecognised key, qualified by its table when nested.
+        key: String,
+    },
+    /// A path-valued key is empty.
+    #[error("`{key}` must not be empty")]
+    EmptyPath {
+        /// The offending key.
+        key: String,
+    },
+    /// A path-valued key is absolute or escapes upward with `..`.
+    #[error("`{key}` must be a relative path without `..`: `{value}`")]
+    InvalidPath {
+        /// The offending key.
+        key: String,
+        /// The value that could not be used.
+        value: String,
+    },
     /// The `remote` key is set to a value that is not a remote URL.
     #[error("invalid value `{value}` for `{key}`; expected a remote URL")]
     InvalidRemote {
@@ -444,7 +440,46 @@ fn parse_string(doc: &DocumentMut, key: &str) -> Result<Option<String>, ConfigEr
 
 /// Parse a path-valued key from the document.
 fn parse_path(doc: &DocumentMut, key: &str) -> Result<Option<PathBuf>, ConfigError> {
-    Ok(string_at(doc, key)?.map(PathBuf::from))
+    string_at(doc, key)?
+        .map(PathBuf::from)
+        .map(|path| validate_path(key, path))
+        .transpose()
+}
+
+/// Validate a configured path: non-empty, relative, and not escaping upward.
+///
+/// A path is joined onto the package or repo root, so an absolute path would
+/// discard that base and `..` would write outside the tree; both are rejected
+/// rather than honoured silently.
+fn validate_path(key: &str, path: PathBuf) -> Result<PathBuf, ConfigError> {
+    if path.as_os_str().is_empty() {
+        return Err(ConfigError::EmptyPath {
+            key: key.to_owned(),
+        });
+    }
+    if path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
+        return Err(ConfigError::InvalidPath {
+            key: key.to_owned(),
+            value: path.to_string_lossy().into_owned(),
+        });
+    }
+    Ok(path)
+}
+
+/// Reject any key outside `known`, naming it (qualified by `prefix`).
+fn reject_unknown_keys<'a>(
+    keys: impl IntoIterator<Item = &'a str>,
+    known: &[&str],
+    prefix: &str,
+) -> Result<(), ConfigError> {
+    for key in keys {
+        if !known.contains(&key) {
+            return Err(ConfigError::UnknownKey {
+                key: format!("{prefix}{key}"),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Parse the `remote` key from the document, as a validated [`Remote`].
@@ -497,6 +532,11 @@ fn parse_packages(doc: &DocumentMut) -> Result<BTreeMap<String, PackageConfig>, 
                 key: format!("packages.{identity}"),
                 expected: "table",
             })?;
+            reject_unknown_keys(
+                package.iter().map(|(key, _)| key),
+                &KNOWN_PACKAGE_KEYS,
+                &format!("packages.{identity}."),
+            )?;
             let field = |name: &str| -> Result<Option<String>, ConfigError> {
                 package
                     .get(name)
@@ -509,7 +549,10 @@ fn parse_packages(doc: &DocumentMut) -> Result<BTreeMap<String, PackageConfig>, 
                 PackageConfig {
                     identity: field("identity")?,
                     slug: field("slug")?,
-                    manifest: field("manifest")?.map(PathBuf::from),
+                    manifest: field("manifest")?
+                        .map(PathBuf::from)
+                        .map(|path| validate_path(&format!("packages.{identity}.manifest"), path))
+                        .transpose()?,
                 },
             ))
         })
@@ -538,7 +581,6 @@ mod tests {
         assert_eq!(config.changelog, PathBuf::from("CHANGELOG.md"));
         assert_eq!(config.changes_dir, PathBuf::from(".momo/changes"));
         assert_eq!(config.tag_prefix, "v");
-        assert_eq!(config.tag_kind, TagKind::Auto);
         assert_eq!(config.remote, None);
         assert_eq!(config.task_env, None);
         assert_eq!(config.rc_format, None);
@@ -655,6 +697,30 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_env_value_is_treated_as_unset() {
+        let env = ConfigOverrides::from_env([
+            ("MOMO_TAG_PREFIX", "rel-"),
+            ("MOMO_CHANGELOG", ""),
+            ("MOMO_CHANGES_DIR", ""),
+            ("MOMO_TASK_ENV", ""),
+        ])
+        .expect("empty values are ignored");
+        assert_eq!(env.tag_prefix.as_deref(), Some("rel-"));
+        assert_eq!(env.changelog, None);
+        assert_eq!(env.changes_dir, None);
+        assert_eq!(env.task_env, None);
+    }
+
+    #[test]
+    fn an_absolute_path_in_the_environment_is_rejected() {
+        let err = ConfigOverrides::from_env([("MOMO_CHANGELOG", "/tmp/x.md")])
+            .expect_err("an absolute path fails");
+        let message = err.to_string();
+        assert!(message.contains("MOMO_CHANGELOG"), "{message}");
+        assert!(message.contains("/tmp/x.md"), "{message}");
+    }
+
+    #[test]
     fn packages_are_parsed_and_layered() {
         let file: ConfigOverrides = "\
 [packages.\"cargo:momo\"]
@@ -726,6 +792,70 @@ manifest = \"crates/momo/Cargo.toml\"
             .parse::<ConfigOverrides>()
             .expect_err("invalid TOML fails");
         assert!(err.to_string().contains("invalid TOML"));
+    }
+
+    #[test]
+    fn an_unknown_top_level_key_is_rejected() {
+        let err = "recordingg = \"fragments\"\n"
+            .parse::<ConfigOverrides>()
+            .expect_err("an unknown key fails");
+        assert!(err.to_string().contains("recordingg"), "{err}");
+    }
+
+    #[test]
+    fn an_empty_path_in_the_file_is_rejected() {
+        let err = "changelog = \"\"\n"
+            .parse::<ConfigOverrides>()
+            .expect_err("an empty path fails");
+        assert!(err.to_string().contains("changelog"), "{err}");
+    }
+
+    #[test]
+    fn an_absolute_path_in_the_file_is_rejected() {
+        let err = "changes_dir = \"/tmp/x\"\n"
+            .parse::<ConfigOverrides>()
+            .expect_err("an absolute path fails");
+        let message = err.to_string();
+        assert!(message.contains("changes_dir"), "{message}");
+        assert!(message.contains("/tmp/x"), "{message}");
+    }
+
+    #[test]
+    fn a_parent_escaping_path_in_the_file_is_rejected() {
+        let err = "changelog = \"../x.md\"\n"
+            .parse::<ConfigOverrides>()
+            .expect_err("a parent-escaping path fails");
+        assert!(err.to_string().contains("changelog"), "{err}");
+    }
+
+    #[test]
+    fn an_ordinary_relative_path_still_parses() {
+        let file: ConfigOverrides = "changelog = \"docs/CHANGELOG.md\"\n"
+            .parse()
+            .expect("a relative path parses");
+        assert_eq!(
+            file.changelog.as_deref(),
+            Some(Path::new("docs/CHANGELOG.md"))
+        );
+    }
+
+    #[test]
+    fn an_unknown_package_key_is_rejected() {
+        let err = "[packages.\"cargo:momo\"]\nslgu = \"x\"\n"
+            .parse::<ConfigOverrides>()
+            .expect_err("an unknown package key fails");
+        assert!(
+            err.to_string().contains("packages.cargo:momo.slgu"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_parent_escaping_manifest_is_rejected() {
+        let err = "[packages.\"cargo:momo\"]\nmanifest = \"a/../b\"\n"
+            .parse::<ConfigOverrides>()
+            .expect_err("a parent-escaping manifest fails");
+        assert!(err.to_string().contains("manifest"), "{err}");
     }
 
     #[test]

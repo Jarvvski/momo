@@ -1,7 +1,7 @@
 # 20: Lazy config creation bakes transient environment overrides into `momo.toml`
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: cli/commands
 Verified: yes — read at the cited lines
@@ -94,3 +94,14 @@ promise defaults.)
 - Tests (integration, `tests/`): with no `momo.toml` and `MOMO_TAG_PREFIX=rel-`,
   run `momo add x` and assert the created file holds `tag_prefix = "v"`, not
   `rel-`; same for `MOMO_RECORDING=fragments momo init`.
+
+## Resolution
+
+`ensure_config` and `init` now persist `Config::default()` and never the
+env-merged `config::load` result; `init --dry-run` prints the same defaults, and
+the now-unused `config` parameter / load call are gone. Integration tests:
+`init_writes_defaults_not_the_environment`,
+`a_lazy_write_does_not_bake_the_environment_into_momo_toml`,
+`init_reports_defaults_ignoring_the_file_and_the_environment`. The latter
+replaces the old precedence-through-`init` test; precedence itself remains
+covered by `tests/env.rs` and the domain unit tests.

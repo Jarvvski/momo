@@ -39,7 +39,6 @@ fn momo(dir: &TempDir) -> Command {
         "MOMO_CHANGELOG",
         "MOMO_CHANGES_DIR",
         "MOMO_TAG_PREFIX",
-        "MOMO_TAG_KIND",
         "MOMO_REMOTE",
         "MOMO_TASK_ENV",
         "MOMO_RC_FORMAT",
@@ -123,7 +122,6 @@ fn init_writes_a_valid_momo_toml_and_touches_nothing_else() {
     assert!(text.contains("changelog = \"CHANGELOG.md\""), "{text}");
     assert!(text.contains("changes_dir = \".momo/changes\""), "{text}");
     assert!(text.contains("tag_prefix = \"v\""), "{text}");
-    assert!(text.contains("tag_kind = \"auto\""), "{text}");
     let _: momo_cli::domain::config::ConfigOverrides =
         text.parse().expect("the file is valid TOML");
 
@@ -144,7 +142,7 @@ fn init_writes_a_valid_momo_toml_and_touches_nothing_else() {
 }
 
 #[test]
-fn init_writes_the_effective_configuration() {
+fn init_writes_defaults_not_the_environment() {
     let dir = TempDir::new().expect("temp dir");
     momo(&dir)
         .env("MOMO_TAG_PREFIX", "rel-")
@@ -152,7 +150,25 @@ fn init_writes_the_effective_configuration() {
         .assert()
         .success();
     let text = fs::read_to_string(dir.path().join("momo.toml")).expect("momo.toml was written");
-    assert!(text.contains("tag_prefix = \"rel-\""), "{text}");
+    assert!(text.contains("tag_prefix = \"v\""), "{text}");
+    assert!(!text.contains("rel-"), "{text}");
+}
+
+#[test]
+fn a_lazy_write_does_not_bake_the_environment_into_momo_toml() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .env("MOMO_TAG_PREFIX", "rel-")
+        .env("MOMO_RECORDING", "fragments")
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    let text = fs::read_to_string(dir.path().join("momo.toml")).expect("momo.toml was created");
+    assert!(text.contains("tag_prefix = \"v\""), "{text}");
+    assert!(text.contains("recording = \"changelog\""), "{text}");
+    assert!(!text.contains("rel-"), "{text}");
+    assert!(!text.contains("fragments"), "{text}");
 }
 
 #[test]
@@ -223,27 +239,22 @@ fn init_dry_run_reports_defaults_and_creates_nothing() {
 }
 
 #[test]
-fn config_precedence_env_beats_file_beats_defaults() {
+fn init_reports_defaults_ignoring_the_file_and_the_environment() {
     let dir = TempDir::new().expect("temp dir");
     fs::write(dir.path().join("momo.toml"), "recording = \"fragments\"\n").expect("seed momo.toml");
 
-    // The file overrides the default...
+    // Neither a seeded file nor an environment override leaks into what `init`
+    // would write: it scaffolds the defaults, so a transient `MOMO_*` value is
+    // never baked into the committed file.
     momo(&dir)
+        .env("MOMO_RECORDING", "fragments")
         .args(["init", "--dry-run"])
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("recording = \"fragments\"")
+            predicate::str::contains("recording = \"changelog\"")
                 .and(predicate::str::contains("tag_prefix = \"v\"")),
         );
-
-    // ...and the environment overrides the file.
-    momo(&dir)
-        .env("MOMO_RECORDING", "changelog")
-        .args(["init", "--dry-run"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("recording = \"changelog\""));
 
     // A dry run never writes.
     assert_eq!(

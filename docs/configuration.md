@@ -14,7 +14,6 @@ recording = "changelog"
 changelog = "CHANGELOG.md"
 changes_dir = ".momo/changes"
 tag_prefix = "v"
-tag_kind = "auto"
 ```
 
 `momo init --version <x.y.z>` additionally records a start version in
@@ -28,12 +27,17 @@ tag_kind = "auto"
 | `changelog` | `"CHANGELOG.md"` | Changelog path, relative to the package root |
 | `changes_dir` | `".momo/changes"` | Fragment store, relative to the repo root |
 | `tag_prefix` | `"v"` | Prefix on the tag version |
-| `tag_kind` | `"auto"` | `"auto"`, `"lightweight"`, or `"annotated"` |
 | `remote` | *(unset)* | Override the changelog footer's remote; supplies one with no VCS |
 | `task_env` | *(unset)* | Recorded by `momo install` |
 | `rc_format` | `"-rc.{n}"` | Release-candidate suffix template; `{n}` is the number |
 
 `task_env` is written by `momo install`. `remote` and `rc_format` are optional.
+
+`changelog`, `changes_dir` and a package's `manifest` are **paths**. They must be
+relative and must not escape upward with `..`: an absolute path would discard the
+directory they are joined onto, and `..` would write outside the tree, so both are
+rejected at parse time. A key that momo does not recognise is an error too, so a
+misspelled key fails loudly instead of silently taking its default.
 
 The changelog's release heading is stamped with the **UTC** date
 (`## [0.1.0] - 2026-10-13`), so a release is reproducible across machines and CI
@@ -64,10 +68,17 @@ In a monorepo, overrides are keyed by ecosystem identity:
 
 ```toml
 [packages."cargo:momo"]
-identity = "cargo:renamed"            # override the identity
-slug = "alpha"                        # override the ref/path-safe slug
-manifest = "crates/momo/Cargo.toml"   # override the discovered manifest
+identity = "cargo:renamed"   # override the identity
+slug = "alpha"               # override the ref/path-safe slug
+manifest = "Cargo.toml"      # override the discovered manifest, relative to the package directory
 ```
+
+`manifest` is resolved **relative to the package's directory**, not the repo
+root. For a package rooted at `crates/momo`, `Cargo.toml` resolves to
+`crates/momo/Cargo.toml`; a repo-relative value like
+`crates/momo/Cargo.toml` would resolve to `crates/momo/crates/momo/Cargo.toml`
+and silently fail to find the manifest. Like the other path keys it must be
+relative and must not contain `..`.
 
 `slug` is derived from the identity unless set explicitly, and it namespaces
 the package's tags and Fragment store. An `identity` override with no `slug`
@@ -88,9 +99,10 @@ everything else at its default.
 ## Environment variables
 
 `MOMO_RECORDING`, `MOMO_CHANGELOG`, `MOMO_CHANGES_DIR`, `MOMO_TAG_PREFIX`,
-`MOMO_TAG_KIND`, `MOMO_REMOTE`, `MOMO_TASK_ENV`, `MOMO_RC_FORMAT`.
+`MOMO_REMOTE`, `MOMO_TASK_ENV`, `MOMO_RC_FORMAT`.
 
-Unrelated `MOMO_*` variables are ignored.
+An empty value is treated as unset, so `MOMO_CHANGES_DIR=` does not redirect the
+Fragment store. Unrelated `MOMO_*` variables are ignored.
 
 ```console
 $ MOMO_TAG_PREFIX="rel-" momo status
