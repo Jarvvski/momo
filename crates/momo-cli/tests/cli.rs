@@ -92,12 +92,18 @@ fn each_verb_help_shows_the_global_flags() {
 #[test]
 fn change_verb_aliases_resolve_to_their_verbs() {
     let dir = TempDir::new().expect("temp dir");
-    for (alias, verb) in [("b", "break"), ("a", "add"), ("f", "fix")] {
-        momo(&dir)
-            .args([alias, "a change"])
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains(format!("`momo {verb}`")));
+    let changes = [
+        ("b", "a breaking change"),
+        ("a", "an added change"),
+        ("f", "a fixed change"),
+    ];
+    for (alias, text) in changes {
+        momo(&dir).args([alias, text]).assert().success();
+    }
+
+    let changelog = fs::read_to_string(dir.path().join("CHANGELOG.md")).expect("changelog written");
+    for (_, text) in changes {
+        assert!(changelog.contains(text), "`{text}` missing:\n{changelog}");
     }
 }
 
@@ -166,26 +172,21 @@ fn init_refuses_to_overwrite_an_existing_file() {
 #[test]
 fn a_read_only_command_creates_no_config() {
     let dir = TempDir::new().expect("temp dir");
-    momo(&dir).arg("status").assert().failure();
+    momo(&dir).arg("status").assert().success();
     assert!(
         !dir.path().join("momo.toml").exists(),
         "a read-only command created momo.toml"
+    );
+    assert!(
+        !dir.path().join("CHANGELOG.md").exists(),
+        "a read-only command wrote a changelog"
     );
 }
 
 #[test]
 fn unimplemented_verbs_exit_non_zero_with_a_clear_message() {
     let dir = TempDir::new().expect("temp dir");
-    let invocations: [&[&str]; 8] = [
-        &["break", "text"],
-        &["add", "text"],
-        &["fix", "text"],
-        &["status"],
-        &["release"],
-        &["candidate"],
-        &["rc"],
-        &["tag"],
-    ];
+    let invocations: [&[&str]; 4] = [&["release"], &["candidate"], &["rc"], &["tag"]];
     for args in invocations {
         momo(&dir)
             .args(args)

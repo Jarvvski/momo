@@ -1,17 +1,27 @@
 //! Command handlers.
 //!
-//! `init` and `install` have real handlers in v0; every other verb is declared
-//! on the command surface and exits non-zero with a "not implemented" message.
+//! `init` and `install` have real handlers in v0; the change verbs
+//! (`break`/`add`/`fix`) record a Change and `status` reports the Unreleased
+//! Changes. Every other verb is declared on the command surface and exits
+//! non-zero with a "not implemented" message.
 
 use std::env;
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use momo_core::taskenv::{InstallMode, InstallPlan, TaskEnvironment};
 use semver::Version;
 
+use momo_core::change::{Change, Kind};
+use momo_core::config::Config;
+use momo_core::package::Package;
+use momo_core::version::{VersionSource, next_version};
+
 use crate::cli::{Cli, Command};
 use crate::config::{self, CONFIG_FILE};
+use crate::recording;
+use crate::version::FileVersionSource;
 
 /// The momo verbs exposed as `momo:*` tasks, in command-surface order.
 const VERBS: [&str; 9] = [
@@ -32,6 +42,10 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Dispatch a parsed command line.
 pub fn run(cli: &Cli) -> Result<()> {
     match &cli.command {
+        Command::Break { text } => record(cli, Kind::Break, text),
+        Command::Add { text } => record(cli, Kind::Add, text),
+        Command::Fix { text } => record(cli, Kind::Fix, text),
+        Command::Status => status(),
         Command::Init => init(cli),
         Command::Install {
             env,
@@ -42,13 +56,63 @@ pub fn run(cli: &Cli) -> Result<()> {
     }
 }
 
+/// Record one Change in the store the configuration selects.
+///
+/// A write command creates `momo.toml` on first use; with `--dry-run` nothing
+/// is written at all.
+fn record(cli: &Cli, kind: Kind, text: &str) -> Result<()> {
+    let root = project_root()?;
+    let config = config::load(&root)?;
+
+    if !cli.dry_run {
+        ensure_config(&root, &config)?;
+    }
+
+    let path = recording::record(&root, &config, Change::new(kind, text), cli.dry_run)?;
+    if cli.dry_run {
+        println!("would write {}", path.display());
+    } else {
+        println!("wrote {}", path.display());
+    }
+    Ok(())
+}
+
+/// Show the Unreleased Changes and the Version they imply.
+fn status() -> Result<()> {
+    let root = project_root()?;
+    let config = config::load(&root)?;
+    let package = Package::single(&root_name(&root));
+
+    let changes = recording::unreleased(&root, &config)?;
+    let current = FileVersionSource::new(&root).current()?;
+    let next = next_version(&changes, &current).unwrap_or(current);
+
+    let mut out = String::from("Unreleased\n\n");
+    out.push_str(&format!("  {}\n", package.identity()));
+    for kind in Kind::ALL {
+        let matching: Vec<&Change> = changes
+            .iter()
+            .filter(|change| change.kind == kind)
+            .collect();
+        if matching.is_empty() {
+            continue;
+        }
+        out.push_str(&format!("    {}\n", kind.heading()));
+        for change in matching {
+            out.push_str(&format!("      - {}\n", change.text));
+        }
+    }
+    out.push_str(&format!("    → next: {next}\n"));
+    print!("{out}");
+    Ok(())
+}
+
 /// Scaffold `momo.toml` at the project root.
 ///
 /// Writes the effective configuration. With `--dry-run`, prints what would be
 /// written and leaves the tree untouched.
 fn init(cli: &Cli) -> Result<()> {
-    let cwd = env::current_dir().context("resolving the current directory")?;
-    let root = config::project_root(&cwd);
+    let root = project_root()?;
     let path = root.join(CONFIG_FILE);
 
     if cli.dry_run {
@@ -157,6 +221,30 @@ fn report_plan(
             plan.stale.len()
         );
     }
+}
+
+/// The project root, discovered from the current directory.
+fn project_root() -> Result<PathBuf> {
+    let cwd = env::current_dir().context("resolving the current directory")?;
+    Ok(config::project_root(&cwd))
+}
+
+/// Create `momo.toml` on first write, so the config is optional.
+fn ensure_config(root: &Path, config: &Config) -> Result<()> {
+    let path = root.join(CONFIG_FILE);
+    if path.exists() {
+        return Ok(());
+    }
+    fs::write(&path, config.to_string()).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// The name of the project root directory, or `package` when it has none.
+fn root_name(root: &Path) -> String {
+    root.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("package")
+        .to_owned()
 }
 
 #[cfg(test)]

@@ -16,10 +16,10 @@ contains several Kinds, the highest Kind wins.
 
 **Spec:** `.scratch/momo-v0/spec.md` §4, §5, §6, §9
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `momo add "text"`, `momo fix "text"` and `momo break "text"` each record exactly one Change.
-- [ ] With `recording = "fragments"` each Change becomes `.momo/changes/<kind>-<slug>.md`; with `changelog` it appears under `## Unreleased` in the right Kind section.
-- [ ] `momo status` prints the Unreleased Changes and ends with `→ next: <version>`.
-- [ ] The Bump policy is unit-tested across `0.0.0`, `0.x.y`, `1.x.y`, and a Release containing several Kinds.
-- [ ] `--dry-run` on the recording verbs writes nothing.
+- [x] `momo add "text"`, `momo fix "text"` and `momo break "text"` each record exactly one Change.
+- [x] With `recording = "fragments"` each Change becomes `.momo/changes/<kind>-<slug>.md`; with `changelog` it appears under `## Unreleased` in the right Kind section.
+- [x] `momo status` prints the Unreleased Changes and ends with `→ next: <version>`.
+- [x] The Bump policy is unit-tested across `0.0.0`, `0.x.y`, `1.x.y`, and a Release containing several Kinds.
+- [x] `--dry-run` on the recording verbs writes nothing.

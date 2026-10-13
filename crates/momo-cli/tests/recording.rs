@@ -1,0 +1,230 @@
+//! Integration tests for the recording verbs, `status`, and the version source.
+
+use std::fs;
+
+use assert_cmd::Command;
+use predicates::prelude::*;
+use tempfile::TempDir;
+
+/// A `momo` command rooted at `dir`, with every `MOMO_*` variable cleared.
+fn momo(dir: &TempDir) -> Command {
+    let mut cmd = Command::cargo_bin("momo").expect("the momo binary is built");
+    cmd.current_dir(dir.path());
+    for name in [
+        "MOMO_RECORDING",
+        "MOMO_CHANGELOG",
+        "MOMO_CHANGES_DIR",
+        "MOMO_TAG_PREFIX",
+        "MOMO_TAG_KIND",
+        "MOMO_TASK_ENV",
+        "MOMO_RC_FORMAT",
+    ] {
+        cmd.env_remove(name);
+    }
+    cmd
+}
+
+/// Seed a `momo.toml` selecting a recording model.
+fn seed_recording(dir: &TempDir, value: &str) {
+    fs::write(
+        dir.path().join("momo.toml"),
+        format!("recording = \"{value}\"\n"),
+    )
+    .expect("seed momo.toml");
+}
+
+/// Read a file under `dir`, panicking when it is missing.
+fn read(dir: &TempDir, path: &str) -> String {
+    fs::read_to_string(dir.path().join(path)).expect("read file")
+}
+
+#[test]
+fn add_records_a_change_under_unreleased() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    let changelog = read(&dir, "CHANGELOG.md");
+    assert!(changelog.contains("## [Unreleased]"), "{changelog}");
+    assert!(changelog.contains("### Added"), "{changelog}");
+    assert!(changelog.contains("- Add a shiny thing"), "{changelog}");
+}
+
+#[test]
+fn each_verb_records_its_kind() {
+    let dir = TempDir::new().expect("temp dir");
+    for (verb, heading, text) in [
+        ("break", "### Breaking", "a break"),
+        ("add", "### Added", "an add"),
+        ("fix", "### Fixed", "a fix"),
+    ] {
+        momo(&dir).args([verb, text]).assert().success();
+
+        let changelog = read(&dir, "CHANGELOG.md");
+        let at = changelog
+            .find(heading)
+            .unwrap_or_else(|| panic!("`{heading}` missing:\n{changelog}"));
+        assert!(
+            changelog[at..].contains(text),
+            "`{verb}` did not land under {heading}:\n{changelog}"
+        );
+    }
+}
+
+#[test]
+fn fragments_mode_writes_one_fragment_per_change() {
+    let dir = TempDir::new().expect("temp dir");
+    seed_recording(&dir, "fragments");
+
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&dir)
+        .args(["fix", "Fix a nasty bug"])
+        .assert()
+        .success();
+
+    assert_eq!(
+        read(&dir, ".momo/changes/add-add-a-shiny-thing.md"),
+        "Add a shiny thing\n"
+    );
+    assert_eq!(
+        read(&dir, ".momo/changes/fix-fix-a-nasty-bug.md"),
+        "Fix a nasty bug\n"
+    );
+    assert!(
+        !dir.path().join("CHANGELOG.md").exists(),
+        "fragments mode wrote a changelog"
+    );
+}
+
+#[test]
+fn status_lists_unreleased_changes_and_ends_with_the_next_version() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&dir)
+        .args(["fix", "Fix a nasty bug"])
+        .assert()
+        .success();
+
+    let assert = momo(&dir).arg("status").assert().success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    assert!(stdout.contains("- Add a shiny thing"), "{stdout}");
+    assert!(stdout.contains("- Fix a nasty bug"), "{stdout}");
+    assert_eq!(stdout.lines().last(), Some("    → next: 0.1.0"), "{stdout}");
+}
+
+#[test]
+fn status_reads_fragments_too() {
+    let dir = TempDir::new().expect("temp dir");
+    seed_recording(&dir, "fragments");
+    momo(&dir).args(["break", "Break it"]).assert().success();
+
+    momo(&dir).arg("status").assert().success().stdout(
+        predicate::str::contains("- Break it").and(predicate::str::contains("→ next: 0.1.0")),
+    );
+}
+
+#[test]
+fn status_takes_the_current_version_from_the_version_file() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::create_dir_all(dir.path().join(".momo")).expect("create .momo");
+    fs::write(dir.path().join(".momo/version"), "1.2.3\n").expect("seed version");
+
+    momo(&dir).args(["add", "an add"]).assert().success();
+    momo(&dir)
+        .arg("status")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("→ next: 1.3.0"));
+
+    momo(&dir).args(["break", "a break"]).assert().success();
+    momo(&dir)
+        .arg("status")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("→ next: 2.0.0"));
+}
+
+#[test]
+fn a_repository_with_nothing_unreleased_reports_the_current_version() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .arg("status")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("→ next: 0.0.0"));
+}
+
+#[test]
+fn dry_run_on_a_recording_verb_writes_nothing() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["--dry-run", "add", "Add a shiny thing"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("would write"));
+
+    assert!(
+        !dir.path().join("CHANGELOG.md").exists(),
+        "dry run wrote a changelog"
+    );
+    assert!(
+        !dir.path().join("momo.toml").exists(),
+        "dry run wrote a config"
+    );
+    assert!(!dir.path().join(".momo").exists(), "dry run wrote .momo");
+}
+
+#[test]
+fn dry_run_in_fragments_mode_writes_nothing() {
+    let dir = TempDir::new().expect("temp dir");
+    seed_recording(&dir, "fragments");
+
+    momo(&dir)
+        .args(["add", "--dry-run", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    assert!(
+        !dir.path().join(".momo").exists(),
+        "dry run wrote a fragment"
+    );
+    assert_eq!(read(&dir, "momo.toml"), "recording = \"fragments\"\n");
+}
+
+#[test]
+fn a_recording_verb_creates_the_config_lazily() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    assert!(
+        dir.path().join("momo.toml").exists(),
+        "recording did not create momo.toml"
+    );
+}
+
+#[test]
+fn change_verb_aliases_record_their_kind() {
+    let dir = TempDir::new().expect("temp dir");
+    for (alias, heading) in [
+        ("b", "### Breaking"),
+        ("a", "### Added"),
+        ("f", "### Fixed"),
+    ] {
+        momo(&dir).args([alias, "a change"]).assert().success();
+        assert!(
+            read(&dir, "CHANGELOG.md").contains(heading),
+            "alias `{alias}` did not record a Change"
+        );
+    }
+}

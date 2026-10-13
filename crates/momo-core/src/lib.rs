@@ -4,6 +4,11 @@
 //! This crate is pure: no I/O and no CLI. Everything that touches the outside
 //! world sits behind a port so it can be substituted in tests.
 
+pub mod change;
+pub mod changelog;
 pub mod config;
+pub mod package;
+mod slug;
 pub mod taskenv;
 pub mod vcs;
+pub mod version;

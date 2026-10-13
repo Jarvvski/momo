@@ -3,6 +3,8 @@
 mod cli;
 mod commands;
 mod config;
+mod recording;
+mod version;
 
 use std::process::ExitCode;
 
