@@ -151,7 +151,10 @@ candidate shares them with the eventual release.
   to the target version and restarts at `1` when the target changes.
 - **`momo tag`** creates the VCS tag for the version `.momo/version` holds — the
   one the last `release` or `candidate` minted. Run it after committing.
-  - git → annotated tag; jj → lightweight tag.
+  - git → annotated tag on `HEAD`, the committed release; jj → lightweight tag.
+  - In jj the tag is anchored to the working-copy commit `@` when it has changes,
+    and to its parent `@-` when it is empty — after `jj commit`, or above `main`
+    after a merge. (git always names `HEAD`.)
   - The VCS is detected as `.jj` first, else `.git`.
   - It refuses to overwrite an existing tag; with no VCS it errors
     (`no VCS detected — nothing to tag`).

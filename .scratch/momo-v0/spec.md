@@ -85,8 +85,12 @@ integrates into a task environment (`mise` in v0).
 
 ## 8. Tagging
 
-- **git:** annotated (`git tag -a`, message = release title).
-- **jj:** lightweight (`jj tag set`) — jj's only option.
+- **git:** annotated (`git tag -a`, message = release title) at `HEAD`, the
+  committed release.
+- **jj:** lightweight (`jj tag set`) — jj's only option. **Anchor:** `@` when the
+  working copy has changes, else its parent `@-`. jj defaults to `@`, which is
+  empty after `jj commit` or above `main` after a merge; tagging it would publish
+  a dangling commit.
 - Detect **`.jj` first, else `.git`**.
 - Refuse to overwrite an existing tag.
 - **No VCS → `tag` errors clearly** ("no VCS detected — nothing to tag").
