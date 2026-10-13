@@ -468,7 +468,8 @@ mod tests {
     /// A status report with one `add` Change at the bootstrap baseline.
     fn status(changes: &[Change]) -> Status {
         let current = Version::new(0, 0, 0);
-        let next = crate::domain::version::release_version(changes, &current);
+        let next =
+            crate::domain::version::release_version(changes, &current).expect("a bump that fits");
         Status {
             packages: vec![StatusPackage {
                 package: "momo".to_owned(),

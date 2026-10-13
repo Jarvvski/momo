@@ -139,7 +139,7 @@ fn run(
     let prefix = package.tag_prefix(&config.tag_prefix);
     let package_dir = package.dir(repo_root);
     let current = source(&package_dir, &prefix, vcs).current()?;
-    let Some(target) = release_version(&changes, &current) else {
+    let Some(target) = release_version(&changes, &current)? else {
         return Ok(None);
     };
 
@@ -178,7 +178,7 @@ fn run(
                 &target,
                 format,
                 recorded.iter().chain(std::iter::once(&current)),
-            );
+            )?;
             let version = candidate_version(&target, n, format)?;
             changelog.candidate(&version, date, &changes, links);
             version

@@ -47,7 +47,9 @@ pub fn load(root: &Path) -> Result<Config> {
         }))
         .context("reading MOMO_* environment variables")?;
 
-    Ok(Config::resolve(file, env))
+    let config = Config::resolve(file, env);
+    config.validate().context("validating the configuration")?;
+    Ok(config)
 }
 
 /// Record the chosen task environment in the project's `momo.toml`.

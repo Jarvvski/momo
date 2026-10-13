@@ -138,7 +138,7 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
         let changes = recording::unreleased(&root, &config, package)?;
         let prefix = package.tag_prefix(&config.tag_prefix);
         let current = version::source(&package.dir(&root), &prefix, vcs.as_deref()).current()?;
-        let next = release_version(&changes, &current);
+        let next = release_version(&changes, &current)?;
         report.packages.push(StatusPackage {
             package: package.identity().to_owned(),
             current,

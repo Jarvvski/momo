@@ -1,7 +1,7 @@
 # 08: Bump arithmetic can overflow on an adversarial version
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: domain/version
 Verified: yes — read at the cited lines
@@ -70,3 +70,23 @@ overflows the same way for a prerelease counter at `u64::MAX`.
 - Cheaper alternative if signature churn is unwanted: reject a parsed version
   whose any component is `u64::MAX` at the version sources and the
   changelog-heading parse. Weaker, because `Bump::apply` is public domain API.
+
+## Resolution
+
+Resolved in the `version-guards` change set, following the sketch.
+
+- `Bump::apply` uses `checked_add` and returns `Option<Version>` (`None` on
+  overflow); `next_version` and `release_version` return
+  `Result<Option<Version>, VersionError>`, so "nothing to release" and "overflow"
+  stay distinct; `next_candidate` returns `Result<u64, VersionError>`.
+- New `VersionError::Overflow { value }` names the component already at
+  `u64::MAX`.
+- Callers in `cli/release.rs` and `cli/commands.rs` propagate with `?`; the
+  `output.rs` test helper expects the `Result`.
+- Tests: `Bump::apply` on a `u64::MAX` component returns `None` and
+  `next_version`/`release_version` error; a `-rc.18446744073709551615` counter
+  errors instead of wrapping.
+
+Correction confirmed end-to-end: the old `+` wrapped silently to `0` in the
+release binary. A `u64::MAX` component now errors and leaves the version file
+untouched — no bogus `0.0.0` and no repeated candidate.
