@@ -16,6 +16,8 @@ use std::str::FromStr;
 
 use toml_edit::{DocumentMut, Item, Table, value};
 
+use crate::remote::Remote;
+
 /// The header comment written above a generated `momo.toml`.
 const HEADER: &str = "\
 # momo configuration.
@@ -147,7 +149,10 @@ pub struct Config {
     pub tag_kind: TagKind,
     /// The code-host remote the Changelog's reference links point at, when
     /// configured. It overrides the remote derived from the VCS.
-    pub remote: Option<String>,
+    ///
+    /// Parsed when the configuration is read, so a value that is set but is not
+    /// a remote URL is rejected there rather than silently ignored here.
+    pub remote: Option<Remote>,
     /// The task environment momo is installed into, when any.
     pub task_env: Option<String>,
     /// Template for a Release Candidate version suffix, when customised.
@@ -228,7 +233,7 @@ impl fmt::Display for Config {
         table["tag_prefix"] = value(self.tag_prefix.as_str());
         table["tag_kind"] = value(self.tag_kind.to_string());
         if let Some(remote) = &self.remote {
-            table["remote"] = value(remote.as_str());
+            table["remote"] = value(remote.base());
         }
         if let Some(task_env) = &self.task_env {
             table["task_env"] = value(task_env.as_str());
@@ -272,7 +277,7 @@ pub struct ConfigOverrides {
     /// Override for [`Config::tag_kind`].
     pub tag_kind: Option<TagKind>,
     /// Override for [`Config::remote`].
-    pub remote: Option<String>,
+    pub remote: Option<Remote>,
     /// Override for [`Config::task_env`].
     pub task_env: Option<String>,
     /// Override for [`Config::rc_format`].
@@ -305,7 +310,9 @@ impl ConfigOverrides {
                 "MOMO_TAG_KIND" => {
                     overrides.tag_kind = Some(parse_value::<TagKind>(name.as_ref(), value)?);
                 }
-                "MOMO_REMOTE" => overrides.remote = Some(value.to_owned()),
+                "MOMO_REMOTE" => {
+                    overrides.remote = Some(parse_remote_value(name.as_ref(), value)?);
+                }
                 "MOMO_TASK_ENV" => overrides.task_env = Some(value.to_owned()),
                 "MOMO_RC_FORMAT" => overrides.rc_format = Some(value.to_owned()),
                 _ => {}
@@ -327,7 +334,7 @@ impl FromStr for ConfigOverrides {
             changes_dir: parse_path(&doc, "changes_dir")?,
             tag_prefix: parse_string(&doc, "tag_prefix")?,
             tag_kind: parse_scalar::<TagKind>(&doc, "tag_kind")?,
-            remote: parse_string(&doc, "remote")?,
+            remote: parse_remote(&doc, "remote")?,
             task_env: parse_string(&doc, "task_env")?,
             rc_format: parse_string(&doc, "rc_format")?,
             packages: parse_packages(&doc)?,
@@ -375,6 +382,14 @@ pub enum ConfigError {
         /// The accepted variants, comma-separated.
         expected: &'static str,
     },
+    /// The `remote` key is set to a value that is not a remote URL.
+    #[error("invalid value `{value}` for `{key}`; expected a remote URL")]
+    InvalidRemote {
+        /// The offending key.
+        key: String,
+        /// The value that could not be parsed.
+        value: String,
+    },
 }
 
 impl From<toml_edit::TomlError> for ConfigError {
@@ -401,6 +416,23 @@ fn parse_string(doc: &DocumentMut, key: &str) -> Result<Option<String>, ConfigEr
 /// Parse a path-valued key from the document.
 fn parse_path(doc: &DocumentMut, key: &str) -> Result<Option<PathBuf>, ConfigError> {
     Ok(string_at(doc, key)?.map(PathBuf::from))
+}
+
+/// Parse the `remote` key from the document, as a validated [`Remote`].
+fn parse_remote(doc: &DocumentMut, key: &str) -> Result<Option<Remote>, ConfigError> {
+    string_at(doc, key)?
+        .map(|value| parse_remote_value(key, value))
+        .transpose()
+}
+
+/// Parse a remote URL, reporting the key on failure.
+fn parse_remote_value(key: &str, value: &str) -> Result<Remote, ConfigError> {
+    value
+        .parse::<Remote>()
+        .map_err(|err| ConfigError::InvalidRemote {
+            key: key.to_owned(),
+            value: err.url,
+        })
 }
 
 /// Read a key that must be a string, if present.
@@ -518,7 +550,10 @@ mod tests {
             .parse()
             .expect("valid TOML");
         let config = Config::resolve(file, ConfigOverrides::default());
-        assert_eq!(config.remote.as_deref(), Some("git@github.com:a/b.git"));
+        assert_eq!(
+            config.remote.as_ref().map(Remote::base),
+            Some("https://github.com/a/b")
+        );
     }
 
     #[test]
@@ -526,7 +561,29 @@ mod tests {
         let env = ConfigOverrides::from_env([("MOMO_REMOTE", "https://github.com/a/b")])
             .expect("valid env value");
         let config = Config::resolve(ConfigOverrides::default(), env);
-        assert_eq!(config.remote.as_deref(), Some("https://github.com/a/b"));
+        assert_eq!(
+            config.remote.as_ref().map(Remote::base),
+            Some("https://github.com/a/b")
+        );
+    }
+
+    #[test]
+    fn an_unparseable_remote_in_the_file_is_rejected() {
+        let err = "remote = \"not a remote\"\n"
+            .parse::<ConfigOverrides>()
+            .expect_err("an unparseable remote fails");
+        let message = err.to_string();
+        assert!(message.contains("remote"), "{message}");
+        assert!(message.contains("not a remote"), "{message}");
+    }
+
+    #[test]
+    fn an_unparseable_remote_in_the_environment_is_rejected() {
+        let err = ConfigOverrides::from_env([("MOMO_REMOTE", "not a remote")])
+            .expect_err("an unparseable remote fails");
+        let message = err.to_string();
+        assert!(message.contains("MOMO_REMOTE"), "{message}");
+        assert!(message.contains("not a remote"), "{message}");
     }
 
     #[test]
@@ -577,7 +634,11 @@ manifest = \"crates/momo/Cargo.toml\"
     #[test]
     fn generated_config_round_trips() {
         let mut original = Config {
-            remote: Some("https://github.com/Jarvvski/momo".to_owned()),
+            remote: Some(
+                "https://github.com/Jarvvski/momo"
+                    .parse()
+                    .expect("a remote URL"),
+            ),
             task_env: Some("mise".to_owned()),
             rc_format: Some("-rc.{n}".to_owned()),
             ..Config::default()

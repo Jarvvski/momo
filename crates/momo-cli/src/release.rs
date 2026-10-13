@@ -144,10 +144,15 @@ fn run(
     };
 
     let mut changelog = read_changelog(repo_root, config, package)?;
-    let remote = remote(config, vcs)?;
+    // A configured `remote` wins; otherwise link to the remote the VCS has.
+    let derived = if config.remote.is_some() {
+        None
+    } else {
+        derive_remote(vcs)?
+    };
     let links = Links {
         prefix: &prefix,
-        remote: remote.as_ref(),
+        remote: config.remote.as_ref().or(derived.as_ref()),
     };
     let version = match mode {
         Mode::Release => {
@@ -233,22 +238,19 @@ fn read_changelog(repo_root: &Path, config: &Config, package: &Package) -> Resul
     }
 }
 
-/// The Remote to link to: the configured one, else the VCS remote.
+/// The Remote derived from the VCS, when it has one momo recognises.
 ///
-/// The `remote` key in `momo.toml` overrides the remote derived from the VCS and
-/// supplies one when there is no VCS. With neither — or with a URL momo cannot
-/// understand — there is nothing to link to and the footer is omitted.
-fn remote(config: &Config, vcs: Option<&dyn Vcs>) -> Result<Option<Remote>> {
-    if let Some(url) = &config.remote {
-        return Ok(url.parse::<Remote>().ok());
-    }
+/// A VCS remote momo cannot understand is ignored: it cannot be linked to, and
+/// there is nothing for the user to fix. A configured `remote` never reaches
+/// here — config resolution has already rejected an unusable one.
+fn derive_remote(vcs: Option<&dyn Vcs>) -> Result<Option<Remote>> {
     let Some(vcs) = vcs else {
         return Ok(None);
     };
     let Some(url) = vcs.remote()? else {
         return Ok(None);
     };
-    Ok(url.parse::<Remote>().ok())
+    Ok(url.parse().ok())
 }
 
 /// The Release Candidate suffix template from the configuration.
@@ -491,7 +493,7 @@ mod tests {
         let root = dir.path();
         fragment(root, "add-a-thing.md", "Add a thing");
         let mut config = fragments();
-        config.remote = Some("https://gitlab.com/a/b".to_owned());
+        config.remote = Some("https://gitlab.com/a/b".parse().expect("a remote URL"));
         let vcs = FakeVcs::new().remote("git@github.com:Jarvvski/momo.git");
 
         release(root, &config, &package(), Some(&vcs), date(), false).expect("release");
@@ -513,7 +515,11 @@ mod tests {
         let root = dir.path();
         fragment(root, "add-a-thing.md", "Add a thing");
         let mut config = fragments();
-        config.remote = Some("git@github.com:Jarvvski/momo.git".to_owned());
+        config.remote = Some(
+            "git@github.com:Jarvvski/momo.git"
+                .parse()
+                .expect("a remote URL"),
+        );
 
         release(root, &config, &package(), None, date(), false).expect("release");
 

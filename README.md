@@ -297,6 +297,10 @@ version is left alone and reported as stale, and `--update` refreshes it.
 `--uninstall` removes what install wrote and clears the recorded `task_env`.
 With no task environment and no explicit name, `install` warns and exits zero.
 
+Release assets are built for **Linux and macOS only** — four Unix targets
+(`x86_64`/`aarch64` × `apple-darwin`/`unknown-linux-gnu`). There is no Windows
+build, so the pinned wrappers resolve only on those platforms.
+
 ## CI
 
 momo is designed to be driven by a script. `status` reports structured data and

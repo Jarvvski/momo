@@ -139,7 +139,10 @@ tag alone is not enough: the release must also carry a per-platform asset that t
 `<tool>-<version>-<target>.tar.gz`, e.g.
 `momo-0.1.0-aarch64-apple-darwin.tar.gz`). Publishing the release is therefore a
 **prerequisite of the integration**, not an optional extra; momo's release
-workflow (`.github/workflows/release.yml`) does this on a version tag.
+workflow (`.github/workflows/release.yml`) does this on a version tag. momo
+builds **Linux and macOS only** — four Unix targets (`x86_64`/`aarch64` ×
+`apple-darwin`/`unknown-linux-gnu`); there is no Windows asset, so the pin
+resolves only on those platforms.
 
 ---
 
