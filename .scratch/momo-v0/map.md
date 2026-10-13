@@ -111,6 +111,9 @@ builder can implement momo v0 with nothing left to decide.
   nouns (one per call); global `--dry-run`; flags-only; **`candidate`** (alias
   `rc`) replaces `release --rc`; short aliases `a`/`f`/`b`; `status` prints
   per-package `→ next: <version>`. Prototype: `prototypes/cli/`.
+- [VCS-optional operation](issues/17-vcs-optional.md): without a VCS the version
+  source is `.momo/version`; `status`/`release`/`candidate` still work, `tag`
+  errors clearly; the VCS becomes authoritative once present.
 
 ## Not yet specified
 

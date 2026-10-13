@@ -1,7 +1,7 @@
 # Version-file detection & sync
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 16, 20
 
 ## Question
