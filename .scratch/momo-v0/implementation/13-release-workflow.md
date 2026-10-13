@@ -28,10 +28,10 @@ for the owner. Build and verify the workflow; the owner triggers it.
 
 **Spec:** `.scratch/momo-v0/spec.md` §10 · playbook: `docs/mise-task-distribution.md`
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A workflow builds release binaries on a version tag.
-- [ ] Asset names match what mise's `github:` backend expects, evidenced from mise's own documentation or source rather than assumed.
-- [ ] The build is exercised without publishing (a PR-triggered or dispatched dry run), and the artefacts are shown to be correctly named.
-- [ ] `docs/mise-task-distribution.md` records that the wrappers need a published release.
-- [ ] No tag is created and no release is published.
+- [x] A workflow builds release binaries on a version tag.
+- [x] Asset names match what mise's `github:` backend expects, evidenced from mise's own documentation or source rather than assumed.
+- [x] The build is exercised without publishing (a PR-triggered or dispatched dry run), and the artefacts are shown to be correctly named.
+- [x] `docs/mise-task-distribution.md` records that the wrappers need a published release.
+- [x] No tag is created and no release is published.

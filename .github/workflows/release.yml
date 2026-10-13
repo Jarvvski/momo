@@ -1,0 +1,83 @@
+name: Release
+
+# `momo install` pins the CLI as `github:Jarvvski/momo`, so the wrappers resolve
+# to a GitHub release asset. A version tag builds the assets and publishes them;
+# on a pull request the same build runs as a dry run that proves compilation and
+# the asset names without cutting a release.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          # Rustup components live outside mise's cached data directory.
+          cache: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: rustup target add ${{ matrix.target }}
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - run: cargo build --release --locked -p momo-cli --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          name="momo-${{ steps.version.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "dist/${name}"
+          cp "target/${{ matrix.target }}/release/momo" "dist/${name}/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          ls -l "dist/${name}.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: momo-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Attach assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/*.tar.gz \
+            --title "${GITHUB_REF_NAME}" --generate-notes
