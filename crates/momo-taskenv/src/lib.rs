@@ -3,7 +3,9 @@
 mod detect;
 mod graph;
 mod mise;
+mod monorepo;
 
 pub use detect::{detect, named};
 pub use graph::discover;
 pub use mise::MiseTaskEnvironment;
+pub use monorepo::is_monorepo;

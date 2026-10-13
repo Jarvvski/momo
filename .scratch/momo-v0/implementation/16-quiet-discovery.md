@@ -24,9 +24,9 @@ on it; determine whether a monorepo is configured from the configuration itself.
 
 **Spec:** `.scratch/momo-v0/spec.md` §9, §10
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A repo with a `mise.toml` but no `monorepo_root` runs with no warning.
-- [ ] A repo with `monorepo_root = true` whose graph fails to read warns.
-- [ ] `-p`/`--all` on a repo where discovery fails still fails loudly.
-- [ ] The README documents when discovery is attempted and what happens when it is unavailable.
+- [x] A repo with a `mise.toml` but no `monorepo_root` runs with no warning.
+- [x] A repo with `monorepo_root = true` whose graph fails to read warns.
+- [x] `-p`/`--all` on a repo where discovery fails still fails loudly.
+- [x] The README documents when discovery is attempted and what happens when it is unavailable.

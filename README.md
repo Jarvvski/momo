@@ -226,10 +226,21 @@ $ MOMO_TAG_PREFIX="rel-" momo status
 ## Monorepos
 
 A single-package repo is a monorepo with one package. A repo with a mise project
-graph is a monorepo of packages; discovery runs `mise tasks graph --json` and
-requires `monorepo_root = true` in `mise.toml`. With no task environment — or
-when the graph cannot be read — momo warns and treats the repo as a single
-package named after its directory.
+graph is a monorepo of packages; discovery runs `mise tasks graph --json`, which
+requires `monorepo_root = true` in the mise configuration.
+
+Discovery is attempted whenever momo detects a mise config (`mise.toml` or
+`.mise/`) at or above the current directory, and momo tells the outcomes apart by
+reading that configuration — never by parsing mise's error message, which is not
+a stable interface:
+
+- **Not a monorepo** (no `monorepo_root = true`): the graph's refusal is
+  expected, so momo silently treats the repo as a single package named after its
+  directory.
+- **A monorepo whose graph cannot be read** (`monorepo_root = true`, but the
+  command failed): momo warns and falls back to that same single package.
+- **`-p`/`--all` on a monorepo whose graph cannot be read** fails outright: the
+  request for packages cannot be honoured.
 
 A package carries its ecosystem identity (`cargo:momo`, `node:@acme/ui`) and a
 derived, ref/path-safe slug (`cargo-momo`). The slug namespaces tags
