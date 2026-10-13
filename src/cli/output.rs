@@ -210,14 +210,16 @@ impl Verb {
 ///   "version": "0.1.0",
 ///   "changelog": "CHANGELOG.md",
 ///   "version_file": ".momo/version",
+///   "manifest": "Cargo.toml",
 ///   "consumed": [".momo/changes/add-a-thing.md"],
 ///   "dry_run": false
 /// }
 /// ```
 ///
 /// `version_file` is always present — both `release` and `candidate` advance it,
-/// so the run can be tagged. Under `--dry-run` the paths are what the run
-/// *would* have written.
+/// so the run can be tagged. `manifest` is the ecosystem manifest the run synced,
+/// or `null` when the Package has none. Under `--dry-run` the paths are what the
+/// run *would* have written.
 pub struct Release<'a> {
     /// The Version minted.
     pub version: &'a Version,
@@ -226,6 +228,8 @@ pub struct Release<'a> {
     /// The version file the run wrote. Both `release` and `candidate` advance
     /// it, so it is always present and the run can be tagged.
     pub version_file: &'a Path,
+    /// The ecosystem manifest the run synced, when it found one.
+    pub manifest: Option<&'a Path>,
     /// The Fragments the run consumed.
     pub consumed: &'a [PathBuf],
     /// Which verb minted the Version.
@@ -251,6 +255,9 @@ impl Report for Release<'_> {
         let mut out = format!("{verb} {}\n", self.version);
         out.push_str(&format!("{wrote} {}\n", self.changelog.display()));
         out.push_str(&format!("{wrote} {}\n", self.version_file.display()));
+        if let Some(manifest) = self.manifest {
+            out.push_str(&format!("{wrote} {}\n", manifest.display()));
+        }
         for path in self.consumed {
             out.push_str(&format!("{removed} {}\n", path.display()));
         }
@@ -263,10 +270,12 @@ impl Report for Release<'_> {
             .iter()
             .map(|path| Json::from(path.as_path()))
             .collect();
+        let manifest = self.manifest.map_or(Json::Null, Json::from);
         Json::object(vec![
             ("version", Json::from(self.version)),
             ("changelog", Json::from(self.changelog)),
             ("version_file", Json::from(self.version_file)),
+            ("manifest", manifest),
             ("consumed", Json::Array(consumed)),
             ("dry_run", Json::from(self.dry_run)),
         ])
@@ -319,6 +328,8 @@ impl Report for Tag<'_> {
 enum Json {
     /// A JSON boolean.
     Bool(bool),
+    /// A JSON null.
+    Null,
     /// A JSON string.
     String(String),
     /// A JSON array.
@@ -350,6 +361,7 @@ impl Json {
     fn render(&self, depth: usize, out: &mut String) {
         match self {
             Json::Bool(value) => out.push_str(if *value { "true" } else { "false" }),
+            Json::Null => out.push_str("null"),
             Json::String(text) => {
                 out.push('"');
                 escape_into(text, out);
@@ -625,6 +637,7 @@ mod tests {
             version: &version,
             changelog: Path::new("/repo/CHANGELOG.md"),
             version_file: Path::new("/repo/.momo/version"),
+            manifest: Some(Path::new("/repo/Cargo.toml")),
             consumed: &[PathBuf::from("/repo/.momo/changes/add-a-thing.md")],
             verb: Verb::Release,
             dry_run: false,
@@ -636,6 +649,7 @@ mod tests {
   "version": "0.1.0",
   "changelog": "/repo/CHANGELOG.md",
   "version_file": "/repo/.momo/version",
+  "manifest": "/repo/Cargo.toml",
   "consumed": [
     "/repo/.momo/changes/add-a-thing.md"
   ],
@@ -646,12 +660,33 @@ mod tests {
     }
 
     #[test]
+    fn release_json_reports_a_missing_manifest_as_null() {
+        let version = version("0.1.0");
+        let report = Release {
+            version: &version,
+            changelog: Path::new("/repo/CHANGELOG.md"),
+            version_file: Path::new("/repo/.momo/version"),
+            manifest: None,
+            consumed: &[],
+            verb: Verb::Release,
+            dry_run: false,
+        };
+
+        assert!(
+            report.json().contains("\"manifest\": null"),
+            "{}",
+            report.json()
+        );
+    }
+
+    #[test]
     fn release_human_names_the_verb_and_what_it_wrote() {
         let version = version("0.1.0");
         let report = Release {
             version: &version,
             changelog: Path::new("/repo/CHANGELOG.md"),
             version_file: Path::new("/repo/.momo/version"),
+            manifest: Some(Path::new("/repo/Cargo.toml")),
             consumed: &[PathBuf::from("/repo/.momo/changes/add-a-thing.md")],
             verb: Verb::Release,
             dry_run: false,
@@ -659,7 +694,7 @@ mod tests {
 
         assert_eq!(
             report.human(),
-            "released 0.1.0\nwrote /repo/CHANGELOG.md\nwrote /repo/.momo/version\nremoved /repo/.momo/changes/add-a-thing.md\n"
+            "released 0.1.0\nwrote /repo/CHANGELOG.md\nwrote /repo/.momo/version\nwrote /repo/Cargo.toml\nremoved /repo/.momo/changes/add-a-thing.md\n"
         );
     }
 
@@ -670,6 +705,7 @@ mod tests {
             version: &version,
             changelog: Path::new("/repo/CHANGELOG.md"),
             version_file: Path::new("/repo/.momo/version"),
+            manifest: None,
             consumed: &[],
             verb: Verb::Candidate,
             dry_run: true,
@@ -688,6 +724,7 @@ mod tests {
             version: &version,
             changelog: Path::new("/repo/CHANGELOG.md"),
             version_file: Path::new("/repo/.momo/version"),
+            manifest: None,
             consumed: &[],
             verb: Verb::Release,
             dry_run: false,

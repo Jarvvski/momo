@@ -267,3 +267,42 @@ fn change_verb_aliases_record_their_kind() {
         );
     }
 }
+
+#[test]
+fn recording_leaves_no_temporary_files_behind() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    let mut names: Vec<String> = fs::read_dir(dir.path())
+        .expect("read the project dir")
+        .map(|entry| {
+            entry
+                .expect("a directory entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    assert_eq!(names, ["CHANGELOG.md", "momo.toml"]);
+}
+
+#[test]
+fn a_taken_fragment_name_gets_a_numeric_suffix() {
+    let dir = TempDir::new().expect("temp dir");
+    seed_recording(&dir, "fragments");
+    let changes = dir.path().join(".momo/changes");
+    fs::create_dir_all(&changes).expect("create the changes dir");
+    fs::write(changes.join("add-add-a-thing.md"), "first\n").expect("seed the base fragment");
+
+    momo(&dir).args(["add", "Add a thing"]).assert().success();
+
+    assert_eq!(read(&dir, ".momo/changes/add-add-a-thing.md"), "first\n");
+    assert_eq!(
+        read(&dir, ".momo/changes/add-add-a-thing-2.md"),
+        "Add a thing\n"
+    );
+}

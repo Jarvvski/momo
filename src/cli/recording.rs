@@ -4,12 +4,13 @@
 //! Fragment file name — and where a Package keeps them; this module reads and
 //! writes those files, selecting the store from the resolved `Config`.
 
-use std::fs;
-use std::io::ErrorKind;
+use std::fs::{self, OpenOptions};
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
+use crate::cli::atomic;
 use crate::domain::change::{Change, Kind};
 use crate::domain::changelog::Changelog;
 use crate::domain::config::{Config, Recording};
@@ -52,20 +53,18 @@ pub fn record(
             };
             changelog.record(change.clone());
             if !dry_run {
-                fs::write(&path, changelog.render())
+                atomic::write(&path, &changelog.render())
                     .with_context(|| format!("writing {}", path.display()))?;
             }
             Ok(path)
         }
         Recording::Fragments => {
             let dir = package.changes_dir(repo_root, config);
-            let path = unique_fragment_path(&dir, change);
-            if !dry_run {
-                fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-                fs::write(&path, fragment_body(change))
-                    .with_context(|| format!("writing {}", path.display()))?;
+            if dry_run {
+                return Ok(unique_fragment_path(&dir, change));
             }
-            Ok(path)
+            fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+            create_fragment(&dir, change)
         }
     }
 }
@@ -75,45 +74,79 @@ fn fragment_body(change: &Change) -> String {
     format!("{}\n", change.text)
 }
 
-/// A Fragment path under `dir` that does not collide with an existing file.
-fn unique_fragment_path(dir: &Path, change: &Change) -> PathBuf {
-    let path = dir.join(change.fragment_file_name());
-    if !path.exists() {
-        return path;
+/// Create `change`'s Fragment under `dir`, claiming the first free name.
+///
+/// `create_new` is what makes this safe under concurrency: two `momo add` runs
+/// that pick the same name cannot both win — the loser sees `AlreadyExists` and
+/// takes the next `-N` suffix.
+fn create_fragment(dir: &Path, change: &Change) -> Result<PathBuf> {
+    let body = fragment_body(change);
+    for candidate in fragment_candidates(dir, change) {
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(mut file) => {
+                file.write_all(body.as_bytes())
+                    .with_context(|| format!("writing {}", candidate.display()))?;
+                return Ok(candidate);
+            }
+            Err(err) if err.kind() == ErrorKind::AlreadyExists => continue,
+            Err(err) => {
+                return Err(err).with_context(|| format!("creating {}", candidate.display()));
+            }
+        }
     }
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("change");
-    let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("md");
-    (2u32..)
-        .map(|n| dir.join(format!("{stem}-{n}.{extension}")))
-        .find(|candidate| !candidate.exists())
-        .unwrap_or(path)
+    bail!("no free Fragment name under {}", dir.display())
 }
 
-/// Consume (delete) every Fragment `package` holds, returning their paths.
+/// The Fragment file names to try for `change`, the plain name first.
+fn fragment_candidates<'a>(dir: &'a Path, change: &Change) -> impl Iterator<Item = PathBuf> + 'a {
+    let base = dir.join(change.fragment_file_name());
+    let stem = base
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("change")
+        .to_owned();
+    let extension = base
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("md")
+        .to_owned();
+    std::iter::once(base).chain((2u32..).map(move |n| dir.join(format!("{stem}-{n}.{extension}"))))
+}
+
+/// The path a Fragment *would* take under `dir` — the `--dry-run` preview.
+///
+/// Nothing is written, so the check-then-use race the real path avoids with
+/// `create_new` cannot bite here.
+fn unique_fragment_path(dir: &Path, change: &Change) -> PathBuf {
+    fragment_candidates(dir, change)
+        .find(|candidate| !candidate.exists())
+        .unwrap_or_else(|| dir.join(change.fragment_file_name()))
+}
+
+/// Every Fragment `package` holds, sorted — what a Release consumes.
 ///
 /// Only the fragment recording model has Fragment files, so in changelog mode
-/// this is a no-op. With `dry_run`, nothing is removed.
-pub fn consume(
-    repo_root: &Path,
-    config: &Config,
-    package: &Package,
-    dry_run: bool,
-) -> Result<Vec<PathBuf>> {
+/// this is empty.
+pub fn fragments(repo_root: &Path, config: &Config, package: &Package) -> Result<Vec<PathBuf>> {
     if config.recording != Recording::Fragments {
         return Ok(Vec::new());
     }
 
     let mut paths = fragment_paths(&package.changes_dir(repo_root, config))?;
     paths.sort();
-    if !dry_run {
-        for path in &paths {
-            fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
-        }
-    }
     Ok(paths)
+}
+
+/// Delete every Fragment in `paths`.
+pub fn consume(paths: &[PathBuf]) -> Result<()> {
+    for path in paths {
+        fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
+    }
+    Ok(())
 }
 
 /// Read every Fragment under `dir` into a Change, ordered by text.
@@ -166,4 +199,41 @@ fn fragment_kind(path: &Path) -> Option<Kind> {
     let name = path.file_name()?.to_str()?;
     let (prefix, _) = name.split_once('-')?;
     prefix.parse::<Kind>().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use tempfile::TempDir;
+
+    #[test]
+    fn a_taken_fragment_name_falls_through_to_the_next_suffix() {
+        let dir = TempDir::new().expect("temp dir");
+        let change = Change::new(Kind::Add, "Add a thing");
+        let base = dir.path().join(change.fragment_file_name());
+        fs::write(&base, "already here\n").expect("seed the base fragment");
+
+        let path = create_fragment(dir.path(), &change).expect("create a fragment");
+
+        assert_eq!(path, dir.path().join("add-add-a-thing-2.md"));
+        assert_eq!(fs::read_to_string(&path).expect("read"), "Add a thing\n");
+        assert_eq!(
+            fs::read_to_string(&base).expect("read the base"),
+            "already here\n",
+            "the existing fragment was clobbered"
+        );
+    }
+
+    #[test]
+    fn the_dry_run_preview_takes_the_next_free_name_without_writing() {
+        let dir = TempDir::new().expect("temp dir");
+        let change = Change::new(Kind::Add, "Add a thing");
+        fs::write(dir.path().join("add-add-a-thing.md"), "x").expect("seed the base fragment");
+
+        let path = unique_fragment_path(dir.path(), &change);
+
+        assert_eq!(path, dir.path().join("add-add-a-thing-2.md"));
+        assert!(!path.exists(), "the preview wrote a fragment");
+    }
 }

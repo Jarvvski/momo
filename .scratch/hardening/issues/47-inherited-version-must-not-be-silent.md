@@ -1,7 +1,7 @@
 # 47: An unresolvable inherited version must not be silent (15a)
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: adapters/manifest
 Verified: yes — split out of ticket 15 during triage (batch 4)
@@ -55,3 +55,27 @@ add a release-level test asserting the member is not reported as synced.
 
 - 15 (parent; 15b is the human policy decision), 02 (dry-run should surface this
   too), 37 (the staging transaction).
+
+## Resolution
+
+`version_key` in `src/adapters/manifest/cargo.rs` is now three-way —
+`Key::Package`, `Key::Workspace`, or the new `Key::Inherited` — instead of
+collapsing the last case to `None`. `set_version` returns the new
+`ManifestError::InheritedVersion { manifest }` (added to
+`src/domain/manifest.rs`) for an inherited-but-unresolvable version.
+
+The release path propagates it: `render_manifest` (the read-only replacement for
+`sync_manifest`, used by 37's prepare phase) errors, so the member is never
+reported as synced and nothing is written. `--dry-run` errors too.
+
+**Decision (error vs warn):** implemented the ticket's primary sketch —
+propagate the error. This is honest (momo cannot sync such a manifest) and fits
+37's validate-before-mutate shape. Ticket 15b may soften it to a warning once the
+shared-workspace-version policy is ruled; the *signal* is in place either way.
+
+**Tests:** `cargo.rs` — the former
+`an_inherited_version_without_a_workspace_root_is_skipped` is repointed to
+`..._is_reported` and asserts `ManifestError::InheritedVersion`.
+`src/cli/release.rs` and `tests/release.rs` — an inherited member version fails
+the release with the changelog absent, the version file absent, and the Fragment
+intact.

@@ -4,6 +4,7 @@
 //! fills in a handler rather than adding surface. Verbs without a handler yet
 //! exit non-zero with a clear message (see [`crate::cli::commands`]).
 
+pub(crate) mod atomic;
 pub(crate) mod commands;
 pub(crate) mod config;
 pub(crate) mod output;
