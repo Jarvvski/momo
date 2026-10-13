@@ -29,11 +29,24 @@ pub enum Bump {
 
 impl Bump {
     /// Apply this Bump to `current`, zeroing the components below it.
-    pub fn apply(self, current: &Version) -> Version {
+    ///
+    /// `None` when the component being incremented is already at `u64::MAX`: the
+    /// overflow has to surface as an error, never wrap to `0`.
+    pub fn apply(self, current: &Version) -> Option<Version> {
+        let (major, minor, patch) = match self {
+            Bump::Patch => (current.major, current.minor, current.patch.checked_add(1)?),
+            Bump::Minor => (current.major, current.minor.checked_add(1)?, 0),
+            Bump::Major => (current.major.checked_add(1)?, 0, 0),
+        };
+        Some(Version::new(major, minor, patch))
+    }
+
+    /// The component this Bump increments, for naming an overflow.
+    fn incremented(self, current: &Version) -> u64 {
         match self {
-            Bump::Patch => Version::new(current.major, current.minor, current.patch + 1),
-            Bump::Minor => Version::new(current.major, current.minor + 1, 0),
-            Bump::Major => Version::new(current.major + 1, 0, 0),
+            Bump::Patch => current.patch,
+            Bump::Minor => current.minor,
+            Bump::Major => current.major,
         }
     }
 }
@@ -62,24 +75,41 @@ pub fn bump(kinds: impl IntoIterator<Item = Kind>, current: &Version) -> Option<
 
 /// The next Version a Release of `changes` would mint at `current`.
 ///
-/// `None` when there are no Changes — there is nothing to release.
-pub fn next_version(changes: &[Change], current: &Version) -> Option<Version> {
-    bump(changes.iter().map(|change| change.kind), current).map(|bump| bump.apply(current))
+/// `Ok(None)` when there are no Changes — there is nothing to release. `Err`
+/// when incrementing `current` would overflow a component.
+pub fn next_version(
+    changes: &[Change],
+    current: &Version,
+) -> Result<Option<Version>, VersionError> {
+    match bump(changes.iter().map(|change| change.kind), current) {
+        None => Ok(None),
+        Some(bump) => bump.apply(current).map(Some).ok_or(VersionError::Overflow {
+            value: bump.incremented(current),
+        }),
+    }
 }
 
 /// The Version a Release of `changes` would mint at `current`.
 ///
 /// Like [`next_version`], except that when `current` is a pre-release — an RC
 /// already cut for this Version — the Release reuses that target and drops the
-/// suffix rather than bumping again. `None` when there are no Changes.
-pub fn release_version(changes: &[Change], current: &Version) -> Option<Version> {
+/// suffix rather than bumping again. `Ok(None)` when there are no Changes; `Err`
+/// when incrementing `current` would overflow a component.
+pub fn release_version(
+    changes: &[Change],
+    current: &Version,
+) -> Result<Option<Version>, VersionError> {
     if changes.is_empty() {
-        return None;
+        return Ok(None);
     }
     if current.pre.is_empty() {
         next_version(changes, current)
     } else {
-        Some(Version::new(current.major, current.minor, current.patch))
+        Ok(Some(Version::new(
+            current.major,
+            current.minor,
+            current.patch,
+        )))
     }
 }
 
@@ -88,44 +118,85 @@ pub fn release_version(changes: &[Change], current: &Version) -> Option<Version>
 /// `format` is the suffix template — [`DEFAULT_RC_FORMAT`] by default — with
 /// `{n}` replaced by `n` and a leading `-` (the separator) stripped.
 pub fn candidate_version(target: &Version, n: u64, format: &str) -> Result<Version, semver::Error> {
-    let suffix = format.replace("{n}", &n.to_string());
-    let pre = semver::Prerelease::new(suffix.trim_start_matches('-'))?;
     Ok(Version {
         major: target.major,
         minor: target.minor,
         patch: target.patch,
-        pre,
+        pre: candidate_prerelease(n, format)?,
         build: semver::BuildMetadata::EMPTY,
     })
+}
+
+/// The pre-release a candidate template renders for `n`.
+fn candidate_prerelease(n: u64, format: &str) -> Result<semver::Prerelease, semver::Error> {
+    let suffix = format.replace("{n}", &n.to_string());
+    semver::Prerelease::new(suffix.trim_start_matches('-'))
+}
+
+/// The fixed text either side of the single `{n}` in an RC template.
+///
+/// The leading `-` separator is dropped from the prefix, matching
+/// [`candidate_version`]. `None` unless the template holds exactly one `{n}`.
+fn rc_parts(format: &str) -> Option<(&str, &str)> {
+    let (prefix, suffix) = format.split_once("{n}")?;
+    if suffix.contains("{n}") {
+        return None;
+    }
+    Some((prefix.trim_start_matches('-'), suffix))
+}
+
+/// Check that `format` is a usable Release Candidate template.
+///
+/// It must contain exactly one `{n}` and render to a valid semver pre-release. A
+/// template that fails either check would mint the same candidate for every
+/// number, so the configuration is rejected before any Release runs.
+pub fn validate_rc_format(format: &str) -> Result<(), RcFormatError> {
+    if rc_parts(format).is_none() {
+        return Err(RcFormatError::Marker {
+            format: format.to_owned(),
+        });
+    }
+    candidate_prerelease(1, format)
+        .map(|_| ())
+        .map_err(|source| RcFormatError::Invalid {
+            format: format.to_owned(),
+            source,
+        })
 }
 
 /// The next Release Candidate number for `target`.
 ///
 /// Numbers are scoped to the target Version: the result is one past the highest
 /// number among `recorded`, restarting at `1` when the target changes. `format`
-/// is the suffix template the recorded candidates use, so candidates under a
-/// different template are ignored.
+/// is the suffix template the recorded candidates use — the digits between its
+/// fixed prefix and suffix — so candidates under a different template are
+/// ignored. `Err` when the counter is already at `u64::MAX`.
 pub fn next_candidate<'a>(
     target: &Version,
     format: &str,
     recorded: impl IntoIterator<Item = &'a Version>,
-) -> u64 {
-    let Some((identifier, _)) = format.trim_start_matches('-').split_once("{n}") else {
-        return 1;
+) -> Result<u64, VersionError> {
+    let Some((prefix, suffix)) = rc_parts(format) else {
+        return Ok(1);
     };
-    recorded
+    let highest = recorded
         .into_iter()
         .filter(|version| same_release(version, target))
-        .filter_map(|version| {
-            version
-                .pre
-                .as_str()
-                .strip_prefix(identifier)?
-                .parse::<u64>()
-                .ok()
-        })
-        .max()
-        .map_or(1, |n| n + 1)
+        .filter_map(|version| candidate_number(&version.pre, prefix, suffix))
+        .max();
+    match highest {
+        Some(n) => n.checked_add(1).ok_or(VersionError::Overflow { value: n }),
+        None => Ok(1),
+    }
+}
+
+/// The candidate number `pre` encodes under `(prefix, suffix)`, if any.
+fn candidate_number(pre: &semver::Prerelease, prefix: &str, suffix: &str) -> Option<u64> {
+    let digits = pre.as_str().strip_prefix(prefix)?.strip_suffix(suffix)?;
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse::<u64>().ok()
 }
 
 /// Whether `version` has the same `major.minor.patch` as `target`.
@@ -171,7 +242,27 @@ impl VersionSource for TagVersionSource<'_> {
     }
 }
 
-/// Errors that can occur reading the current Version.
+/// The error produced when a Release Candidate template is not usable.
+#[derive(Debug, thiserror::Error)]
+pub enum RcFormatError {
+    /// The template does not contain exactly one `{n}`.
+    #[error("`{format}` must contain exactly one `{{n}}`")]
+    Marker {
+        /// The offending template.
+        format: String,
+    },
+    /// The template does not render to a valid semver pre-release.
+    #[error("`{format}` does not render to a valid pre-release")]
+    Invalid {
+        /// The offending template.
+        format: String,
+        /// The underlying parse error.
+        #[source]
+        source: semver::Error,
+    },
+}
+
+/// Errors that can occur resolving a Version.
 #[derive(Debug, thiserror::Error)]
 pub enum VersionError {
     /// The version file could not be read.
@@ -204,6 +295,12 @@ pub enum VersionError {
     /// The repository could not report its latest tag.
     #[error("reading the latest tag: {0}")]
     Vcs(#[from] VcsError),
+    /// Incrementing a version component or candidate number would overflow `u64`.
+    #[error("cannot increment `{value}`: it is already at the maximum")]
+    Overflow {
+        /// The value already at `u64::MAX`.
+        value: u64,
+    },
 }
 
 #[cfg(test)]
@@ -256,11 +353,11 @@ mod tests {
         );
 
         assert_eq!(
-            next_version(&changes, &version(0, 0, 0)),
+            next_version(&changes, &version(0, 0, 0)).expect("a bump that fits"),
             Some(version(0, 1, 0))
         );
         assert_eq!(
-            next_version(&changes, &version(1, 2, 3)),
+            next_version(&changes, &version(1, 2, 3)).expect("a bump that fits"),
             Some(version(2, 0, 0))
         );
     }
@@ -269,21 +366,21 @@ mod tests {
     fn a_release_of_one_kind_mints_the_expected_version() {
         let fix = [change(Kind::Fix)];
         assert_eq!(
-            next_version(&fix, &version(0, 0, 0)),
+            next_version(&fix, &version(0, 0, 0)).expect("a bump that fits"),
             Some(version(0, 0, 1))
         );
         assert_eq!(
-            next_version(&fix, &version(1, 2, 3)),
+            next_version(&fix, &version(1, 2, 3)).expect("a bump that fits"),
             Some(version(1, 2, 4))
         );
 
         let add = [change(Kind::Add)];
         assert_eq!(
-            next_version(&add, &version(0, 0, 0)),
+            next_version(&add, &version(0, 0, 0)).expect("a bump that fits"),
             Some(version(0, 1, 0))
         );
         assert_eq!(
-            next_version(&add, &version(1, 2, 3)),
+            next_version(&add, &version(1, 2, 3)).expect("a bump that fits"),
             Some(version(1, 3, 0))
         );
     }
@@ -291,15 +388,46 @@ mod tests {
     #[test]
     fn nothing_unreleased_has_no_next_version() {
         assert_eq!(bump([], &version(1, 2, 3)), None);
-        assert_eq!(next_version(&[], &version(1, 2, 3)), None);
+        assert_eq!(
+            next_version(&[], &version(1, 2, 3)).expect("no changes is not an error"),
+            None
+        );
     }
 
     #[test]
     fn applying_a_bump_zeroes_the_components_below_it() {
         let current = version(1, 2, 3);
-        assert_eq!(Bump::Patch.apply(&current), version(1, 2, 4));
-        assert_eq!(Bump::Minor.apply(&current), version(1, 3, 0));
-        assert_eq!(Bump::Major.apply(&current), version(2, 0, 0));
+        assert_eq!(
+            Bump::Patch.apply(&current).expect("a bump that fits"),
+            version(1, 2, 4)
+        );
+        assert_eq!(
+            Bump::Minor.apply(&current).expect("a bump that fits"),
+            version(1, 3, 0)
+        );
+        assert_eq!(
+            Bump::Major.apply(&current).expect("a bump that fits"),
+            version(2, 0, 0)
+        );
+    }
+
+    #[test]
+    fn a_bump_at_u64_max_overflows_instead_of_wrapping() {
+        let max = u64::MAX;
+        assert_eq!(Bump::Patch.apply(&version(1, 2, max)), None);
+        assert_eq!(Bump::Minor.apply(&version(1, max, 3)), None);
+        assert_eq!(Bump::Major.apply(&version(max, 2, 3)), None);
+
+        let fix = [change(Kind::Fix)];
+        let err =
+            next_version(&fix, &version(1, 2, max)).expect_err("the patch component overflows");
+        assert!(err.to_string().contains(&max.to_string()), "{err}");
+
+        let add = [change(Kind::Add)];
+        assert!(next_version(&add, &version(1, max, 3)).is_err());
+
+        let breaking = [change(Kind::Break)];
+        assert!(release_version(&breaking, &version(max, 2, 3)).is_err());
     }
 
     #[test]
@@ -307,7 +435,7 @@ mod tests {
         let changes = [change(Kind::Add)];
         let candidate = Version::parse("0.1.0-rc.2").expect("a valid version");
         assert_eq!(
-            release_version(&changes, &candidate),
+            release_version(&changes, &candidate).expect("a bump that fits"),
             Some(version(0, 1, 0))
         );
     }
@@ -316,16 +444,20 @@ mod tests {
     fn a_release_from_a_stable_version_bumps_as_usual() {
         let changes = [change(Kind::Add)];
         assert_eq!(
-            release_version(&changes, &version(0, 1, 0)),
+            release_version(&changes, &version(0, 1, 0)).expect("a bump that fits"),
             Some(version(0, 2, 0))
         );
     }
 
     #[test]
     fn a_release_of_nothing_has_no_version() {
-        assert_eq!(release_version(&[], &version(1, 2, 3)), None);
         assert_eq!(
-            release_version(&[], &Version::parse("1.2.3-rc.1").expect("a valid version")),
+            release_version(&[], &version(1, 2, 3)).expect("no changes is not an error"),
+            None
+        );
+        assert_eq!(
+            release_version(&[], &Version::parse("1.2.3-rc.1").expect("a valid version"))
+                .expect("no changes is not an error"),
             None
         );
     }
@@ -362,21 +494,25 @@ mod tests {
         ];
 
         assert_eq!(
-            next_candidate(&version(0, 1, 0), DEFAULT_RC_FORMAT, &recorded),
+            next_candidate(&version(0, 1, 0), DEFAULT_RC_FORMAT, &recorded)
+                .expect("the counter fits"),
             3
         );
         assert_eq!(
-            next_candidate(&version(0, 2, 0), DEFAULT_RC_FORMAT, &recorded),
+            next_candidate(&version(0, 2, 0), DEFAULT_RC_FORMAT, &recorded)
+                .expect("the counter fits"),
             2
         );
         // A target that has never been cut restarts at 1...
         assert_eq!(
-            next_candidate(&version(0, 3, 0), DEFAULT_RC_FORMAT, &recorded),
+            next_candidate(&version(0, 3, 0), DEFAULT_RC_FORMAT, &recorded)
+                .expect("the counter fits"),
             1
         );
         // ...and so does one with no recorded candidates at all.
         assert_eq!(
-            next_candidate(&version(1, 0, 0), DEFAULT_RC_FORMAT, &recorded),
+            next_candidate(&version(1, 0, 0), DEFAULT_RC_FORMAT, &recorded)
+                .expect("the counter fits"),
             1
         );
     }
@@ -385,10 +521,66 @@ mod tests {
     fn candidate_numbers_ignore_a_different_template() {
         let recorded = [Version::parse("0.1.0-beta.4").expect("a valid version")];
         assert_eq!(
-            next_candidate(&version(0, 1, 0), DEFAULT_RC_FORMAT, &recorded),
+            next_candidate(&version(0, 1, 0), DEFAULT_RC_FORMAT, &recorded)
+                .expect("the counter fits"),
             1
         );
-        assert_eq!(next_candidate(&version(0, 1, 0), "-beta.{n}", &recorded), 5);
+        assert_eq!(
+            next_candidate(&version(0, 1, 0), "-beta.{n}", &recorded).expect("the counter fits"),
+            5
+        );
+    }
+
+    #[test]
+    fn candidate_numbers_advance_with_text_after_the_marker() {
+        let recorded = [
+            Version::parse("0.1.0-1.rc").expect("a valid version"),
+            Version::parse("0.1.0-2.rc").expect("a valid version"),
+        ];
+        assert_eq!(
+            next_candidate(&version(0, 1, 0), "-{n}.rc", &recorded).expect("the counter fits"),
+            3
+        );
+        // A pre-release that only matches the prefix is not a candidate number.
+        let unrelated = [Version::parse("0.1.0-1.beta").expect("a valid version")];
+        assert_eq!(
+            next_candidate(&version(0, 1, 0), "-{n}.rc", &unrelated).expect("the counter fits"),
+            1
+        );
+    }
+
+    #[test]
+    fn a_candidate_counter_at_u64_max_overflows_instead_of_wrapping() {
+        let recorded = [Version::parse("0.1.0-rc.18446744073709551615").expect("a valid version")];
+        let err = next_candidate(&version(0, 1, 0), DEFAULT_RC_FORMAT, &recorded)
+            .expect_err("the counter overflows");
+        assert!(err.to_string().contains("18446744073709551615"), "{err}");
+    }
+
+    #[test]
+    fn a_template_without_exactly_one_marker_is_rejected() {
+        for format in ["-rc", "-rc.{n}.{n}", "{n}{n}"] {
+            assert!(
+                validate_rc_format(format).is_err(),
+                "`{format}` should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn a_template_that_is_not_a_valid_prerelease_is_rejected() {
+        let err = validate_rc_format("-rc_{n}").expect_err("an underscore is not a prerelease");
+        assert!(err.to_string().contains("-rc_{n}"), "{err}");
+    }
+
+    #[test]
+    fn the_default_and_a_suffixed_template_are_accepted() {
+        for format in [DEFAULT_RC_FORMAT, "-beta.{n}", "-{n}.rc", "-{n}"] {
+            assert!(
+                validate_rc_format(format).is_ok(),
+                "`{format}` should be accepted"
+            );
+        }
     }
 
     /// A [`Vcs`] that reports a fixed latest tag, for the version-source tests.

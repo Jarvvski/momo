@@ -44,6 +44,15 @@ $ momo release
 error: reading /repo/momo.toml: invalid value `not a remote` for `remote`; expected a remote URL
 ```
 
+`rc_format` must contain exactly one `{n}` and form a valid pre-release once it is
+substituted, so a template that would never advance — `"-rc"` — is rejected
+rather than minting the same candidate for every number:
+
+```console
+$ MOMO_RC_FORMAT='-rc' momo candidate
+error: validating the configuration: invalid value `-rc` for `rc_format`: `-rc` must contain exactly one `{n}`
+```
+
 ## Per-package overrides
 
 In a monorepo, overrides are keyed by ecosystem identity:

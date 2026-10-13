@@ -1,7 +1,7 @@
 # 05: `rc_format` is unvalidated, and the candidate counter only understands a trailing `{n}`
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/version
 Verified: yes — read at the cited lines
@@ -93,3 +93,23 @@ once in the domain, not per call site.
 - Tests: config rejects `-rc` and `-rc.{n}.{n}`; `next_candidate` increments for
   `-{n}.rc` (`0.1.0-1.rc`, `0.1.0-2.rc` → `3`) and for the default; the existing
   different-template test still passes.
+
+## Resolution
+
+Resolved in the `version-guards` change set.
+
+- `Config::validate` (domain) requires `rc_format`, when set, to contain exactly
+  one `{n}` and render to a valid pre-release, via `validate_rc_format` in
+  `domain::version`. `cli::config::load` calls it once the `momo.toml` and
+  `MOMO_RC_FORMAT` layers are merged, so both are checked and the error names the
+  offending value (`ConfigError::InvalidRcFormat`, sourced from `RcFormatError`).
+- `next_candidate` splits the template at its single `{n}` into a fixed prefix and
+  suffix and parses the digits *between* them, so a template with text after the
+  marker (`-{n}.rc`) advances; a pre-release that does not match both sides is
+  ignored.
+- Tests: config rejects `-rc` and `-rc.{n}.{n}`; `next_candidate` advances for
+  `-{n}.rc`; an end-to-end `MOMO_RC_FORMAT=-{n}.rc` run cuts `0.1.0-1.rc` then
+  `0.1.0-2.rc`; an end-to-end `MOMO_RC_FORMAT=-rc` run fails with the new error.
+- `docs/configuration.md` documents the exactly-one-`{n}` rule and its error.
+
+RC-bump semantics in `release_version` are untouched (that is ticket 04's call).

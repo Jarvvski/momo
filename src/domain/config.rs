@@ -17,6 +17,7 @@ use std::str::FromStr;
 use toml_edit::{DocumentMut, Item, Table, value};
 
 use crate::domain::remote::Remote;
+use crate::domain::version::RcFormatError;
 
 /// The header comment written above a generated `momo.toml`.
 const HEADER: &str = "\
@@ -218,6 +219,25 @@ impl Config {
             self.packages.entry(identity).or_default().overlay(package);
         }
     }
+
+    /// Validate the resolved configuration.
+    ///
+    /// The only key that can be internally inconsistent is `rc_format`: a
+    /// template without exactly one `{n}`, or one that does not render to a
+    /// valid pre-release, would mint the same candidate for every number. Called
+    /// once the layers are merged, so both `momo.toml` and `MOMO_RC_FORMAT` are
+    /// checked and the error names the offending value.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        let Some(format) = &self.rc_format else {
+            return Ok(());
+        };
+        crate::domain::version::validate_rc_format(format).map_err(|source| {
+            ConfigError::InvalidRcFormat {
+                format: format.clone(),
+                source,
+            }
+        })
+    }
 }
 
 impl fmt::Display for Config {
@@ -389,6 +409,15 @@ pub enum ConfigError {
         key: String,
         /// The value that could not be parsed.
         value: String,
+    },
+    /// The `rc_format` is not a usable Release Candidate template.
+    #[error("invalid value `{format}` for `rc_format`")]
+    InvalidRcFormat {
+        /// The offending value.
+        format: String,
+        /// Why the template is unusable.
+        #[source]
+        source: RcFormatError,
     },
 }
 
@@ -584,6 +613,31 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("MOMO_REMOTE"), "{message}");
         assert!(message.contains("not a remote"), "{message}");
+    }
+
+    #[test]
+    fn an_rc_format_without_exactly_one_marker_is_rejected() {
+        for format in ["-rc", "-rc.{n}.{n}"] {
+            let config = Config {
+                rc_format: Some(format.to_owned()),
+                ..Config::default()
+            };
+            let err = config
+                .validate()
+                .expect_err("a template without exactly one `{n}` is rejected");
+            let message = err.to_string();
+            assert!(message.contains("rc_format"), "{message}");
+            assert!(message.contains(format), "{message}");
+        }
+    }
+
+    #[test]
+    fn a_valid_rc_format_passes_validation() {
+        let config = Config {
+            rc_format: Some("-{n}.rc".to_owned()),
+            ..Config::default()
+        };
+        assert!(config.validate().is_ok());
     }
 
     #[test]

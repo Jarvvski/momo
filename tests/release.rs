@@ -271,6 +271,40 @@ fn candidate_numbers_increment_and_restart_when_the_target_changes() {
 }
 
 #[test]
+fn a_custom_rc_format_with_a_suffix_advances_the_counter() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .env("MOMO_RC_FORMAT", "-{n}.rc")
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    momo(&dir)
+        .env("MOMO_RC_FORMAT", "-{n}.rc")
+        .arg("candidate")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cut 0.1.0-1.rc"));
+    momo(&dir)
+        .env("MOMO_RC_FORMAT", "-{n}.rc")
+        .arg("candidate")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cut 0.1.0-2.rc"));
+}
+
+#[test]
+fn an_rc_format_without_a_marker_is_rejected() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .env("MOMO_RC_FORMAT", "-rc")
+        .arg("candidate")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("rc_format"));
+}
+
+#[test]
 fn release_leaves_the_repository_untouched_but_tag_names_the_released_version() {
     if !have("jj") {
         eprintln!("skipping: jj is not on PATH");
