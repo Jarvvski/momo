@@ -6,36 +6,43 @@ The toolchain and the task runner are owned by [mise](https://mise.jdx.dev).
 
 ```bash
 mise install        # pin the Rust toolchain (see mise.toml, rust-toolchain.toml)
-mise run build      # cargo build --release --workspace
-mise run test       # cargo test --workspace
+mise run build      # cargo build --release
+mise run test       # cargo test
 mise run fmt        # cargo fmt --all
-mise run lint       # cargo clippy --workspace --all-targets -- -D warnings
-mise run check      # fmt + lint + build + test — the pre-land gate
+mise run lint       # cargo clippy --all-targets -- -D warnings
+mise run lint:domain # the domain must stay pure
+mise run check      # fmt + lint + domain purity + build + test — the pre-land gate
 mise run install    # install the `momo` binary to ~/.cargo/bin
 ```
 
-Run it straight from the checkout with `cargo run -p momo-cli -- <args>` or
-`mise run run`.
+Run it straight from the checkout with `cargo run -- <args>` or `mise run run`.
 
 Rust edition 2024. `Cargo.lock` is committed — this is an application, not a
 library.
 
 ## Layout
 
-A virtual workspace; the root manifest only lists members.
+One crate: a library plus a thin binary. The library is the public surface; the
+CLI is private and reached through `momo_cli::run`.
 
 ```text
-crates/
-├── momo-core      domain (kinds, bump policy, versions, changelog, config)
-│                  and the ports: Vcs, TaskEnvironment, ManifestSync. Pure — no I/O.
-├── momo-vcs       git + jj adapters
-├── momo-taskenv   mise adapter
-├── momo-manifest  Cargo.toml adapter
-└── momo-cli       the `momo` binary — clap tree and handlers, wires the adapters
+src/
+├── lib.rs          the library root, and `run` — what the binary calls
+├── main.rs         the binary: `momo_cli::run()`
+├── domain/         kinds, bump policy, versions, changelog, config, the
+│                   Package/Workspace model, and the ports (Vcs,
+│                   TaskEnvironment, ManifestSync). Pure — no I/O, no clap.
+├── adapters/
+│   ├── vcs/        git + jj, behind the Vcs port
+│   ├── taskenv/    mise, behind the TaskEnvironment port
+│   └── manifest/   Cargo.toml, behind the ManifestSync port
+└── cli/            the clap tree, handlers, and the wiring
 ```
 
-Ports live in `momo-core`; adapters are separate crates; the CLI wires them. Keep
-`momo-core` free of I/O and of `clap`.
+Ports live in `domain`; adapters implement them; the CLI wires them. `domain`
+must stay free of I/O and of `clap` — `mise run lint:domain` enforces it, since
+the crate boundary that used to enforce it is gone (see
+[ADR 0002](adr/0002-ship-as-a-single-crate.md)).
 
 ## Conventions
 
