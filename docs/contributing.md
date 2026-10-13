@@ -96,6 +96,18 @@ version number can never be reused, so the approval is deliberate.
 The same workflow runs its build matrix on every pull request, so a target that
 no longer compiles fails before a release rather than during one.
 
+The **first** release is different: a crates.io token scoped to publishing
+*updates* cannot create a new crate name. Dispatch that one with
+`publish: false`, then publish from the new tag by hand:
+
+```bash
+git clone https://github.com/Jarvvski/momo /tmp/momo && cd /tmp/momo
+git checkout v0.2.0
+cargo publish --locked
+```
+
+Every release after that leaves `publish` on.
+
 ## More
 
 - [`docs/adr/`](adr/) — architecture decisions.
