@@ -282,3 +282,40 @@ fn release_leaves_the_repository_untouched_but_tag_names_the_released_version() 
         .success()
         .stdout(predicate::str::contains("released 0.2.0"));
 }
+
+#[test]
+fn a_candidate_can_be_tagged_and_the_final_release_drops_the_suffix() {
+    if !have("jj") {
+        eprintln!("skipping: jj is not on PATH");
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    jj_repo(&dir);
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    // Cut a Candidate and tag it — tagging the pre-release is the point of an RC.
+    momo(&dir)
+        .arg("candidate")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cut 0.1.0-rc.1"));
+    momo(&dir)
+        .arg("tag")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("v0.1.0-rc.1"));
+    assert!(
+        capture(dir.path(), "jj", &["tag", "list"]).starts_with("v0.1.0-rc.1:"),
+        "the Candidate was not tagged"
+    );
+
+    // The final Release reuses the same target and drops the suffix.
+    momo(&dir)
+        .arg("release")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("released 0.1.0"));
+}

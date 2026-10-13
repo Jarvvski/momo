@@ -146,15 +146,13 @@ fn run(
         Mode::Candidate => Vec::new(),
     };
 
-    let version_file = match mode {
-        Mode::Release => {
-            if !dry_run {
-                FileVersionSource::new(root).write(&version)?;
-            }
-            Some(root.join(VERSION_FILE))
-        }
-        Mode::Candidate => None,
-    };
+    // Both verbs advance the version source. A Candidate has to be taggable —
+    // that is the point of cutting one — and the eventual Release reads the
+    // Candidate's version back and drops the `-rc.N` suffix.
+    if !dry_run {
+        FileVersionSource::new(root).write(&version)?;
+    }
+    let version_file = Some(root.join(VERSION_FILE));
 
     Ok(Outcome {
         version,
@@ -368,8 +366,16 @@ mod tests {
 
         assert!(outcome.consumed.is_empty());
         assert!(root.join(".momo/changes/add-a-thing.md").exists());
-        assert!(outcome.version_file.is_none());
-        assert!(!root.join(".momo/version").exists());
+        // The Candidate still advances the version source, so `tag` can name it.
+        let version_file = root.join(VERSION_FILE);
+        assert_eq!(
+            outcome.version_file.as_deref(),
+            Some(version_file.as_path())
+        );
+        assert_eq!(
+            fs::read_to_string(&version_file).expect("read the version file"),
+            "0.1.0-rc.1\n"
+        );
     }
 
     #[test]
@@ -413,6 +419,20 @@ mod tests {
         let name = tag(root, &Config::default(), &FakeVcs::new(), false).expect("tag");
 
         assert_eq!(name, "v1.2.3");
+    }
+
+    #[test]
+    fn a_tag_names_the_version_a_candidate_minted() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+
+        let outcome = candidate(root, &fragments(), None, date(), false).expect("candidate");
+        assert_eq!(outcome.version.to_string(), "0.1.0-rc.1");
+
+        let name = tag(root, &fragments(), &FakeVcs::new(), false).expect("tag");
+
+        assert_eq!(name, "v0.1.0-rc.1");
     }
 
     #[test]
