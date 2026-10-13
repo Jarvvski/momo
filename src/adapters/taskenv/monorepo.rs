@@ -10,20 +10,7 @@ use std::path::{Path, PathBuf};
 
 use toml_edit::{DocumentMut, Item};
 
-/// The config file names mise reads in a directory, relative to that directory.
-const CONFIG_FILES: [&str; 11] = [
-    "mise.toml",
-    "mise.local.toml",
-    ".mise.toml",
-    ".mise.local.toml",
-    "mise/config.toml",
-    "mise/config.local.toml",
-    ".mise/config.toml",
-    ".mise/config.local.toml",
-    ".config/mise.toml",
-    ".config/mise/config.toml",
-    ".config/mise/config.local.toml",
-];
+use super::CONFIG_FILES;
 
 /// The `conf.d` directories mise reads in a directory, relative to it.
 const CONF_D_DIRS: [&str; 3] = ["mise/conf.d", ".mise/conf.d", ".config/mise/conf.d"];

@@ -1,7 +1,7 @@
 # 34: `Cargo.toml` rewrites are not byte-preserving for CRLF or a missing final newline
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: adapters/manifest
 Verified: no — reported by an agent, which compiled probes against the cached `toml_edit`
@@ -55,3 +55,28 @@ contract. Prefer preserving; at minimum stop claiming byte-for-byte.
 no bare `\n`), convert the rendered `\n` back to `\r\n`; if `text` did not end in
 `\n`, drop the rendered trailing newline. Tests: a CRLF manifest round-trips CRLF;
 a no-trailing-newline manifest keeps none; the LF cases are unchanged.
+
+## Resolution
+
+Made the claim true, as ruled. `set_version` now routes `doc.to_string()` through
+`preserve_line_endings(source, rendered)`, which drops the rendered trailing
+newline when the source had none and re-expands `\n` to `\r\n` when the source is
+consistently CRLF (`uses_crlf`: contains `\r\n`, no bare `\n`). A mixed-ending
+file is treated as LF. `Value::span()` was not used — as the ticket notes it
+returns `None` for a `DocumentMut` in the pinned `toml_edit` 0.25.17, so
+reapplying the source's endings is the right approach. The module doc and the
+`ManifestSync::write` port doc now name newline style and the trailing byte
+explicitly.
+
+Tests: `a_crlf_manifest_keeps_its_line_endings`,
+`a_manifest_without_a_trailing_newline_keeps_none`,
+`a_crlf_manifest_without_a_trailing_newline_keeps_both`,
+`mixed_line_endings_are_treated_as_lf`, plus a filesystem round-trip
+(`writing_a_crlf_manifest_preserves_its_line_endings`). The LF cases are
+unchanged.
+
+Note: this is deliberately inconsistent with ticket 13 (changelog CRLF), which is
+`wontfix` — the owner ruled that 34 is the one to fix. Changelogs still normalise
+CRLF to LF; if a "Not yet supported" note was added for 13, it should not mention
+`Cargo.toml` (none is present in `docs/` today).
+

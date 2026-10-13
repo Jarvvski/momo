@@ -2,8 +2,8 @@
 //! unit tests can inject a scripted fake instead of spawning git or jj.
 
 use std::path::Path;
-use std::process::Command;
 
+use crate::adapters::spawn::command;
 use crate::domain::vcs::VcsError;
 
 /// The result of running one external command.
@@ -33,9 +33,7 @@ pub struct SystemRunner;
 
 impl CommandRunner for SystemRunner {
     fn run(&self, program: &str, args: &[&str], cwd: &Path) -> Result<ProcessOutput, VcsError> {
-        let output = Command::new(program)
-            .args(args)
-            .current_dir(cwd)
+        let output = command(program, args, cwd)
             .output()
             .map_err(|source| VcsError::Spawn {
                 program: program.to_owned(),

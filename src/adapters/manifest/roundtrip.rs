@@ -100,6 +100,27 @@ fn an_already_current_version_writes_nothing() {
 }
 
 #[test]
+fn writing_a_crlf_manifest_preserves_its_line_endings() {
+    /// A CRLF manifest with no trailing newline.
+    const CRLF: &str =
+        "# The crate manifest.\r\n[package]\r\nname = \"momo\"\r\nversion = \"0.1.0\"";
+
+    let dir = TempDir::new().expect("temp dir");
+    let path = dir.path().join("Cargo.toml");
+    fs::write(&path, CRLF).expect("seed the manifest");
+
+    CargoManifest
+        .write(&path, &version("0.2.0"))
+        .expect("write the manifest")
+        .expect("a manifest to sync");
+
+    assert_eq!(
+        fs::read_to_string(&path).expect("read the manifest"),
+        "# The crate manifest.\r\n[package]\r\nname = \"momo\"\r\nversion = \"0.2.0\""
+    );
+}
+
+#[test]
 fn locate_finds_the_conventional_manifest() {
     let dir = TempDir::new().expect("temp dir");
     assert_eq!(CargoManifest.locate(dir.path(), None), None);

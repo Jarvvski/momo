@@ -1,7 +1,7 @@
 # 32: mise detection recognises only two of the config names mise reads
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: adapters/taskenv
 Verified: no — reported by an agent; `detect.rs:36` and `monorepo.rs:14-26` read as cited
@@ -63,3 +63,22 @@ package. `momo install` warns and exits 0.
 `CONFIG_FILES.iter().any(|n| dir.join(n).is_file()) || dir.join(".mise").is_dir()`.
 Consider honouring `MISE_CONFIG_FILE`. Tests: only `.mise.toml` detects; only
 `mise/config.toml` detects; a nested subdirectory finds the root.
+
+## Resolution
+
+The eleven-name list moved out of `monorepo.rs` into `pub(crate) const
+CONFIG_FILES` in `src/adapters/taskenv/mod.rs`, and `detect::find_root` now uses
+it: `CONFIG_FILES.iter().any(|name| dir.join(name).is_file()) ||
+dir.join(".mise").is_dir()`. Detection stays the gate (it also backs `momo
+install`), and the `.mise/` directory is still recognised on presence alone.
+
+Tests: `detects_a_dot_mise_toml_file` (only `.mise.toml`), and
+`detects_a_mise_config_toml_without_a_dot_mise_directory` (only
+`mise/config.toml`, from a nested subdirectory) — both previously collapsed to
+the single-package fallback.
+
+Not done: `MISE_CONFIG_FILE` is still ignored. The ticket's sketch said "consider
+honouring" it; it is an environment override rather than one of the names mise
+reads, and adding env-dependence to detection widens the change beyond the name
+list the ticket is about.
+
