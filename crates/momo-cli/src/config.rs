@@ -49,3 +49,38 @@ pub fn load(root: &Path) -> Result<Config> {
 
     Ok(Config::resolve(file, env, ConfigOverrides::default()))
 }
+
+/// Record the chosen task environment in the project's `momo.toml`.
+///
+/// `name` of `None` clears the key (used by `--uninstall`). The file is created
+/// with the default configuration when it is missing and a name is given;
+/// clearing never creates one. The write is skipped when the rendered file is
+/// unchanged, so a repeat run leaves it byte-identical.
+pub fn record_task_env(root: &Path, name: Option<&str>) -> Result<()> {
+    let path = root.join(CONFIG_FILE);
+    let existing = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
+    };
+
+    let updated = if existing.trim().is_empty() {
+        match name {
+            Some(name) => Config {
+                task_env: Some(name.to_owned()),
+                ..Config::default()
+            }
+            .to_string(),
+            None => return Ok(()),
+        }
+    } else {
+        momo_core::config::with_task_env(&existing, name)
+            .with_context(|| format!("reading {}", path.display()))?
+    };
+
+    if updated == existing {
+        return Ok(());
+    }
+    fs::write(&path, updated).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
