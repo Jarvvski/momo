@@ -94,6 +94,10 @@ builder can implement momo v0 with nothing left to decide.
   in changelog mode; entries `- text (#issue)`; RCs get headings; **reference
   links** derived from the VCS remote (config-overridable, omitted when unknown).
   Prototype: `prototypes/changelog-format/`.
+- [Release-candidate semantics](issues/05-release-candidates.md): dotted
+  `1.2.0-rc.1`, increment per target version (restart on target change); RCs
+  **share** the unreleased fragments (consumed at the final release); `rc` bumps
+  like `release`, then appends `-rc.N`.
 
 ## Not yet specified
 

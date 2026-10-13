@@ -1,7 +1,7 @@
 # CI / non-interactive output & dry-run shape
 
 Type: grilling
-Status: open
+Status: claimed
 Blocked by: 01
 
 ## Question
