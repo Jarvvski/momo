@@ -40,6 +40,7 @@ fn momo(dir: &TempDir) -> Command {
         "MOMO_CHANGES_DIR",
         "MOMO_TAG_PREFIX",
         "MOMO_TAG_KIND",
+        "MOMO_REMOTE",
         "MOMO_TASK_ENV",
         "MOMO_RC_FORMAT",
     ] {
@@ -246,4 +247,147 @@ fn config_precedence_env_beats_file_beats_defaults() {
         fs::read_to_string(dir.path().join("momo.toml")).expect("momo.toml readable"),
         "recording = \"fragments\"\n"
     );
+}
+
+#[test]
+fn init_version_records_a_start_version() {
+    let dir = TempDir::new().expect("temp dir");
+
+    momo(&dir)
+        .args(["init", "--version", "1.2.3"])
+        .assert()
+        .success();
+
+    assert!(dir.path().join("momo.toml").exists(), "momo.toml missing");
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".momo/version")).expect(".momo/version written"),
+        "1.2.3\n"
+    );
+}
+
+#[test]
+fn init_version_lifts_the_version_the_next_release_bumps() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["init", "--version", "1.2.3"])
+        .assert()
+        .success();
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    momo(&dir)
+        .arg("status")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("→ next: 1.3.0"));
+}
+
+#[test]
+fn init_version_rejects_a_bad_version() {
+    let dir = TempDir::new().expect("temp dir");
+
+    momo(&dir)
+        .args(["init", "--version", "not-a-version"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--version"));
+
+    assert!(
+        !dir.path().join("momo.toml").exists(),
+        "a rejected version still wrote momo.toml"
+    );
+}
+
+#[test]
+fn init_dry_run_with_a_version_writes_nothing() {
+    let dir = TempDir::new().expect("temp dir");
+
+    momo(&dir)
+        .args(["init", "--version", "1.2.3", "--dry-run"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(".momo/version"));
+
+    assert!(!dir.path().join("momo.toml").exists());
+    assert!(!dir.path().join(".momo/version").exists());
+}
+
+#[test]
+fn output_flags_are_rejected_on_verbs_without_a_report() {
+    let dir = TempDir::new().expect("temp dir");
+    let cases: [(&[&str], &str, &str); 12] = [
+        (&["add", "a thing", "--format", "json"], "--format", "add"),
+        (
+            &["add", "a thing", "--version-only"],
+            "--version-only",
+            "add",
+        ),
+        (
+            &["add", "a thing", "--output", "out.txt"],
+            "--output",
+            "add",
+        ),
+        (
+            &["break", "a thing", "--format", "json"],
+            "--format",
+            "break",
+        ),
+        (
+            &["fix", "a thing", "--version-only"],
+            "--version-only",
+            "fix",
+        ),
+        (
+            &["fix", "a thing", "--output", "out.txt"],
+            "--output",
+            "fix",
+        ),
+        (&["init", "--format", "json"], "--format", "init"),
+        (&["init", "--version-only"], "--version-only", "init"),
+        (&["init", "--output", "out.txt"], "--output", "init"),
+        (&["install", "--format", "json"], "--format", "install"),
+        (&["install", "--version-only"], "--version-only", "install"),
+        (&["install", "--output", "out.txt"], "--output", "install"),
+    ];
+
+    for (args, flag, verb) in cases {
+        momo(&dir)
+            .args(args)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(flag).and(predicate::str::contains(verb)));
+    }
+}
+
+#[test]
+fn reporting_verbs_still_accept_the_output_flags() {
+    let dir = TempDir::new().expect("temp dir");
+
+    for args in [
+        &["status", "--format", "json"][..],
+        &["status", "--version-only"][..],
+    ] {
+        momo(&dir).args(args).assert().success();
+    }
+
+    // `release` and `candidate` need something Unreleased each.
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&dir)
+        .args(["release", "--version-only"])
+        .assert()
+        .success();
+
+    momo(&dir)
+        .args(["add", "Add another thing"])
+        .assert()
+        .success();
+    momo(&dir)
+        .args(["candidate", "--version-only"])
+        .assert()
+        .success();
 }

@@ -44,7 +44,7 @@ fn render(cli: &Cli, report: &impl Report) -> String {
     if cli.version_only {
         return format!("{}\n", report.version());
     }
-    match cli.format {
+    match cli.format.unwrap_or_default() {
         Format::Human => report.human(),
         Format::Json => report.json(),
     }
@@ -223,8 +223,9 @@ pub struct Release<'a> {
     pub version: &'a Version,
     /// The Changelog the run wrote.
     pub changelog: &'a Path,
-    /// The version file the run wrote, when it wrote one.
-    pub version_file: Option<&'a Path>,
+    /// The version file the run wrote. Both `release` and `candidate` advance
+    /// it, so it is always present and the run can be tagged.
+    pub version_file: &'a Path,
     /// The Fragments the run consumed.
     pub consumed: &'a [PathBuf],
     /// Which verb minted the Version.
@@ -249,9 +250,7 @@ impl Report for Release<'_> {
 
         let mut out = format!("{verb} {}\n", self.version);
         out.push_str(&format!("{wrote} {}\n", self.changelog.display()));
-        if let Some(path) = self.version_file {
-            out.push_str(&format!("{wrote} {}\n", path.display()));
-        }
+        out.push_str(&format!("{wrote} {}\n", self.version_file.display()));
         for path in self.consumed {
             out.push_str(&format!("{removed} {}\n", path.display()));
         }
@@ -267,10 +266,7 @@ impl Report for Release<'_> {
         Json::object(vec![
             ("version", Json::from(self.version)),
             ("changelog", Json::from(self.changelog)),
-            (
-                "version_file",
-                self.version_file.map_or(Json::Null, Json::from),
-            ),
+            ("version_file", Json::from(self.version_file)),
             ("consumed", Json::Array(consumed)),
             ("dry_run", Json::from(self.dry_run)),
         ])
@@ -321,8 +317,6 @@ impl Report for Tag<'_> {
 /// order is preserved, so the output is byte-stable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Json {
-    /// `null`.
-    Null,
     /// A JSON boolean.
     Bool(bool),
     /// A JSON string.
@@ -355,7 +349,6 @@ impl Json {
     /// Append this value to `out`, indenting nested values `depth` levels deep.
     fn render(&self, depth: usize, out: &mut String) {
         match self {
-            Json::Null => out.push_str("null"),
             Json::Bool(value) => out.push_str(if *value { "true" } else { "false" }),
             Json::String(text) => {
                 out.push('"');
@@ -464,7 +457,7 @@ mod tests {
         Cli {
             command: crate::cli::Command::Status { check: false },
             dry_run: false,
-            format: Format::Human,
+            format: None,
             version_only: false,
             output: None,
             package: None,
@@ -630,7 +623,7 @@ mod tests {
         let report = Release {
             version: &version,
             changelog: Path::new("/repo/CHANGELOG.md"),
-            version_file: Some(Path::new("/repo/.momo/version")),
+            version_file: Path::new("/repo/.momo/version"),
             consumed: &[PathBuf::from("/repo/.momo/changes/add-a-thing.md")],
             verb: Verb::Release,
             dry_run: false,
@@ -652,30 +645,12 @@ mod tests {
     }
 
     #[test]
-    fn release_json_reports_a_missing_version_file_as_null() {
-        let version = version("0.1.0");
-        let report = Release {
-            version: &version,
-            changelog: Path::new("/repo/CHANGELOG.md"),
-            version_file: None,
-            consumed: &[],
-            verb: Verb::Candidate,
-            dry_run: true,
-        };
-
-        let json = report.json();
-        assert!(json.contains("\"version_file\": null"), "{json}");
-        assert!(json.contains("\"consumed\": []"), "{json}");
-        assert!(json.contains("\"dry_run\": true"), "{json}");
-    }
-
-    #[test]
     fn release_human_names_the_verb_and_what_it_wrote() {
         let version = version("0.1.0");
         let report = Release {
             version: &version,
             changelog: Path::new("/repo/CHANGELOG.md"),
-            version_file: Some(Path::new("/repo/.momo/version")),
+            version_file: Path::new("/repo/.momo/version"),
             consumed: &[PathBuf::from("/repo/.momo/changes/add-a-thing.md")],
             verb: Verb::Release,
             dry_run: false,
@@ -693,7 +668,7 @@ mod tests {
         let report = Release {
             version: &version,
             changelog: Path::new("/repo/CHANGELOG.md"),
-            version_file: None,
+            version_file: Path::new("/repo/.momo/version"),
             consumed: &[],
             verb: Verb::Candidate,
             dry_run: true,
@@ -701,7 +676,7 @@ mod tests {
 
         assert_eq!(
             report.human(),
-            "would cut 0.1.0-rc.1\nwould write /repo/CHANGELOG.md\n"
+            "would cut 0.1.0-rc.1\nwould write /repo/CHANGELOG.md\nwould write /repo/.momo/version\n"
         );
     }
 
@@ -711,7 +686,7 @@ mod tests {
         let report = Release {
             version: &version,
             changelog: Path::new("/repo/CHANGELOG.md"),
-            version_file: None,
+            version_file: Path::new("/repo/.momo/version"),
             consumed: &[],
             verb: Verb::Release,
             dry_run: false,
@@ -753,7 +728,7 @@ mod tests {
     fn version_only_wins_over_the_format() {
         let mut cli = cli();
         cli.version_only = true;
-        cli.format = Format::Json;
+        cli.format = Some(Format::Json);
 
         assert_eq!(render(&cli, &status(&[])), "0.0.0\n");
     }
@@ -761,7 +736,7 @@ mod tests {
     #[test]
     fn the_format_selects_the_rendering() {
         let mut cli = cli();
-        cli.format = Format::Json;
+        cli.format = Some(Format::Json);
 
         assert!(render(&cli, &status(&[])).starts_with("{\n"));
     }
@@ -771,7 +746,7 @@ mod tests {
         let dir = tempfile::TempDir::new().expect("temp dir");
         let path = dir.path().join("status.json");
         let mut cli = cli();
-        cli.format = Format::Json;
+        cli.format = Some(Format::Json);
         cli.output = Some(path.clone());
 
         emit(&cli, &status(&[])).expect("emit");

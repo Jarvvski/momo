@@ -34,6 +34,7 @@ fn momo(dir: &TempDir) -> Command {
         "MOMO_CHANGES_DIR",
         "MOMO_TAG_PREFIX",
         "MOMO_TAG_KIND",
+        "MOMO_REMOTE",
         "MOMO_TASK_ENV",
         "MOMO_RC_FORMAT",
     ] {

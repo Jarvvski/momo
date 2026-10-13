@@ -30,7 +30,7 @@ use crate::config::{self, CONFIG_FILE};
 use crate::output::{self, StatusPackage, Verb};
 use crate::recording;
 use crate::release::{self, Outcome};
-use crate::version::{self, FileVersionSource};
+use crate::version::{self, FileVersionSource, VERSION_FILE};
 use crate::workspace;
 
 /// The momo verbs exposed as `momo:*` tasks, in command-surface order.
@@ -51,6 +51,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Dispatch a parsed command line.
 pub fn run(cli: &Cli) -> Result<()> {
+    reject_output_flags(cli)?;
     match &cli.command {
         Command::Break { text } => record(cli, Kind::Break, text),
         Command::Add { text } => record(cli, Kind::Add, text),
@@ -59,13 +60,38 @@ pub fn run(cli: &Cli) -> Result<()> {
         Command::Release => release(cli),
         Command::Candidate => candidate(cli),
         Command::Tag => tag(cli),
-        Command::Init => init(cli),
+        Command::Init { version } => init(cli, version.as_ref()),
         Command::Install {
             env,
             update,
             uninstall,
         } => install(cli, env.as_deref(), *update, *uninstall),
     }
+}
+
+/// Reject the output flags on the verbs that do not report structured output.
+///
+/// `--format`, `--version-only` and `--output` select how a report is rendered;
+/// on a verb with no report they mean nothing, so accepting them silently would
+/// mislead. The reporting verbs (`status`, `release`, `candidate`, `tag`) keep
+/// them.
+fn reject_output_flags(cli: &Cli) -> Result<()> {
+    if matches!(
+        cli.command,
+        Command::Status { .. } | Command::Release | Command::Candidate | Command::Tag
+    ) {
+        return Ok(());
+    }
+    for (present, flag) in [
+        (cli.format.is_some(), "--format"),
+        (cli.version_only, "--version-only"),
+        (cli.output.is_some(), "--output"),
+    ] {
+        if present {
+            bail!("`{flag}` is not supported by `momo {}`", cli.command);
+        }
+    }
+    Ok(())
 }
 
 /// Record one Change in the store the configuration selects.
@@ -249,7 +275,7 @@ fn report_release(cli: &Cli, outcome: &Outcome, verb: Verb) -> Result<()> {
         &output::Release {
             version: &outcome.version,
             changelog: &outcome.changelog,
-            version_file: outcome.version_file.as_deref(),
+            version_file: &outcome.version_file,
             consumed: &outcome.consumed,
             verb,
             dry_run: cli.dry_run,
@@ -287,15 +313,20 @@ fn today() -> Date {
 
 /// Scaffold `momo.toml` at the project root.
 ///
-/// Writes the effective configuration. With `--dry-run`, prints what would be
-/// written and leaves the tree untouched.
-fn init(cli: &Cli) -> Result<()> {
+/// Writes the effective configuration, and with `--version <x.y.z>` records that
+/// version in `.momo/version` so a fresh repo starts above the `0.0.0` bootstrap
+/// baseline. With `--dry-run`, prints what would be written and leaves the tree
+/// untouched. Refuses to overwrite an existing `momo.toml`.
+fn init(cli: &Cli, version: Option<&Version>) -> Result<()> {
     let root = project_root()?;
     let path = root.join(CONFIG_FILE);
+    let config = config::load(&root)?;
 
     if cli.dry_run {
-        let config = config::load(&root)?;
         eprintln!("would write {}", path.display());
+        if version.is_some() {
+            eprintln!("would write {}", root.join(VERSION_FILE).display());
+        }
         print!("{config}");
         return Ok(());
     }
@@ -304,9 +335,13 @@ fn init(cli: &Cli) -> Result<()> {
         bail!("{} already exists; refusing to overwrite", path.display());
     }
 
-    let config = config::load(&root)?;
     fs::write(&path, config.to_string()).with_context(|| format!("writing {}", path.display()))?;
     println!("wrote {}", path.display());
+
+    if let Some(version) = version {
+        FileVersionSource::new(&root).write(version)?;
+        println!("wrote {}", root.join(VERSION_FILE).display());
+    }
     Ok(())
 }
 
@@ -437,7 +472,7 @@ mod tests {
             Command::Release,
             Command::Candidate,
             Command::Tag,
-            Command::Init,
+            Command::Init { version: None },
             Command::Install {
                 env: None,
                 update: false,

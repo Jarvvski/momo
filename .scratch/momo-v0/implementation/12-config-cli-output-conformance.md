@@ -33,11 +33,11 @@ Fix the behaviour, then make the spec say what is true.
 
 **Spec:** `.scratch/momo-v0/spec.md` §4, §6, §9, §12, §13
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Config precedence is `MOMO_*` > `momo.toml` > defaults, and the flag layer is gone from the code, spec §12 and the README.
-- [ ] A `remote` key in `momo.toml` overrides the footer's remote, and supplies one when there is no VCS.
-- [ ] `momo init --version 1.2.3` writes `.momo/version` holding `1.2.3`; a bad version is rejected.
-- [ ] `--format`, `--version-only` and `--output` on `break`/`add`/`fix`/`init`/`install` exit non-zero with a clear message naming the flag.
-- [ ] `Outcome.version_file` is a `PathBuf`, and the JSON contract no longer claims it can be null.
-- [ ] Spec §4, §6, §9 and §12 match the shipped behaviour.
+- [x] Config precedence is `MOMO_*` > `momo.toml` > defaults, and the flag layer is gone from the code, spec §12 and the README.
+- [x] A `remote` key in `momo.toml` overrides the footer's remote, and supplies one when there is no VCS.
+- [x] `momo init --version 1.2.3` writes `.momo/version` holding `1.2.3`; a bad version is rejected.
+- [x] `--format`, `--version-only` and `--output` on `break`/`add`/`fix`/`init`/`install` exit non-zero with a clear message naming the flag.
+- [x] `Outcome.version_file` is a `PathBuf`, and the JSON contract no longer claims it can be null.
+- [x] Spec §4, §6, §9 and §12 match the shipped behaviour.

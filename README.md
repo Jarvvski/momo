@@ -87,12 +87,12 @@ tagged v0.1.0
 | `momo release` | | Mint a version from the Unreleased changes |
 | `momo candidate` | `rc` | Cut or increment a release candidate |
 | `momo tag` | | Create the VCS tag for the current version |
-| `momo init` | | Scaffold `momo.toml` |
+| `momo init` | | Scaffold `momo.toml`, optionally with a start version |
 | `momo install [env]` | | Install momo into a task environment |
 
 Each change verb takes a single positional `<TEXT>` — one change per call.
 
-Global flags (available on every command):
+Global flags:
 
 | Flag | Effect |
 |---|---|
@@ -104,7 +104,10 @@ Global flags (available on every command):
 | `--all` | Operate on every package |
 
 `--version-only` wins over `--format`. `--all` and `--package` cannot be
-combined.
+combined. `--format`, `--version-only` and `--output` are honoured by the
+reporting verbs (`status`, `release`, `candidate`, `tag`); on `break`/`add`/`fix`,
+`init` and `install` they are rejected, because those verbs produce no structured
+report.
 
 ## Kinds and the semver rules
 
@@ -120,8 +123,8 @@ Unreleased changes decides the Bump, and when a release mixes Kinds the
 At MAJOR 0 a breaking change still bumps MINOR — momo is in the zero-aware
 pre-1.0 camp. The baseline is `0.0.0`, so the first release follows the same
 rules: `add`/`break` → `0.1.0`, a `fix`-only release → `0.0.1`. To start from a
-different version, write it to `.momo/version` (or create the tag) before the
-first release.
+different version, run `momo init --version <x.y.z>` (or write `.momo/version`, or
+create the tag) before the first release.
 
 ## Recording models
 
@@ -160,14 +163,16 @@ VCS is present; with no VCS it comes from `.momo/version`. `status` and
 ## Configuration
 
 `momo.toml` at the repo root is optional. Write commands create it lazily on
-first use; `momo init` writes it (and only it) up front and refuses to overwrite
-an existing file. Read-only commands (`status`, `--dry-run`) never create it.
+first use; `momo init` writes it (and nothing else) up front and refuses to
+overwrite an existing file, unless given `--version <x.y.z>`, which also records
+that version in `.momo/version`. Read-only commands (`status`, `--dry-run`) never
+create it.
 
 `momo init` writes exactly this:
 
 ```toml
 # momo configuration.
-# Precedence: CLI flags > MOMO_* environment variables > this file > built-in defaults.
+# Precedence: MOMO_* environment variables > this file > built-in defaults.
 recording = "changelog"
 changelog = "CHANGELOG.md"
 changes_dir = ".momo/changes"
@@ -182,12 +187,14 @@ tag_kind = "auto"
 | `changes_dir` | `".momo/changes"` | Fragment store, relative to the repo root |
 | `tag_prefix` | `"v"` | Prefix on the tag version |
 | `tag_kind` | `"auto"` | `"auto"`, `"lightweight"`, or `"annotated"` |
+| `remote` | *(unset)* | Override the changelog footer's remote; supplies one with no VCS |
 | `task_env` | *(unset)* | Recorded by `momo install` |
 | `rc_format` | `"-rc.{n}"` | Release-candidate suffix template; `{n}` is the number |
 
-`task_env` is written by `momo install`; `rc_format` is optional and only needs
-setting to customise the candidate suffix. Per-package overrides are keyed by
-ecosystem identity:
+`task_env` is written by `momo install`; `remote` and `rc_format` are optional.
+`remote` overrides the remote derived from the VCS and supplies one when there is
+no VCS; with neither, the changelog omits its reference-link footer. Per-package
+overrides are keyed by ecosystem identity:
 
 ```toml
 [packages."cargo:momo"]
@@ -200,15 +207,14 @@ manifest = "crates/momo/Cargo.toml"  # override the discovered manifest
 
 Configuration is layered, lowest to highest:
 
-**CLI flags > `MOMO_*` environment variables > `momo.toml` > built-in defaults.**
+**`MOMO_*` environment variables > `momo.toml` > built-in defaults.**
 
 Each layer sets only the keys it actually sets, so a sparse file leaves
-everything else at its default. In v0 no flag maps to a config key — the flag
-layer is reserved — so in practice it is `MOMO_*` > `momo.toml` > defaults.
+everything else at its default.
 
 The environment variables are `MOMO_RECORDING`, `MOMO_CHANGELOG`,
-`MOMO_CHANGES_DIR`, `MOMO_TAG_PREFIX`, `MOMO_TAG_KIND`, `MOMO_TASK_ENV`, and
-`MOMO_RC_FORMAT`. Unrelated `MOMO_*` variables are ignored.
+`MOMO_CHANGES_DIR`, `MOMO_TAG_PREFIX`, `MOMO_TAG_KIND`, `MOMO_REMOTE`,
+`MOMO_TASK_ENV`, and `MOMO_RC_FORMAT`. Unrelated `MOMO_*` variables are ignored.
 
 ```console
 $ MOMO_TAG_PREFIX="rel-" momo status
@@ -398,8 +404,6 @@ run *would* have written.
   stale — but never rewrites the lockfile and never runs `cargo`. Node, Gradle
   and Python are later adapters behind the same port.
 - Monorepo discovery independent of `mise` — momo reads mise's project graph.
-- A config override for the reference-link remote; the changelog footer is
-  derived from the VCS remote.
 
 ## License
 

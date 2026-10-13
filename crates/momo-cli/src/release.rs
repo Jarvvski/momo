@@ -35,7 +35,7 @@ pub struct Outcome {
     pub changelog: PathBuf,
     /// The version file the run wrote. Always present: both `release` and
     /// `candidate` advance it, so the run can be tagged.
-    pub version_file: Option<PathBuf>,
+    pub version_file: PathBuf,
     /// The Fragments a Release consumed.
     pub consumed: Vec<PathBuf>,
     /// The ecosystem manifest the run synced, when it found one.
@@ -144,7 +144,7 @@ fn run(
     };
 
     let mut changelog = read_changelog(repo_root, config, package)?;
-    let remote = remote(vcs)?;
+    let remote = remote(config, vcs)?;
     let links = Links {
         prefix: &prefix,
         remote: remote.as_ref(),
@@ -185,7 +185,7 @@ fn run(
     if !dry_run {
         FileVersionSource::new(&package_dir).write(&version)?;
     }
-    let version_file = Some(package.version_file(repo_root));
+    let version_file = package.version_file(repo_root);
 
     // The ecosystem manifest follows the version file. It is a Release step, so
     // a `--dry-run` writes nothing and a Package with no manifest is skipped.
@@ -233,10 +233,15 @@ fn read_changelog(repo_root: &Path, config: &Config, package: &Package) -> Resul
     }
 }
 
-/// The Remote to link to, parsed from the VCS remote when one is configured.
+/// The Remote to link to: the configured one, else the VCS remote.
 ///
-/// An unrecognised remote URL means there is nothing to link to.
-fn remote(vcs: Option<&dyn Vcs>) -> Result<Option<Remote>> {
+/// The `remote` key in `momo.toml` overrides the remote derived from the VCS and
+/// supplies one when there is no VCS. With neither — or with a URL momo cannot
+/// understand — there is nothing to link to and the footer is omitted.
+fn remote(config: &Config, vcs: Option<&dyn Vcs>) -> Result<Option<Remote>> {
+    if let Some(url) = &config.remote {
+        return Ok(url.parse::<Remote>().ok());
+    }
     let Some(vcs) = vcs else {
         return Ok(None);
     };
@@ -457,10 +462,7 @@ mod tests {
         assert!(root.join(".momo/changes/add-a-thing.md").exists());
         // The Candidate still advances the version source, so `tag` can name it.
         let version_file = root.join(VERSION_FILE);
-        assert_eq!(
-            outcome.version_file.as_deref(),
-            Some(version_file.as_path())
-        );
+        assert_eq!(outcome.version_file, version_file);
         assert_eq!(
             fs::read_to_string(&version_file).expect("read the version file"),
             "0.1.0-rc.1\n"
@@ -475,6 +477,45 @@ mod tests {
         let vcs = FakeVcs::new().remote("git@github.com:Jarvvski/momo.git");
 
         release(root, &fragments(), &package(), Some(&vcs), date(), false).expect("release");
+
+        let changelog = read(root, "CHANGELOG.md");
+        assert!(
+            changelog.contains("[0.1.0]: https://github.com/Jarvvski/momo/releases/tag/v0.1.0"),
+            "{changelog}"
+        );
+    }
+
+    #[test]
+    fn a_configured_remote_overrides_the_vcs_remote() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        let mut config = fragments();
+        config.remote = Some("https://gitlab.com/a/b".to_owned());
+        let vcs = FakeVcs::new().remote("git@github.com:Jarvvski/momo.git");
+
+        release(root, &config, &package(), Some(&vcs), date(), false).expect("release");
+
+        let changelog = read(root, "CHANGELOG.md");
+        assert!(
+            changelog.contains("[0.1.0]: https://gitlab.com/a/b/-/tags/v0.1.0"),
+            "{changelog}"
+        );
+        assert!(
+            !changelog.contains("github.com/Jarvvski/momo/releases"),
+            "{changelog}"
+        );
+    }
+
+    #[test]
+    fn a_configured_remote_supplies_one_without_a_vcs() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-a-thing.md", "Add a thing");
+        let mut config = fragments();
+        config.remote = Some("git@github.com:Jarvvski/momo.git".to_owned());
+
+        release(root, &config, &package(), None, date(), false).expect("release");
 
         let changelog = read(root, "CHANGELOG.md");
         assert!(

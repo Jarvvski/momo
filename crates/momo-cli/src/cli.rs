@@ -8,6 +8,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use semver::Version;
 
 /// The parsed command line.
 #[derive(Debug, Parser)]
@@ -26,8 +27,8 @@ pub struct Cli {
     pub dry_run: bool,
 
     /// Output format for commands that report structured data.
-    #[arg(long, global = true, value_enum, default_value = "human")]
-    pub format: Format,
+    #[arg(long, global = true, value_enum)]
+    pub format: Option<Format>,
 
     /// Print only the computed version.
     #[arg(long, global = true)]
@@ -88,7 +89,12 @@ pub enum Command {
     Tag,
 
     /// Scaffold momo.toml.
-    Init,
+    Init {
+        /// A semver version to record in `.momo/version`, so a fresh repo starts
+        /// above the `0.0.0` bootstrap baseline.
+        #[arg(long, value_name = "X.Y.Z")]
+        version: Option<Version>,
+    },
 
     /// Install momo into a task environment.
     Install {
@@ -116,7 +122,7 @@ impl fmt::Display for Command {
             Self::Release => "release",
             Self::Candidate => "candidate",
             Self::Tag => "tag",
-            Self::Init => "init",
+            Self::Init { .. } => "init",
             Self::Install { .. } => "install",
         })
     }

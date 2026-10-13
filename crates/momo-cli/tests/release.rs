@@ -22,6 +22,7 @@ fn momo(dir: &TempDir) -> Command {
         "MOMO_CHANGES_DIR",
         "MOMO_TAG_PREFIX",
         "MOMO_TAG_KIND",
+        "MOMO_REMOTE",
         "MOMO_TASK_ENV",
         "MOMO_RC_FORMAT",
     ] {
@@ -318,4 +319,51 @@ fn a_candidate_can_be_tagged_and_the_final_release_drops_the_suffix() {
         .assert()
         .success()
         .stdout(predicate::str::contains("released 0.1.0"));
+}
+
+#[test]
+fn init_version_then_tag_creates_the_initial_tag() {
+    if !have("jj") {
+        eprintln!("skipping: jj is not on PATH");
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    jj_repo(&dir);
+
+    momo(&dir)
+        .args(["init", "--version", "1.2.3"])
+        .assert()
+        .success();
+
+    momo(&dir)
+        .arg("tag")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("v1.2.3"));
+    assert!(
+        capture(dir.path(), "jj", &["tag", "list"]).starts_with("v1.2.3:"),
+        "the initial tag was not created"
+    );
+}
+
+#[test]
+fn a_remote_key_in_the_config_writes_the_changelog_footer() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("momo.toml"),
+        "remote = \"git@github.com:Jarvvski/momo.git\"\n",
+    )
+    .expect("seed momo.toml");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    momo(&dir).arg("release").assert().success();
+
+    let changelog = read(&dir, "CHANGELOG.md");
+    assert!(
+        changelog.contains("[0.1.0]: https://github.com/Jarvvski/momo/releases/tag/v0.1.0"),
+        "{changelog}"
+    );
 }
