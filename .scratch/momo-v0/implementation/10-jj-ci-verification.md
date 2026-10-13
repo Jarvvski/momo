@@ -11,9 +11,9 @@ must set an identity itself rather than relying on the runner's global config.
 
 **Spec:** infrastructure — closes a verification gap found while landing §8
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `jj` is pinned in `mise.toml` and available to `mise run check`.
-- [ ] The jj round-trip test actually runs on CI (it must not skip).
-- [ ] The test sets its own jj identity, so it passes on a runner with no global jj/git config.
-- [ ] `mise run check` is green on CI with `jj` present.
+- [x] `jj` is pinned in `mise.toml` and available to `mise run check`.
+- [x] The jj round-trip test actually runs on CI (it must not skip).
+- [x] The test sets its own jj identity, so it passes on a runner with no global jj/git config.
+- [x] `mise run check` is green on CI with `jj` present.

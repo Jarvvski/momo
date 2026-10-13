@@ -108,6 +108,18 @@ fn jj_round_trip() {
 
     let dir = TempDir::new().unwrap();
     run(dir.path(), "jj", &["git", "init", "--colocate"]);
+    // A scratch repository inherits no identity, so set one here rather than
+    // relying on the machine's global jj/git config (a clean runner has none).
+    run(
+        dir.path(),
+        "jj",
+        &["config", "set", "--repo", "user.name", "momo"],
+    );
+    run(
+        dir.path(),
+        "jj",
+        &["config", "set", "--repo", "user.email", "momo@example.com"],
+    );
     std::fs::write(dir.path().join("a.txt"), "hi\n").unwrap();
 
     let vcs = detect(dir.path()).unwrap();
