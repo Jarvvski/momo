@@ -1,7 +1,7 @@
 # Assemble the v0 spec
 
 Type: task
-Status: open
+Status: claimed
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 16, 17, 18
 
 ## Question

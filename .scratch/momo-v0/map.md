@@ -114,18 +114,20 @@ builder can implement momo v0 with nothing left to decide.
 - [VCS-optional operation](issues/17-vcs-optional.md): without a VCS the version
   source is `.momo/version`; `status`/`release`/`candidate` still work, `tag`
   errors clearly; the VCS becomes authoritative once present.
+- [Version-file detection & sync](issues/18-version-file-sync.md): minimal v0 — a
+  `ManifestSync` trait + **Rust `Cargo.toml`**; auto-discover per package,
+  config-overridable; format-preserving writes (`toml_edit`); lockfiles left to the
+  package manager (warn); a release step only.
 
 ## Not yet specified
 
-- The semver edge-case table (`0.0.x`; multiple kinds in one release; whether an
-  `add` can be breaking pre-1.0) — sharpens once 05 resolves.
-- Failure modes and their messages (release with nothing unreleased, tag already
-  exists, dirty tree) — graduates after 06.
-- Whether momo owns a "Keep a Changelog" heading set or a bespoke one (ticket 03).
-- How `momo install` records which environment it installed into, for idempotent
-  re-install — graduates after 08/09.
-- The **changelog-vs-tags disagreement** rule — surfaced by ticket 01; graduates
-  once the VCS-optional source (17) is settled.
+- Minor behaviours for the assembly ticket (15) to pin down: the
+  multiple-kinds-in-one-release rule (highest kind wins?); `release` / `candidate`
+  with nothing unreleased (error vs no-op); and the exact failure messages.
+
+*(Cleared from fog as decisions landed: the "Keep a Changelog vs bespoke" heading
+question → ticket 03; how `install` records its environment → tickets 08/09; the
+changelog-vs-tags disagreement → ticket 17, "the VCS wins".)*
 
 ## Out of scope
 
