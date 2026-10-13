@@ -1,7 +1,7 @@
 # 17: Overriding a package's identity does not recompute its slug
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/package
 Verified: yes — read at the cited lines
@@ -86,3 +86,19 @@ match &overrides.slug {
 wins. Note in `docs/configuration.md` that renaming the identity moves the tag
 namespace and fragment store, and that a user wanting to keep the old tags must
 pin `slug` explicitly.
+
+## Resolution
+
+`Package::configured` now recomputes the slug from the new identity when an
+`identity` override is set and no `slug` override accompanies it; an explicit
+`slug` still wins. So `identity = "cargo:renamed"` alone yields slug
+`cargo-renamed`, and the tag prefix and Fragment store follow it.
+
+The triage correction held: `matches` already resolved the new bare name, so the
+bug was confined to the slug-derived tag namespace and Fragment store.
+`docs/configuration.md` now records that renaming the identity moves both and that
+pinning `slug` keeps the old ones.
+
+Tests: `configured_recomputes_the_slug_from_a_new_identity` asserts identity
+`cargo:renamed`, slug `cargo-renamed` and tag prefix `cargo-renamed-v`; the
+existing both-set test still asserts the explicit slug wins.

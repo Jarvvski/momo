@@ -101,7 +101,7 @@ fn reject_output_flags(cli: &Cli) -> Result<()> {
 fn record(cli: &Cli, kind: Kind, text: &str) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
-    let discovery = workspace::load(&root, &config);
+    let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::Cwd)?;
 
     if !cli.dry_run {
@@ -127,7 +127,7 @@ fn record(cli: &Cli, kind: Kind, text: &str) -> Result<()> {
 fn status(cli: &Cli, check: bool) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
-    let discovery = workspace::load(&root, &config);
+    let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
     let vcs = detect_vcs(&root);
 
@@ -163,7 +163,7 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
 fn release(cli: &Cli) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
-    let discovery = workspace::load(&root, &config);
+    let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
     let vcs = detect_vcs(&root);
     let explicit = cli.package.is_some();
@@ -201,7 +201,7 @@ fn release(cli: &Cli) -> Result<()> {
 fn candidate(cli: &Cli) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
-    let discovery = workspace::load(&root, &config);
+    let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
     let vcs = detect_vcs(&root);
     let explicit = cli.package.is_some();
@@ -236,7 +236,7 @@ fn candidate(cli: &Cli) -> Result<()> {
 fn tag(cli: &Cli) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
-    let discovery = workspace::load(&root, &config);
+    let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
     let Some(vcs) = detect_vcs(&root) else {
         bail!("no VCS detected — nothing to tag");

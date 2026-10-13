@@ -57,20 +57,24 @@ impl Discovery {
 /// Discovery goes through `mise tasks graph --json`. With no task environment
 /// there is nothing to discover, so momo silently falls back to a single
 /// Package. When a monorepo's graph cannot be read the fallback is recorded, so
-/// the caller can warn — or fail, when packages were explicitly requested.
-pub fn load(root: &Path, config: &Config) -> Discovery {
+/// the caller can warn — or fail, when packages were explicitly requested. A
+/// graph that resolves to Packages with colliding slugs is fatal, not a
+/// degraded discovery: the collision would silently share a tag prefix and a
+/// Fragment store between two Packages.
+pub fn load(root: &Path, config: &Config) -> Result<Discovery> {
     let single = || Workspace::single(root, &root_name(root), config);
 
     if crate::adapters::taskenv::detect(root).is_none() {
-        return Discovery::resolved(single());
+        return Ok(Discovery::resolved(single()));
     }
 
     match crate::adapters::taskenv::discover(root) {
         Ok(packages) if !packages.is_empty() => {
-            Discovery::resolved(Workspace::new(root, packages, config))
+            let workspace = Workspace::new(root, packages, config)?;
+            Ok(Discovery::resolved(workspace))
         }
-        Ok(_) => Discovery::degraded(root, single(), empty_graph()),
-        Err(err) => Discovery::degraded(root, single(), err),
+        Ok(_) => Ok(Discovery::degraded(root, single(), empty_graph())),
+        Err(err) => Ok(Discovery::degraded(root, single(), err)),
     }
 }
 

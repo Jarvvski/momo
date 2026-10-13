@@ -1,7 +1,7 @@
 # 18: `-p <bare-name>` silently targets the first of several matches
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/workspace + domain/package
 Verified: yes — read at the cited lines
@@ -88,3 +88,17 @@ match matches.as_slice() {
 Tests: `cargo:ui` + `node:ui` with `select(Some("ui"))` errors naming both
 identities; `select(Some("cargo:ui"))` and `select(Some("ui"))` on a
 single-match workspace still resolve.
+
+## Resolution
+
+Added `SelectionError::Ambiguous { query, candidates }` (thiserror formats the
+candidate list with a `candidates.join(", ")` expression, since `Vec<String>` has
+no `Display`). `select` now collects every Package whose `matches` returns true and
+matches on the slice: none is `Unknown`, one is selected, more than one is
+`Ambiguous` naming every fully-qualified identity in discovery order.
+
+Tests: a `workspace.rs` unit test with `cargo:ui` + `node:ui` asserting
+`select(Some("ui"))` errors with both identities and that `select(Some("cargo:ui"))`
+still resolves; an integration test in `tests/monorepo.rs` where a slug override
+makes the bare name `b` match both `cargo:a` and `cargo:b`, asserting `-p b`
+fails naming both.

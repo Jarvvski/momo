@@ -1,10 +1,28 @@
 //! The Workspace: the Packages a repo holds, and how a command selects among
 //! them.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::domain::config::Config;
 use crate::domain::package::Package;
+
+/// Why a Workspace could not be assembled.
+#[derive(Debug, thiserror::Error)]
+pub enum WorkspaceError {
+    /// Two Packages derive the same slug, so they would share a tag prefix and
+    /// a Fragment store.
+    #[error(
+        "packages {} share the slug `{slug}`; give one a distinct `slug` override",
+        identities.join(", ")
+    )]
+    DuplicateSlug {
+        /// The colliding slug.
+        slug: String,
+        /// The fully-qualified identities that collide, sorted.
+        identities: Vec<String>,
+    },
+}
 
 /// What a command targets when neither `--package` nor `--all` is given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +47,18 @@ pub enum SelectionError {
     #[error("`--all` and `--package` cannot be combined")]
     Conflicting,
 
+    /// More than one Package matches the requested name.
+    #[error(
+        "`{query}` matches more than one package: {}",
+        candidates.join(", ")
+    )]
+    Ambiguous {
+        /// The name that matched several Packages.
+        query: String,
+        /// The fully-qualified identities that matched.
+        candidates: Vec<String>,
+    },
+
     /// The current directory is not inside any Package.
     #[error("no package contains `{cwd}`; pass `-p <package>` or `--all`")]
     NotInPackage {
@@ -47,19 +77,59 @@ pub struct Workspace {
 impl Workspace {
     /// A Workspace of `packages`, with the config's per-package overrides
     /// applied.
-    pub fn new(root: impl Into<PathBuf>, packages: Vec<Package>, config: &Config) -> Self {
-        Self {
+    ///
+    /// Fails when two Packages derive the same slug: they would share a tag
+    /// prefix and a Fragment store, so the collision is fatal rather than
+    /// silently resolved. A `slug` override can disambiguate before the check.
+    pub fn new(
+        root: impl Into<PathBuf>,
+        packages: Vec<Package>,
+        config: &Config,
+    ) -> Result<Self, WorkspaceError> {
+        let packages: Vec<Package> = packages
+            .into_iter()
+            .map(|package| package.configured(config))
+            .collect();
+        Self::check_unique_slugs(&packages)?;
+        Ok(Self {
             root: root.into(),
-            packages: packages
-                .into_iter()
-                .map(|package| package.configured(config))
-                .collect(),
-        }
+            packages,
+        })
     }
 
     /// The single-Package Workspace used when discovery is unavailable.
     pub fn single(root: impl Into<PathBuf>, name: &str, config: &Config) -> Self {
-        Self::new(root, vec![Package::single(name)], config)
+        Self {
+            root: root.into(),
+            packages: vec![Package::single(name).configured(config)],
+        }
+    }
+
+    /// Reject Packages whose slugs collide.
+    ///
+    /// The check is on the slug alone: two identities that are distinct can
+    /// still collapse to one slug (`node:@acme/ui` and `node:acme-ui`), and so
+    /// can two that share an ecosystem (`cargo:a_b` and `cargo:a-b`).
+    fn check_unique_slugs(packages: &[Package]) -> Result<(), WorkspaceError> {
+        let mut by_slug: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for package in packages {
+            by_slug
+                .entry(package.slug())
+                .or_default()
+                .push(package.identity());
+        }
+        for (slug, identities) in by_slug {
+            if identities.len() > 1 {
+                let mut identities: Vec<String> =
+                    identities.into_iter().map(str::to_owned).collect();
+                identities.sort();
+                return Err(WorkspaceError::DuplicateSlug {
+                    slug: slug.to_owned(),
+                    identities,
+                });
+            }
+        }
+        Ok(())
     }
 
     /// The repo root every Package is relative to.
@@ -91,12 +161,24 @@ impl Workspace {
             return Ok(self.packages.iter().collect());
         }
         if let Some(query) = package {
-            let found = self.packages.iter().find(|entry| entry.matches(query));
-            return found
-                .map(|entry| vec![entry])
-                .ok_or_else(|| SelectionError::Unknown {
+            let matches: Vec<&Package> = self
+                .packages
+                .iter()
+                .filter(|entry| entry.matches(query))
+                .collect();
+            return match matches.as_slice() {
+                [] => Err(SelectionError::Unknown {
                     query: query.to_owned(),
-                });
+                }),
+                [only] => Ok(vec![*only]),
+                many => Err(SelectionError::Ambiguous {
+                    query: query.to_owned(),
+                    candidates: many
+                        .iter()
+                        .map(|package| package.identity().to_owned())
+                        .collect(),
+                }),
+            };
         }
         match default {
             DefaultTarget::All => Ok(self.packages.iter().collect()),
@@ -129,6 +211,7 @@ mod tests {
             ],
             &Config::default(),
         )
+        .expect("distinct slugs")
     }
 
     #[test]
@@ -238,7 +321,86 @@ mod tests {
             "/repo",
             vec![Package::from_identity("cargo:a", "crates/a")],
             &config,
-        );
+        )
+        .expect("a single package cannot collide");
         assert_eq!(workspace.packages()[0].slug(), "alpha");
+    }
+
+    #[test]
+    fn distinct_identities_that_collapse_to_one_slug_are_rejected() {
+        let err = Workspace::new(
+            "/repo",
+            vec![
+                Package::from_identity("node:@acme/ui", "packages/scoped"),
+                Package::from_identity("node:acme-ui", "packages/plain"),
+            ],
+            &Config::default(),
+        )
+        .expect_err("both slug to node-acme-ui");
+        match err {
+            WorkspaceError::DuplicateSlug { slug, identities } => {
+                assert_eq!(slug, "node-acme-ui");
+                assert_eq!(identities, vec!["node:@acme/ui", "node:acme-ui"]);
+            }
+        }
+    }
+
+    #[test]
+    fn a_slug_override_resolves_a_collision() {
+        let mut config = Config::default();
+        config.packages.insert(
+            "node:acme-ui".to_owned(),
+            PackageConfig {
+                identity: None,
+                slug: Some("node-acme-ui-plain".to_owned()),
+                manifest: None,
+            },
+        );
+        let workspace = Workspace::new(
+            "/repo",
+            vec![
+                Package::from_identity("node:@acme/ui", "packages/scoped"),
+                Package::from_identity("node:acme-ui", "packages/plain"),
+            ],
+            &config,
+        )
+        .expect("the override disambiguates the slug");
+        assert_eq!(workspace.packages()[0].slug(), "node-acme-ui");
+        assert_eq!(workspace.packages()[1].slug(), "node-acme-ui-plain");
+    }
+
+    #[test]
+    fn a_bare_name_matching_several_packages_is_rejected() {
+        let workspace = Workspace::new(
+            "/repo",
+            vec![
+                Package::from_identity("cargo:ui", "crates/ui"),
+                Package::from_identity("node:ui", "packages/ui"),
+            ],
+            &Config::default(),
+        )
+        .expect("distinct slugs");
+        let err = workspace
+            .select(Some("ui"), false, DefaultTarget::All, Path::new("/repo"))
+            .expect_err("the bare name is ambiguous");
+        match err {
+            SelectionError::Ambiguous { query, candidates } => {
+                assert_eq!(query, "ui");
+                assert_eq!(candidates, vec!["cargo:ui", "node:ui"]);
+            }
+            other => panic!("expected an ambiguous-selection error, got {other}"),
+        }
+
+        // A fully-qualified identity stays unambiguous.
+        let selected = workspace
+            .select(
+                Some("cargo:ui"),
+                false,
+                DefaultTarget::All,
+                Path::new("/repo"),
+            )
+            .expect("a qualified identity");
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].identity(), "cargo:ui");
     }
 }

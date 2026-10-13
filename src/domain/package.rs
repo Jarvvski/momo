@@ -59,13 +59,19 @@ impl Package {
     }
 
     /// Apply this Package's configured overrides, when the config names it.
+    ///
+    /// An `identity` override recomputes the slug from the new identity unless
+    /// a `slug` is also given: the slug namespaces the tags and the Fragment
+    /// store, so it must follow the identity it derives from.
     pub fn configured(mut self, config: &Config) -> Self {
         if let Some(overrides) = config.packages.get(&self.identity) {
             if let Some(identity) = &overrides.identity {
                 self.identity = identity.clone();
             }
-            if let Some(slug) = &overrides.slug {
-                self.slug = slug.clone();
+            match &overrides.slug {
+                Some(slug) => self.slug = slug.clone(),
+                None if overrides.identity.is_some() => self.slug = slugify(&self.identity),
+                None => {}
             }
             if let Some(manifest) = &overrides.manifest {
                 self.manifest = Some(manifest.clone());
@@ -277,6 +283,23 @@ mod tests {
         let package = Package::from_identity("cargo:momo", "crates/momo").configured(&config);
         assert_eq!(package.identity(), "cargo:renamed");
         assert_eq!(package.slug(), "alpha");
+    }
+
+    #[test]
+    fn configured_recomputes_the_slug_from_a_new_identity() {
+        let mut config = Config::default();
+        config.packages.insert(
+            "cargo:momo".to_owned(),
+            crate::domain::config::PackageConfig {
+                identity: Some("cargo:renamed".to_owned()),
+                slug: None,
+                manifest: None,
+            },
+        );
+        let package = Package::from_identity("cargo:momo", "crates/momo").configured(&config);
+        assert_eq!(package.identity(), "cargo:renamed");
+        assert_eq!(package.slug(), "cargo-renamed");
+        assert_eq!(package.tag_prefix("v"), "cargo-renamed-v");
     }
 
     #[test]
