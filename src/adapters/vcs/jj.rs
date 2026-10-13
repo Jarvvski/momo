@@ -8,7 +8,7 @@ use crate::domain::vcs::{Vcs, VcsError, VcsKind};
 use semver::Version;
 
 use super::process::{CommandRunner, ProcessOutput, require_success};
-use super::tags::{latest_version, tag_name};
+use super::tags::{checked_tag_name, latest_version};
 
 /// A jj repository, driven through the `jj` CLI.
 pub struct JjVcs<R> {
@@ -67,7 +67,7 @@ impl<R: CommandRunner> Vcs for JjVcs<R> {
     }
 
     fn create_tag(&self, prefix: &str, version: &Version, _message: &str) -> Result<(), VcsError> {
-        let tag = tag_name(prefix, version);
+        let tag = checked_tag_name(prefix, version)?;
         let list = ["tag", "list"];
         let listed = require_success("jj", &list, self.jj(&list)?)?;
         if listed
@@ -164,6 +164,16 @@ mod tests {
             .create_tag("v", &Version::new(0, 1, 0), "Release 0.1.0")
             .unwrap_err();
         assert!(matches!(err, VcsError::TagAlreadyExists { ref tag } if tag == "v0.1.0"));
+    }
+
+    #[test]
+    fn create_tag_rejects_an_invalid_name_without_spawning() {
+        // An empty script panics on any command, proving validation runs first.
+        let runner = FakeRunner::new();
+        let err = adapter(runner)
+            .create_tag("v 1", &Version::new(2, 3, 0), "Release 2.3.0")
+            .unwrap_err();
+        assert!(matches!(err, VcsError::InvalidTagName { ref name } if name == "v 12.3.0"));
     }
 
     #[test]

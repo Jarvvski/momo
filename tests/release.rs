@@ -89,6 +89,24 @@ fn jj_repo(dir: &TempDir) {
     fs::write(dir.path().join("a.txt"), "hi\n").expect("seed a tracked file");
 }
 
+/// A git repository with a local identity, ready to release from.
+fn git_repo(dir: &TempDir) {
+    capture(dir.path(), "git", &["init", "--quiet"]);
+    capture(
+        dir.path(),
+        "git",
+        &["config", "user.email", "momo@example.com"],
+    );
+    capture(dir.path(), "git", &["config", "user.name", "momo"]);
+    fs::write(dir.path().join("a.txt"), "hi\n").expect("seed a tracked file");
+    capture(dir.path(), "git", &["add", "a.txt"]);
+    capture(
+        dir.path(),
+        "git",
+        &["commit", "--quiet", "--message", "first"],
+    );
+}
+
 /// The number of commits the repository holds, including the root.
 fn commit_count(cwd: &Path) -> usize {
     capture(
@@ -393,6 +411,31 @@ fn a_remote_key_in_the_config_writes_the_changelog_footer() {
         "{changelog}"
     );
     assert!(!changelog.contains("[Unreleased]:"), "{changelog}");
+}
+
+#[test]
+fn a_vcs_remote_momo_cannot_read_warns_but_still_releases() {
+    let dir = TempDir::new().expect("temp dir");
+    git_repo(&dir);
+    capture(
+        dir.path(),
+        "git",
+        &["remote", "add", "origin", "not-a-remote"],
+    );
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    momo(&dir)
+        .arg("release")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("not recognised"));
+
+    let changelog = read(&dir, "CHANGELOG.md");
+    assert!(changelog.contains("## [0.1.0]"), "{changelog}");
+    assert!(!changelog.contains("[0.1.0]:"), "{changelog}");
 }
 
 #[test]

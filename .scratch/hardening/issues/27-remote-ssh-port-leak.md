@@ -1,7 +1,7 @@
 # 27: The SSH port leaks into the normalised web base URL
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/remote
 Verified: yes — read at the cited lines
@@ -67,3 +67,15 @@ to `https://` unconditionally.
 strip a trailing `:<digits>` from `authority` before taking the host. Tests:
 `ssh://git@github.com:2222/o/r.git` → `https://github.com/o/r`;
 `https://gitlab.example.com:8443/group/repo` keeps `:8443`.
+
+## Resolution
+
+`normalise` (`src/domain/remote.rs`) now keeps the scheme from
+`split_once("://")`. For a non-`http(s)` scheme it drops a trailing `:<digits>`
+from the authority via a new `strip_port` helper before building the web base; an
+`http(s)` authority keeps its port, since that may be a real web port.
+
+Tests: `ssh://git@github.com:2222/o/r.git`, `git://github.com:9418/o/r.git`, and
+`git+ssh://git@github.com:2222/o/r` all normalise to `https://github.com/o/r`;
+`https://gitlab.example.com:8443/group/repo` and its `http://…​.git` form keep
+`:8443`.

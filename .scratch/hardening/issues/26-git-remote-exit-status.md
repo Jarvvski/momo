@@ -1,7 +1,7 @@
 # 26: The git adapter treats every `remote get-url` failure as "no remote"
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: adapters/vcs + cli/release
 Verified: yes — read at the cited lines
@@ -84,3 +84,20 @@ misreading a git failure as a benign absence.
   reference links added` instead of dropping silently (keeps releases moving).
 - Tests: a `git.rs` unit test where `git remote` fails → `VcsError::CommandFailed`;
   a `cli/release.rs` test that an unparseable remote warns and still releases.
+
+## Resolution
+
+`GitVcs::remote` now lists remotes with `["remote"]` through `require_success`
+first: an absent `origin` returns `Ok(None)`, while a failed listing propagates
+`VcsError::CommandFailed`. Only when `origin` exists does it run
+`["remote", "get-url", "origin"]`, also through `require_success`. `derive_remote`
+(`src/cli/release.rs`) now warns
+``warning: remote `<url>` is not recognised; no reference links added`` instead of
+dropping an unparseable URL with `.ok()`, and still releases.
+
+Tests: `git.rs` covers the origin read, the no-origin case (proving `get-url` is
+not run), a non-`origin` remote, and a failed listing → `CommandFailed`; a
+`cli/release.rs` unit test releases with an unrecognised remote and asserts no
+link definitions; `tests/release.rs` drives the real binary against a git repo
+with a bogus `origin` and asserts the warning reaches stderr while the release
+succeeds.

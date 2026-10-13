@@ -9,7 +9,7 @@ use crate::domain::vcs::{Vcs, VcsError, VcsKind};
 use semver::Version;
 
 use super::process::{CommandRunner, ProcessOutput, require_success};
-use super::tags::{latest_version, tag_name};
+use super::tags::{checked_tag_name, latest_version};
 
 /// A git repository, driven through the `git` CLI.
 pub struct GitVcs<R> {
@@ -47,10 +47,17 @@ impl<R: CommandRunner> Vcs for GitVcs<R> {
     }
 
     fn remote(&self) -> Result<Option<String>, VcsError> {
-        // `get-url` exits non-zero when `origin` is not configured; that is not
-        // an error here, it just means there is no remote to link to.
+        // `get-url` exits non-zero both when `origin` is unset and on a real
+        // failure, so list the remotes first: an `origin` that is absent means
+        // "no remote to link to", while a listing that fails is a genuine error.
+        let list = ["remote"];
+        let listed = require_success("git", &list, self.git(&list)?)?;
+        if !listed.stdout.lines().any(|name| name.trim() == "origin") {
+            return Ok(None);
+        }
+
         let args = ["remote", "get-url", "origin"];
-        let output = self.git(&args)?;
+        let output = require_success("git", &args, self.git(&args)?)?;
         Ok(match output.stdout.trim() {
             "" => None,
             url => Some(url.to_owned()),
@@ -58,7 +65,7 @@ impl<R: CommandRunner> Vcs for GitVcs<R> {
     }
 
     fn create_tag(&self, prefix: &str, version: &Version, message: &str) -> Result<(), VcsError> {
-        let tag = tag_name(prefix, version);
+        let tag = checked_tag_name(prefix, version)?;
         let reference = format!("refs/tags/{tag}");
         let verify = ["rev-parse", "--quiet", "--verify", reference.as_str()];
         if self.git(&verify)?.success {
@@ -149,7 +156,7 @@ mod tests {
 
     #[test]
     fn remote_reads_origins_url() {
-        let runner = FakeRunner::new().ok(
+        let runner = FakeRunner::new().ok("git", &["remote"], "origin\n").ok(
             "git",
             &["remote", "get-url", "origin"],
             "git@github.com:Jarvvski/momo.git\n",
@@ -162,8 +169,32 @@ mod tests {
 
     #[test]
     fn remote_reports_none_when_there_is_no_origin() {
-        // `git remote get-url origin` exits non-zero with an empty stdout.
-        let runner = FakeRunner::new().fail("git", &["remote", "get-url", "origin"], "");
+        // `git remote` succeeds with no output when nothing is configured, so
+        // `get-url` is never run — the fake would panic if it were.
+        let runner = FakeRunner::new().ok("git", &["remote"], "");
         assert_eq!(adapter(runner).remote().unwrap(), None);
+    }
+
+    #[test]
+    fn remote_ignores_a_non_origin_remote() {
+        let runner = FakeRunner::new().ok("git", &["remote"], "upstream\n");
+        assert_eq!(adapter(runner).remote().unwrap(), None);
+    }
+
+    #[test]
+    fn remote_reports_a_failure_to_list_remotes() {
+        let runner = FakeRunner::new().fail("git", &["remote"], "fatal: dubious ownership\n");
+        let err = adapter(runner).remote().unwrap_err();
+        assert!(matches!(err, VcsError::CommandFailed { ref program, .. } if program == "git"));
+    }
+
+    #[test]
+    fn create_tag_rejects_an_invalid_name_without_spawning() {
+        // An empty script panics on any command, proving validation runs first.
+        let runner = FakeRunner::new();
+        let err = adapter(runner)
+            .create_tag("-", &Version::new(1, 2, 3), "Release 1.2.3")
+            .unwrap_err();
+        assert!(matches!(err, VcsError::InvalidTagName { ref name } if name == "-1.2.3"));
     }
 }

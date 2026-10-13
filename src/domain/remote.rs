@@ -132,11 +132,23 @@ pub struct RemoteError {
 
 /// Normalise a remote URL to `https://host/owner/repo`, or `None` when it is
 /// not a recognisable remote.
+///
+/// A non-`http(s)` scheme (`ssh`, `git`, `git+ssh`) carries a transport port,
+/// not a web one, so a trailing `:<digits>` is dropped before the web base is
+/// built. An `http(s)` authority keeps its port, which may be a real web port.
 fn normalise(url: &str) -> Option<String> {
     let url = url.trim();
     let url = url.strip_suffix(".git").unwrap_or(url);
     let (authority, path) = match url.split_once("://") {
-        Some((_scheme, rest)) => rest.split_once('/')?,
+        Some((scheme, rest)) => {
+            let (authority, path) = rest.split_once('/')?;
+            let authority = if matches!(scheme, "http" | "https") {
+                authority
+            } else {
+                strip_port(authority)
+            };
+            (authority, path)
+        }
         None => url.split_once(':')?,
     };
     let host = authority.rsplit('@').next()?;
@@ -145,6 +157,15 @@ fn normalise(url: &str) -> Option<String> {
         return None;
     }
     Some(format!("https://{host}/{path}"))
+}
+
+/// Drop a trailing `:<digits>` from `authority`, the transport port of a
+/// non-`http(s)` scheme. Anything else is returned unchanged.
+fn strip_port(authority: &str) -> &str {
+    match authority.rsplit_once(':') {
+        Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => host,
+        _ => authority,
+    }
 }
 
 #[cfg(test)]
@@ -171,6 +192,27 @@ mod tests {
         assert_eq!(
             remote("ssh://git@github.com/Jarvvski/momo.git").base(),
             expected
+        );
+    }
+
+    #[test]
+    fn an_ssh_transport_port_is_dropped_from_the_web_base() {
+        let expected = "https://github.com/o/r";
+        assert_eq!(remote("ssh://git@github.com:2222/o/r.git").base(), expected);
+        assert_eq!(remote("git://github.com:9418/o/r.git").base(), expected);
+        assert_eq!(remote("git+ssh://git@github.com:2222/o/r").base(), expected);
+    }
+
+    #[test]
+    fn an_http_port_is_kept_in_the_web_base() {
+        // A self-hosted forge may serve its web UI on a non-standard port.
+        assert_eq!(
+            remote("https://gitlab.example.com:8443/group/repo").base(),
+            "https://gitlab.example.com:8443/group/repo"
+        );
+        assert_eq!(
+            remote("http://gitlab.example.com:8443/group/repo.git").base(),
+            "https://gitlab.example.com:8443/group/repo"
         );
     }
 
