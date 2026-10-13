@@ -3,6 +3,9 @@
 # profile, so `mise run fmt`/`lint` would otherwise fail with
 # "'cargo-fmt' is not installed for the toolchain".
 rust = { version = "1.99.0", components = ["rustfmt", "clippy"] }
+# momo-vcs round-trips against a real jj repository; pin jj so CI runs that
+# test instead of skipping it for a missing binary.
+jj = "0.46.0"
 
 [tasks.run]
 description = "Run momo"
