@@ -1,11 +1,34 @@
 # momo hardening — triage effort
 
 Type: map
-Status: triaged
+Status: landed
 
 A bug hunt over the whole codebase on 2026-10-13 produced 45 tickets, triaged in
 six batches by fresh sub-agents, plus 3 tickets the triage itself surfaced (46,
 47, 48). 48 tickets total.
+
+## What landed
+
+Eight of the nine groups shipped as PRs #40–#47, each implemented in its own jj
+workspace and merged once `check` was green.
+
+| Group | PR | Tickets |
+|-------|----|---------|
+| 1 Release integrity | #43 | 37, 35, 47 |
+| 2 Version guards | #44 | 05, 08 |
+| 3 Changelog fidelity | #42 | 09, 11, 12, 14 |
+| 4 Package identity | #40 | 16, 17, 18 |
+| 5 Config integrity | #47 | 19, 20, 21, 22, 23, 24, 46 |
+| 6 VCS hardening | #41 | 26, 27, 28, 31 |
+| 7 Process & mise | #46 | 30, 32, 33, 34 |
+| 8 Test & tooling | #45 | 40, 41, 43, 44, 45 |
+
+Group 9 (03, 42) is still blocked on the multi-package JSON-shape ruling, and the
+eleven `ready-for-human` tickets still await the owner's decisions.
+
+The CRLF question resolved as **(c)**: ticket 34 is fixed — the `Cargo.toml` edit
+now preserves line endings — and ticket 13 is `wontfix`, a CRLF changelog still
+being normalised, recorded as a known limitation rather than a defect.
 
 ## Method
 
