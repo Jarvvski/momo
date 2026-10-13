@@ -129,6 +129,18 @@ Why this wins:
 The cost: tasks are **copied**, so the tool's `install` command owns
 versioning and updates (mise offers no drift detection for local task files).
 
+**Release prerequisite.** The `#MISE tools={"github:…"="<version>"}` pin resolves
+to a **GitHub release asset**, so the wrappers are inert until the tool has
+published a release whose tag matches the pinned version. A repository that ships
+the `install` command but has never cut a release makes every
+`mise run <tool>:<task>` fail with a 404 — the pin is the whole mechanism, and a
+tag alone is not enough: the release must also carry a per-platform asset that the
+`github:` backend's autodetection can select (for a Rust CLI, name each archive
+`<tool>-<version>-<target>.tar.gz`, e.g.
+`momo-0.1.0-aarch64-apple-darwin.tar.gz`). Publishing the release is therefore a
+**prerequisite of the integration**, not an optional extra; momo's release
+workflow (`.github/workflows/release.yml`) does this on a version tag.
+
 ---
 
 ## 5. Implementation mechanics
@@ -236,6 +248,9 @@ Before shipping a task-distribution mechanism, confirm:
 - [ ] Any `mise.toml` edit uses **`toml_edit::DocumentMut`**, not `serde`+`toml`.
 - [ ] The tool pin uses the **`github:`** backend (not deprecated `ubi:`), so it
       locks with a URL + checksum.
+- [ ] The pinned version has a **published GitHub release** with a per-platform
+      asset the `github:` backend can select (see §4). Without one, every
+      `mise run <tool>:<task>` 404s.
 - [ ] If you edit `mise.toml` directly (rather than via `mise tasks add`), you
       **surface a `mise trust` hint** — no surveyed tool does, and consumers in
       CI will fail without it.
