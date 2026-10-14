@@ -52,6 +52,16 @@ integrates into a task environment (`mise` in v0).
   written on every release).
 - The VCS is **authoritative when present**; `.momo/version` is the fallback.
 - Reading is side-effect-free; `status` / `--dry-run` never write.
+- **Amended 2026-10-14 (hardening 36):** `.momo/version` is the **pending-release
+  ledger** — the record of the last *minted* version (a Release or a Release
+  Candidate), written by `release`/`candidate`. `status`/`release` read only the
+  tag source; **`tag` reads the ledger**, because the version it must tag is by
+  definition one no tag records yet. A Package that has never released has *no*
+  version (`None`), not `0.0.0`.
+- **Amended 2026-10-14 (hardening 04):** a release target is always
+  `next_version(changes, last_release)` — the newest stable tag — whether or not a
+  Candidate was cut. A change recorded after a Candidate that moves the target
+  makes the Candidate stale; `release`/`candidate` refuse and ask for a fresh one.
 
 ## 6. Recording model & changelog
 

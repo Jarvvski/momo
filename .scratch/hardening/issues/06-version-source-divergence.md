@@ -1,7 +1,7 @@
 # 06: `tag` and `status`/`release` derive the current version from different sources
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/version + cli
 Verified: yes — read at the cited lines
@@ -76,3 +76,16 @@ decision and the code change land under 36.
 ## Decision (owner, 2026-10-14)
 
 **Subsumed by ticket 36** (pending-release ledger). Implement there.
+
+## Resolution
+
+Landed with 36. `tag` still reads `.momo/version` — the version it tags is one no
+tag records yet, so the tags cannot supply it — but the ledger's role is now
+documented as the pending-release ledger, and the reads are one rule: `tag` goes
+through the same `VersionSource` seam (`FileVersionSource::current()`), and
+`commands::tag` no longer re-reads the file.
+
+The genuine defect is fixed: `tag` refuses when the ledger is older than the
+newest tag, so a stale `.momo/version` can no longer tag a version behind the
+newest existing one. The "a clone with tag `v1.2.3` and no ledger has nothing to
+tag" case was already correct and is unchanged.

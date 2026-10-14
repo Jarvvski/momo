@@ -38,6 +38,24 @@ A pre-Release version, marked with an incrementing suffix, cut before the final
 Release.
 _Avoid_: prerelease, beta
 
+**Version Ledger**:
+The `.momo/version` file: the record of the last *minted* version — a Release or a
+Release Candidate — written by `release`/`candidate` and read by `tag`. The
+version `tag` must name is by definition one no tag records yet, so it cannot come
+from the tags. It is **not** a version source for `status`/`release`.
+_Avoid_: version file, state file, pending version
+
+**Version Source**:
+Where momo reads a Package's current version: the latest VCS tag, authoritative
+when a repository is present, else the Version Ledger.
+_Avoid_: version store, version provider
+
+**Last Release**:
+The newest stable Release — the base a Release bumps from. A Release Candidate
+cut since it is not the base, so a change recorded after a Candidate raises the
+recomputed target.
+_Avoid_: current release, base version
+
 **Changelog**:
 The durable record of Releases and their Changes, grouped by Kind, newest first.
 _Avoid_: release notes, history

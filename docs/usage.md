@@ -40,7 +40,8 @@ candidate shares them with the eventual release.
   `.momo/version` so the candidate can be tagged. The counter is scoped to the
   target version and restarts at `1` when the target changes.
 - **`momo tag`** creates the VCS tag for the version `.momo/version` holds — the
-  one the last `release` or `candidate` minted.
+  one the last `release` or `candidate` minted. It refuses a ledger older than the
+  newest tag, because that version is behind the release already tagged.
 
 Neither `release` nor `candidate` commits or tags. The ceremony is split so the
 tag lands on the commit that contains the changelog:
@@ -160,9 +161,34 @@ build, so the pinned wrappers resolve only on those platforms.
 
 ## Where the version comes from
 
-The current version is the latest VCS tag under the tag prefix when a VCS is
-present; with no VCS it comes from `.momo/version`. The VCS becomes authoritative
-as soon as it exists. `status` and `--dry-run` never write.
+A package's version has one authority per question:
+
+- **`status` and `release`** read the **latest VCS tag** under the tag prefix.
+  With no VCS they fall back to `.momo/version`, so a project outside a repository
+  still versions. The VCS becomes authoritative as soon as it exists.
+- **`tag`** reads **`.momo/version`**, the pending-release ledger. The version it
+  must tag is by definition one no tag records yet, so the tags cannot supply it.
+
+`.momo/version` is written by `release`/`candidate` as the record of the last
+*minted* version — a Release or a Release Candidate. It is **not** a version
+source for `status`/`release`; those never read it while a VCS is present.
+
+A release target is always recomputed from the **last release** — the newest
+stable tag — whether or not a Release Candidate was cut. If a change recorded
+after a Candidate moves the target, `release`/`candidate` refuse and ask for a
+fresh Candidate rather than shipping a version the bump policy says is too low:
+
+```console
+$ momo add "Add a thing"
+$ momo candidate            # 1.1.0-rc.1
+$ momo break "Break a thing"
+$ momo release
+error: the cut candidate `1.1.0-rc.1` is stale: the changes now imply `2.0.0`; cut a new candidate for `2.0.0`
+```
+
+A package that has never released has **no** version, not version `0.0.0`:
+`status --format json` reports `"current": null`, and a genuine `0.0.0` release is
+reported as `"current": "0.0.0"`. `status` and `--dry-run` never write.
 
 ## Not yet supported
 

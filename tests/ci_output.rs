@@ -82,7 +82,7 @@ fn status_format_json_emits_the_documented_shape() {
   "packages": [
     {
       "name": "proj",
-      "current": "0.0.0",
+      "current": null,
       "next": "0.1.0",
       "changes": [
         {

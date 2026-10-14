@@ -40,6 +40,14 @@ pub trait Vcs {
     /// Returns `Ok(None)` when no tag matches — there is no version yet.
     fn latest_tag(&self, prefix: &str) -> Result<Option<Version>, VcsError>;
 
+    /// The highest version among *release* tags named `<prefix><version>` — the
+    /// highest matching tag that carries no pre-release suffix.
+    ///
+    /// `Ok(None)` when only Candidate tags (or none) exist. A Release bumps
+    /// from the last Release, never from a Candidate cut since it, so the base
+    /// is read separately from [`Vcs::latest_tag`].
+    fn latest_release_tag(&self, prefix: &str) -> Result<Option<Version>, VcsError>;
+
     /// The URL of the repository's remote, when one is configured.
     ///
     /// `origin` is preferred; `Ok(None)` when no remote exists. A remote that

@@ -54,8 +54,9 @@ fn render(cli: &Cli, report: &impl Report) -> String {
 pub struct StatusPackage {
     /// The Package's identity, e.g. `cargo:momo`.
     pub package: String,
-    /// The Package's current Version.
-    pub current: Version,
+    /// The Package's current Version — the last Release or cut Candidate —
+    /// or `None` when it has never released.
+    pub current: Option<Version>,
     /// The Version a Release would mint; `None` when nothing is Unreleased.
     pub next: Option<Version>,
     /// The Unreleased Changes.
@@ -68,9 +69,13 @@ impl StatusPackage {
         !self.changes.is_empty()
     }
 
-    /// The Version to report: the one a Release would mint, or the current one.
-    fn computed(&self) -> &Version {
-        self.next.as_ref().unwrap_or(&self.current)
+    /// The Version to report: the one a Release would mint, the current Version,
+    /// or the bootstrap baseline when the Package has never released.
+    fn computed(&self) -> Version {
+        self.next
+            .clone()
+            .or_else(|| self.current.clone())
+            .unwrap_or_else(|| Version::new(0, 0, 0))
     }
 }
 
@@ -85,7 +90,7 @@ impl StatusPackage {
 ///   "packages": [
 ///     {
 ///       "name": "momo",
-///       "current": "0.0.0",
+///       "current": null,
 ///       "next": "0.1.0",
 ///       "changes": [{ "kind": "add", "text": "Add a shiny thing" }]
 ///     }
@@ -94,8 +99,10 @@ impl StatusPackage {
 /// ```
 ///
 /// `unreleased` is the CI skip gate — `true` when at least one Change is
-/// Unreleased. `next` is the Version a Release would mint, or the current
-/// Version when nothing is Unreleased; `changes` is empty in that case.
+/// Unreleased. `current` is the Package's last Release (or cut Candidate), or
+/// `null` when it has never released; `next` is the Version a Release would
+/// mint, or the current Version when nothing is Unreleased; `changes` is empty
+/// in that case.
 pub struct Status {
     /// The Packages, in discovery order.
     pub packages: Vec<StatusPackage>,
@@ -152,8 +159,11 @@ impl Report for Status {
                     .collect();
                 Json::object(vec![
                     ("name", Json::from(package.package.as_str())),
-                    ("current", Json::from(&package.current)),
-                    ("next", Json::from(package.computed())),
+                    (
+                        "current",
+                        package.current.as_ref().map_or(Json::Null, Json::from),
+                    ),
+                    ("next", Json::from(&package.computed())),
                     ("changes", Json::Array(changes)),
                 ])
             })
@@ -547,15 +557,14 @@ mod tests {
         }
     }
 
-    /// A status report with one `add` Change at the bootstrap baseline.
+    /// A status report for one never-released Package holding `changes`.
     fn status(changes: &[Change]) -> Status {
-        let current = Version::new(0, 0, 0);
-        let next =
-            crate::domain::version::release_version(changes, &current).expect("a bump that fits");
+        let next = crate::domain::version::next_version(changes, &Version::new(0, 0, 0))
+            .expect("a bump that fits");
         Status {
             packages: vec![StatusPackage {
                 package: "momo".to_owned(),
-                current,
+                current: None,
                 next,
                 changes: changes.to_vec(),
             }],
@@ -578,7 +587,7 @@ mod tests {
   "packages": [
     {
       "name": "momo",
-      "current": "0.0.0",
+      "current": null,
       "next": "0.1.0",
       "changes": [
         {
@@ -599,7 +608,28 @@ mod tests {
 
         assert!(json.contains("\"unreleased\": false"), "{json}");
         assert!(json.contains("\"next\": \"0.0.0\""), "{json}");
+        assert!(json.contains("\"current\": null"), "{json}");
         assert!(json.contains("\"changes\": []"), "{json}");
+    }
+
+    #[test]
+    fn status_json_distinguishes_a_zero_release_from_never_released() {
+        // A Package that has genuinely released `0.0.0` reports it; one that has
+        // never released reports `null`. The two are not the same.
+        let released = Status {
+            packages: vec![StatusPackage {
+                package: "momo".to_owned(),
+                current: Some(Version::new(0, 0, 0)),
+                next: None,
+                changes: Vec::new(),
+            }],
+        };
+        assert!(
+            released.json().contains("\"current\": \"0.0.0\""),
+            "{}",
+            released.json()
+        );
+        assert!(status(&[]).json().contains("\"current\": null"));
     }
 
     #[test]
@@ -673,13 +703,13 @@ mod tests {
             packages: vec![
                 StatusPackage {
                     package: "cargo:a".to_owned(),
-                    current: Version::new(0, 0, 0),
+                    current: None,
                     next: Some(Version::new(0, 1, 0)),
                     changes: vec![Change::new(Kind::Add, "Add a thing")],
                 },
                 StatusPackage {
                     package: "cargo:b".to_owned(),
-                    current: Version::new(0, 0, 0),
+                    current: None,
                     next: None,
                     changes: Vec::new(),
                 },

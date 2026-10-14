@@ -470,6 +470,116 @@ fn init_version_then_tag_creates_the_initial_tag() {
     );
 }
 
+/// Write the pending-release ledger under `dir`.
+fn write_ledger(dir: &TempDir, version: &str) {
+    fs::create_dir_all(dir.path().join(".momo")).expect("create .momo");
+    fs::write(dir.path().join(".momo/version"), format!("{version}\n")).expect("write the ledger");
+}
+
+#[test]
+fn status_reads_the_tag_while_tag_reads_the_ledger() {
+    let dir = TempDir::new().expect("temp dir");
+    git_repo(&dir);
+    // The repository is at tag `v1.2.3`; the ledger records a minted `1.3.0`.
+    capture(dir.path(), "git", &["tag", "v1.2.3"]);
+    write_ledger(&dir, "1.3.0");
+
+    // `status` reads the tag source...
+    momo(&dir)
+        .args(["status", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"current\": \"1.2.3\""));
+
+    // ...and `tag` reads the ledger, which no tag records yet.
+    momo(&dir)
+        .arg("tag")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("v1.3.0"));
+    assert_eq!(
+        capture(dir.path(), "git", &["tag", "--list"]),
+        "v1.2.3\nv1.3.0"
+    );
+}
+
+#[test]
+fn tag_refuses_a_ledger_older_than_the_newest_tag() {
+    let dir = TempDir::new().expect("temp dir");
+    git_repo(&dir);
+    capture(dir.path(), "git", &["tag", "v1.2.3"]);
+    write_ledger(&dir, "0.9.0");
+
+    momo(&dir).arg("tag").assert().failure().stderr(
+        predicate::str::contains("older than the newest tag")
+            .and(predicate::str::contains("1.2.3")),
+    );
+    assert_eq!(capture(dir.path(), "git", &["tag", "--list"]), "v1.2.3");
+}
+
+#[test]
+fn status_distinguishes_a_never_released_package_from_a_zero_release() {
+    // Never released: no tags, so `current` is null.
+    let fresh = TempDir::new().expect("temp dir");
+    git_repo(&fresh);
+    momo(&fresh)
+        .args(["status", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"current\": null"));
+
+    // A genuine `0.0.0` Release is a version, not an absence.
+    let zero = TempDir::new().expect("temp dir");
+    git_repo(&zero);
+    capture(zero.path(), "git", &["tag", "v0.0.0"]);
+    momo(&zero)
+        .args(["status", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"current\": \"0.0.0\""));
+}
+
+#[test]
+fn a_break_after_a_tagged_candidate_refuses_the_stale_release() {
+    if !require_tool("jj") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    jj_repo(&dir);
+
+    // Start at a released `1.0.0`.
+    momo(&dir)
+        .args(["init", "--version", "1.0.0"])
+        .assert()
+        .success();
+    momo(&dir).arg("tag").assert().success();
+
+    // Cut and tag a Candidate from an Add.
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&dir)
+        .arg("candidate")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cut 1.1.0-rc.1"));
+    momo(&dir)
+        .arg("tag")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("v1.1.0-rc.1"));
+
+    // A Break now implies `2.0.0` from `1.0.0`, so the cut Candidate is stale.
+    momo(&dir)
+        .args(["break", "Break a thing"])
+        .assert()
+        .success();
+    momo(&dir).arg("release").assert().failure().stderr(
+        predicate::str::contains("1.1.0-rc.1").and(predicate::str::contains("cut a new candidate")),
+    );
+}
+
 #[test]
 fn tag_defaults_to_the_committed_release_at_parent() {
     if !require_tool("jj") {

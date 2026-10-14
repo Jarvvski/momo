@@ -1,5 +1,6 @@
 //! Versions, the Bump policy, and the seam that supplies a Package's version.
 
+use std::cmp::Ordering;
 use std::path::PathBuf;
 
 use crate::domain::change::{Change, Kind};
@@ -89,28 +90,49 @@ pub fn next_version(
     }
 }
 
-/// The Version a Release of `changes` would mint at `current`.
+/// Order two Versions by semver precedence, preferring the plain one on a tie.
 ///
-/// Like [`next_version`], except that when `current` is a pre-release — an RC
-/// already cut for this Version — the Release reuses that target and drops the
-/// suffix rather than bumping again. `Ok(None)` when there are no Changes; `Err`
-/// when incrementing `current` would overflow a component.
-pub fn release_version(
+/// `Version`'s derived `Ord` ranks `1.0.0+meta` above `1.0.0`, but semver
+/// precedence treats them as equal, and momo prefers the Version without build
+/// metadata. This is the ranking that picks a Package's latest tag; it lives
+/// here so the Changelog's fallback base cannot drift from it.
+pub fn cmp_version_rank(a: &Version, b: &Version) -> Ordering {
+    a.cmp_precedence(b).then_with(|| b.build.cmp(&a.build))
+}
+
+/// The target a Release Candidate was minted for: its `major.minor.patch`.
+pub fn candidate_target(candidate: &Version) -> Version {
+    Version::new(candidate.major, candidate.minor, candidate.patch)
+}
+
+/// The Release target for `changes`, refusing a stale Release Candidate.
+///
+/// The target is always [`next_version`] applied to `last_release` — the last
+/// stable Release — whether or not a Release Candidate was cut since it. A
+/// Change recorded after a Candidate therefore raises the target; a Candidate's
+/// own components are never the base, which would double-count the bump.
+///
+/// When a Candidate `candidate` was already cut and its target no longer
+/// matches the recomputed one, the Candidate is stale: shipping its target
+/// would under-version the Release. That is [`VersionError::StaleCandidate`] —
+/// cut a new Candidate instead. `Ok(None)` when there are no Changes; `Err`
+/// when incrementing `last_release` would overflow a component.
+pub fn release_target(
     changes: &[Change],
-    current: &Version,
+    last_release: &Version,
+    candidate: Option<&Version>,
 ) -> Result<Option<Version>, VersionError> {
-    if changes.is_empty() {
-        return Ok(None);
+    let target = next_version(changes, last_release)?;
+    if let (Some(target), Some(candidate)) = (&target, candidate) {
+        let cut = candidate_target(candidate);
+        if cut != *target {
+            return Err(VersionError::StaleCandidate {
+                candidate: candidate.clone(),
+                target: target.clone(),
+            });
+        }
     }
-    if current.pre.is_empty() {
-        next_version(changes, current)
-    } else {
-        Ok(Some(Version::new(
-            current.major,
-            current.minor,
-            current.patch,
-        )))
-    }
+    Ok(target)
 }
 
 /// The Release Candidate Version for `target` numbered `n`.
@@ -204,41 +226,53 @@ fn same_release(version: &Version, target: &Version) -> bool {
     version.major == target.major && version.minor == target.minor && version.patch == target.patch
 }
 
-/// The seam that supplies a Package's current Version.
+/// The seam that supplies a Package's Version history.
 ///
 /// The VCS is authoritative when present ([`TagVersionSource`]); the file-backed
-/// implementation in the CLI is the fallback for a project with no VCS.
+/// implementation in the CLI is the fallback for a project with no VCS. A
+/// Package's *current* Version may be a Release or a Release Candidate; its
+/// *last release* is always a stable Release — the base a bump applies to.
 pub trait VersionSource {
-    /// The current Version.
+    /// The newest Version the Package has minted: the last Release, or the
+    /// Release Candidate cut since it.
     ///
-    /// A Package that has never released reports the bootstrap baseline
-    /// `0.0.0`.
-    fn current(&self) -> Result<Version, VersionError>;
+    /// `None` when the Package has never minted one. Absence is explicit, never
+    /// a sentinel: `0.0.0` is a legal Release, so a Package that has genuinely
+    /// released `0.0.0` is not the same as one that has never released.
+    fn current(&self) -> Result<Option<Version>, VersionError>;
+
+    /// The last stable Release — the base a Release bumps from.
+    ///
+    /// `None` when the Package has never released. A Release Candidate is not a
+    /// Release, so a Package whose only minted version is a Candidate reports
+    /// `None` here, and a Release recomputes from the Release below it.
+    fn last_release(&self) -> Result<Option<Version>, VersionError>;
 }
 
 /// A [`VersionSource`] backed by a repository's tags.
 ///
-/// The current Version is the highest tag named `<prefix><version>`; with no
-/// such tag the Package has never released, so this reports the bootstrap
-/// baseline `0.0.0`.
+/// The current Version is the highest tag named `<prefix><version>`; the last
+/// release is the highest such tag with no pre-release suffix. With neither,
+/// the Package has never released, so both report `None`.
 pub struct TagVersionSource<'a> {
     vcs: &'a dyn Vcs,
     prefix: &'a str,
 }
 
 impl<'a> TagVersionSource<'a> {
-    /// Read the current Version from `vcs`'s tags under `prefix`.
+    /// Read the Version history from `vcs`'s tags under `prefix`.
     pub fn new(vcs: &'a dyn Vcs, prefix: &'a str) -> Self {
         Self { vcs, prefix }
     }
 }
 
 impl VersionSource for TagVersionSource<'_> {
-    fn current(&self) -> Result<Version, VersionError> {
-        Ok(self
-            .vcs
-            .latest_tag(self.prefix)?
-            .unwrap_or_else(|| Version::new(0, 0, 0)))
+    fn current(&self) -> Result<Option<Version>, VersionError> {
+        Ok(self.vcs.latest_tag(self.prefix)?)
+    }
+
+    fn last_release(&self) -> Result<Option<Version>, VersionError> {
+        Ok(self.vcs.latest_release_tag(self.prefix)?)
     }
 }
 
@@ -300,6 +334,17 @@ pub enum VersionError {
     Overflow {
         /// The value already at `u64::MAX`.
         value: u64,
+    },
+    /// A cut Release Candidate no longer matches the recomputed Release target.
+    #[error(
+        "the cut candidate `{candidate}` is stale: the changes now imply `{target}`; \
+         cut a new candidate for `{target}`"
+    )]
+    StaleCandidate {
+        /// The stale Candidate.
+        candidate: Version,
+        /// The Release target the changes now imply.
+        target: Version,
     },
 }
 
@@ -427,15 +472,52 @@ mod tests {
         assert!(next_version(&add, &version(1, max, 3)).is_err());
 
         let breaking = [change(Kind::Break)];
-        assert!(release_version(&breaking, &version(max, 2, 3)).is_err());
+        assert!(next_version(&breaking, &version(max, 2, 3)).is_err());
     }
 
     #[test]
-    fn a_release_from_a_candidate_reuses_the_target_and_drops_the_suffix() {
+    fn a_release_target_is_recomputed_from_the_last_release() {
+        // A Candidate's own components are never the base: recomputing from the
+        // last release gives the same target for an unchanged change set...
         let changes = [change(Kind::Add)];
-        let candidate = Version::parse("0.1.0-rc.2").expect("a valid version");
+        let candidate = Version::parse("1.1.0-rc.2").expect("a valid version");
         assert_eq!(
-            release_version(&changes, &candidate).expect("a bump that fits"),
+            release_target(&changes, &version(1, 0, 0), Some(&candidate))
+                .expect("a bump that fits"),
+            Some(version(1, 1, 0))
+        );
+        // ...and a higher one once a Break lands, which makes the Candidate stale.
+        let grown = [change(Kind::Add), change(Kind::Break)];
+        let err = release_target(&grown, &version(1, 0, 0), Some(&candidate))
+            .expect_err("the candidate no longer matches");
+        assert!(err.to_string().contains("1.1.0-rc.2"), "{err}");
+        assert!(err.to_string().contains("2.0.0"), "{err}");
+    }
+
+    #[test]
+    fn a_break_after_a_candidate_at_major_one_is_stale() {
+        // The 04 trigger: a Break raises MAJOR ≥ 1 from the last release, so the
+        // Candidate cut for the MINOR target cannot ship.
+        let candidate = Version::parse("1.1.0-rc.1").expect("a valid version");
+        let changes = [change(Kind::Add), change(Kind::Break)];
+        let err = release_target(&changes, &version(1, 0, 0), Some(&candidate))
+            .expect_err("the target moved to 2.0.0");
+        assert!(matches!(
+            err,
+            VersionError::StaleCandidate { ref candidate, ref target }
+                if candidate.to_string() == "1.1.0-rc.1" && target == &version(2, 0, 0)
+        ));
+    }
+
+    #[test]
+    fn below_major_one_a_break_cannot_stale_a_candidate() {
+        // At MAJOR 0 a Break and an Add both imply MINOR, so no Kind recorded
+        // after a Candidate can move its target.
+        let candidate = Version::parse("0.1.0-rc.1").expect("a valid version");
+        let changes = [change(Kind::Add), change(Kind::Break)];
+        assert_eq!(
+            release_target(&changes, &version(0, 0, 0), Some(&candidate))
+                .expect("the target is unchanged"),
             Some(version(0, 1, 0))
         );
     }
@@ -444,7 +526,7 @@ mod tests {
     fn a_release_from_a_stable_version_bumps_as_usual() {
         let changes = [change(Kind::Add)];
         assert_eq!(
-            release_version(&changes, &version(0, 1, 0)).expect("a bump that fits"),
+            release_target(&changes, &version(0, 1, 0), None).expect("a bump that fits"),
             Some(version(0, 2, 0))
         );
     }
@@ -452,11 +534,12 @@ mod tests {
     #[test]
     fn a_release_of_nothing_has_no_version() {
         assert_eq!(
-            release_version(&[], &version(1, 2, 3)).expect("no changes is not an error"),
+            release_target(&[], &version(1, 2, 3), None).expect("no changes is not an error"),
             None
         );
+        let candidate = Version::parse("1.2.3-rc.1").expect("a valid version");
         assert_eq!(
-            release_version(&[], &Version::parse("1.2.3-rc.1").expect("a valid version"))
+            release_target(&[], &version(1, 2, 3), Some(&candidate))
                 .expect("no changes is not an error"),
             None
         );
@@ -583,8 +666,30 @@ mod tests {
         }
     }
 
-    /// A [`Vcs`] that reports a fixed latest tag, for the version-source tests.
-    struct FakeVcs(Option<Version>);
+    /// A [`Vcs`] that reports fixed tags, for the version-source tests.
+    ///
+    /// `latest` is the highest tag (a Release or a Candidate); `release` is the
+    /// highest Release tag, or `None` when only Candidates (or nothing) exist.
+    struct FakeVcs {
+        latest: Option<Version>,
+        release: Option<Version>,
+    }
+
+    impl FakeVcs {
+        /// A repository whose highest tag is `latest`, with `release` as its
+        /// highest Release tag.
+        fn new(latest: Option<Version>, release: Option<Version>) -> Self {
+            Self { latest, release }
+        }
+
+        /// A repository whose only tag is `version` (a Release).
+        fn released(version: Version) -> Self {
+            Self {
+                latest: Some(version.clone()),
+                release: Some(version),
+            }
+        }
+    }
 
     impl Vcs for FakeVcs {
         fn kind(&self) -> crate::domain::vcs::VcsKind {
@@ -596,7 +701,11 @@ mod tests {
         }
 
         fn latest_tag(&self, _prefix: &str) -> Result<Option<Version>, VcsError> {
-            Ok(self.0.clone())
+            Ok(self.latest.clone())
+        }
+
+        fn latest_release_tag(&self, _prefix: &str) -> Result<Option<Version>, VcsError> {
+            Ok(self.release.clone())
         }
 
         fn remote(&self) -> Result<Option<String>, VcsError> {
@@ -619,17 +728,35 @@ mod tests {
     }
 
     #[test]
-    fn the_tag_source_reports_the_latest_tag_or_the_baseline() {
-        let tagged = FakeVcs(Some(version(1, 2, 3)));
-        assert_eq!(
-            TagVersionSource::new(&tagged, "v").current().unwrap(),
-            version(1, 2, 3)
-        );
+    fn the_tag_source_reports_the_latest_tag_and_the_last_release() {
+        let released = FakeVcs::released(version(1, 2, 3));
+        let source = TagVersionSource::new(&released, "v");
+        assert_eq!(source.current().unwrap(), Some(version(1, 2, 3)));
+        assert_eq!(source.last_release().unwrap(), Some(version(1, 2, 3)));
 
-        let untagged = FakeVcs(None);
+        // A Candidate is the current Version, but the last Release below it is
+        // still the base a Release bumps from.
+        let candidate = Version::parse("1.3.0-rc.1").expect("a valid version");
+        let cutting = FakeVcs::new(Some(candidate), Some(version(1, 2, 3)));
+        let source = TagVersionSource::new(&cutting, "v");
         assert_eq!(
-            TagVersionSource::new(&untagged, "v").current().unwrap(),
-            version(0, 0, 0)
+            source.current().unwrap(),
+            Some(Version::parse("1.3.0-rc.1").expect("a valid version"))
         );
+        assert_eq!(source.last_release().unwrap(), Some(version(1, 2, 3)));
+    }
+
+    #[test]
+    fn a_never_released_package_is_not_a_zero_version() {
+        let fresh = FakeVcs::new(None, None);
+        let source = TagVersionSource::new(&fresh, "v");
+        assert_eq!(source.current().unwrap(), None);
+        assert_eq!(source.last_release().unwrap(), None);
+
+        // A genuine `0.0.0` Release is a version, not an absence.
+        let zero = FakeVcs::released(version(0, 0, 0));
+        let source = TagVersionSource::new(&zero, "v");
+        assert_eq!(source.current().unwrap(), Some(version(0, 0, 0)));
+        assert_eq!(source.last_release().unwrap(), Some(version(0, 0, 0)));
     }
 }

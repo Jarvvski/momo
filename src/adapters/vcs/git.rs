@@ -9,7 +9,7 @@ use crate::domain::vcs::{Vcs, VcsError, VcsKind};
 use semver::Version;
 
 use super::process::{CommandRunner, ProcessOutput, require_success};
-use super::tags::{checked_tag_name, latest_version};
+use super::tags::{checked_tag_name, latest_release, latest_version};
 
 /// A git repository, driven through the `git` CLI.
 pub struct GitVcs<R> {
@@ -44,6 +44,12 @@ impl<R: CommandRunner> Vcs for GitVcs<R> {
         let args = ["tag", "--list"];
         let output = require_success("git", &args, self.git(&args)?)?;
         Ok(latest_version(output.stdout.lines(), prefix))
+    }
+
+    fn latest_release_tag(&self, prefix: &str) -> Result<Option<Version>, VcsError> {
+        let args = ["tag", "--list"];
+        let output = require_success("git", &args, self.git(&args)?)?;
+        Ok(latest_release(output.stdout.lines(), prefix))
     }
 
     fn remote(&self) -> Result<Option<String>, VcsError> {
@@ -121,6 +127,19 @@ mod tests {
     fn latest_tag_reports_none_when_nothing_matches() {
         let runner = FakeRunner::new().ok("git", &["tag", "--list"], "other-v1.0.0\n");
         assert_eq!(adapter(runner).latest_tag("v").unwrap(), None);
+    }
+
+    #[test]
+    fn latest_release_tag_skips_candidates() {
+        let runner = FakeRunner::new().ok(
+            "git",
+            &["tag", "--list"],
+            "v0.1.0\nv0.2.0-rc.1\nv0.2.0-rc.2\n",
+        );
+        assert_eq!(
+            adapter(runner).latest_release_tag("v").unwrap(),
+            Some(Version::new(0, 1, 0))
+        );
     }
 
     #[test]

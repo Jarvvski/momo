@@ -61,7 +61,7 @@ truncating to the last package.
   "packages": [
     {
       "name": "momo",
-      "current": "0.0.0",
+      "current": null,
       "next": "0.1.0",
       "changes": [
         {
@@ -75,9 +75,10 @@ truncating to the last package.
 ```
 
 `unreleased` is `true` when at least one package has an unreleased change — the
-same gate as `--check`. `next` is the version a release would mint, or the current
-version when nothing is unreleased (then `changes` is empty). `packages` is always
-an array, even for a single-package repo.
+same gate as `--check`. `current` is the package's last release (or cut
+candidate), or `null` when it has never released. `next` is the version a release
+would mint, or the current version when nothing is unreleased (then `changes` is
+empty). `packages` is always an array, even for a single-package repo.
 
 ### `release` and `candidate` (`--format json`)
 

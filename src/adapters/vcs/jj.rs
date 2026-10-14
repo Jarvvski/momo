@@ -8,7 +8,7 @@ use crate::domain::vcs::{Vcs, VcsError, VcsKind};
 use semver::Version;
 
 use super::process::{CommandRunner, ProcessOutput, require_success};
-use super::tags::{checked_tag_name, latest_version};
+use super::tags::{checked_tag_name, latest_release, latest_version};
 
 /// A jj repository, driven through the `jj` CLI.
 pub struct JjVcs<R> {
@@ -43,6 +43,15 @@ impl<R: CommandRunner> Vcs for JjVcs<R> {
         let args = ["tag", "list"];
         let output = require_success("jj", &args, self.jj(&args)?)?;
         Ok(latest_version(
+            output.stdout.lines().map(tag_name_of),
+            prefix,
+        ))
+    }
+
+    fn latest_release_tag(&self, prefix: &str) -> Result<Option<Version>, VcsError> {
+        let args = ["tag", "list"];
+        let output = require_success("jj", &args, self.jj(&args)?)?;
+        Ok(latest_release(
             output.stdout.lines().map(tag_name_of),
             prefix,
         ))
@@ -151,6 +160,19 @@ mod tests {
         adapter(runner)
             .create_tag(None, "v", &Version::new(0, 1, 0), "Release 0.1.0")
             .unwrap();
+    }
+
+    #[test]
+    fn latest_release_tag_skips_candidates() {
+        let runner = FakeRunner::new().ok(
+            "jj",
+            &["tag", "list"],
+            "v0.1.0: abc123 first\nv0.2.0-rc.1: def456 second\n",
+        );
+        assert_eq!(
+            adapter(runner).latest_release_tag("v").unwrap(),
+            Some(Version::new(0, 1, 0))
+        );
     }
 
     #[test]
