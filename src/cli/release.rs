@@ -22,7 +22,7 @@ use semver::Version;
 
 use crate::domain::changelog::Changelog;
 use crate::domain::config::Config;
-use crate::domain::manifest::ManifestUpdate;
+use crate::domain::manifest::ManifestPlan;
 use crate::domain::package::Package;
 
 pub use manifest::reject_shared_manifest_conflicts;
@@ -41,8 +41,8 @@ pub struct Outcome {
     pub version_file: PathBuf,
     /// The Fragments a Release consumed.
     pub consumed: Vec<PathBuf>,
-    /// The ecosystem manifest the run synced, when it found one.
-    pub manifest: Option<ManifestUpdate>,
+    /// The ecosystem manifest plan the run synced, when it found one.
+    pub manifest: Option<ManifestPlan>,
 }
 
 /// A tag [`tag`] created, or would create.
@@ -73,13 +73,17 @@ impl Prepared {
         &self.outcome.version
     }
 
-    /// The manifest this run would sync, and the text it would hold.
-    fn manifest_write(&self) -> Option<(&Path, &str)> {
-        let manifest = self.outcome.manifest.as_ref()?.manifest.as_path();
-        self.writes
+    /// Every manifest this run would write, with the text it would hold.
+    ///
+    /// A plan may hold several writes, and an inherited version's write targets
+    /// the shared workspace root rather than the Package's own manifest, so the
+    /// conflict check compares each of these paths.
+    fn manifest_writes(&self) -> impl Iterator<Item = (&Path, &str)> {
+        self.outcome
+            .manifest
             .iter()
-            .find(|(path, _)| path == manifest)
-            .map(|(path, text)| (path.as_path(), text.as_str()))
+            .flat_map(|plan| plan.writes.iter())
+            .map(|write| (write.path.as_path(), write.text.as_str()))
     }
 }
 

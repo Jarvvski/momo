@@ -10,6 +10,7 @@
 //! cwd-relative default applies otherwise. Each Package is reported through
 //! [`crate::output`].
 
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,7 +29,7 @@ use crate::domain::tag;
 use crate::domain::version::next_version;
 
 use crate::cli::config::{self, CONFIG_FILE};
-use crate::cli::output::{self, ReleasePackage, StatusPackage, TagPackage, Verb};
+use crate::cli::output::{self, ReleasePackage, SkippedManifest, StatusPackage, TagPackage, Verb};
 use crate::cli::recording;
 use crate::cli::release::{self, Outcome};
 use crate::cli::version::{self, FileVersionSource, VERSION_FILE};
@@ -196,13 +197,17 @@ fn release(cli: &Cli) -> Result<()> {
         dry_run: cli.dry_run,
         packages: Vec::new(),
     };
+    let mut committed = Vec::new();
     for (package, prepared) in planned {
         if let Some(outcome) = release::commit(prepared, cli.dry_run)? {
-            warn_stale_lockfile(&outcome);
-            report
-                .packages
-                .push(release_package(package.identity(), outcome));
+            committed.push((package, outcome));
         }
+    }
+    report_manifest(committed.iter().map(|(_, outcome)| outcome));
+    for (package, outcome) in committed {
+        report
+            .packages
+            .push(release_package(package.identity(), outcome));
     }
     if report.packages.is_empty() {
         bail!("nothing unreleased to release");
@@ -248,13 +253,17 @@ fn candidate(cli: &Cli) -> Result<()> {
         dry_run: cli.dry_run,
         packages: Vec::new(),
     };
+    let mut committed = Vec::new();
     for (package, prepared) in planned {
         if let Some(outcome) = release::commit(prepared, cli.dry_run)? {
-            warn_stale_lockfile(&outcome);
-            report
-                .packages
-                .push(release_package(package.identity(), outcome));
+            committed.push((package, outcome));
         }
+    }
+    report_manifest(committed.iter().map(|(_, outcome)| outcome));
+    for (package, outcome) in committed {
+        report
+            .packages
+            .push(release_package(package.identity(), outcome));
     }
     if report.packages.is_empty() {
         bail!("nothing unreleased to release");
@@ -303,13 +312,35 @@ fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
 
 /// One Package's entry in a `release`/`candidate` report.
 fn release_package(package: &str, outcome: Outcome) -> ReleasePackage {
+    let Outcome {
+        version,
+        changelog,
+        version_file,
+        consumed,
+        manifest,
+    } = outcome;
+    let (manifest, skipped) = match manifest {
+        Some(plan) => (
+            plan.writes.into_iter().map(|write| write.path).collect(),
+            plan.skipped
+                .into_iter()
+                .map(|(path, reason)| SkippedManifest {
+                    path,
+                    reason: reason.to_string(),
+                })
+                .collect(),
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
+
     ReleasePackage {
         package: package.to_owned(),
-        version: outcome.version,
-        changelog: outcome.changelog,
-        version_file: outcome.version_file,
-        manifest: outcome.manifest.map(|update| update.manifest),
-        consumed: outcome.consumed,
+        version,
+        changelog,
+        version_file,
+        manifest,
+        skipped,
+        consumed,
     }
 }
 
@@ -325,22 +356,41 @@ fn warn_go_prefix(package: &Package, base: &str) {
     }
 }
 
-/// Warn that syncing a manifest left its ecosystem's lockfile stale.
+/// Report what manifest sync skipped and what it left stale, once for the run.
+fn report_manifest<'a>(outcomes: impl Iterator<Item = &'a Outcome>) {
+    for line in manifest_warnings(outcomes) {
+        eprintln!("{line}");
+    }
+}
+
+/// The warnings [`report_manifest`] prints, in order.
 ///
-/// The lockfile embeds the Package's version and is the package manager's to
-/// refresh: momo never rewrites it and never runs the package manager.
-fn warn_stale_lockfile(outcome: &Outcome) {
-    let Some(update) = &outcome.manifest else {
-        return;
-    };
-    let Some(lockfile) = &update.stale_lockfile else {
-        return;
-    };
-    eprintln!(
-        "warning: {} may be stale after syncing {}; refresh it with your package manager",
-        lockfile.display(),
-        update.manifest.display()
-    );
+/// A skip is never silent: a manifest momo considered but did not write — no
+/// version scalar, or one computed elsewhere — is named with its reason. A
+/// stale lockfile is the package manager's to refresh, and is named once however
+/// many Packages resolve to it: a workspace's members share one root lockfile,
+/// so warning per Package would only repeat it.
+fn manifest_warnings<'a>(outcomes: impl Iterator<Item = &'a Outcome>) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut reported = BTreeSet::new();
+    for outcome in outcomes {
+        let Some(plan) = &outcome.manifest else {
+            continue;
+        };
+        for (path, reason) in &plan.skipped {
+            lines.push(format!("skipped {}: {reason}", path.display()));
+        }
+        for lockfile in &plan.lockfiles {
+            if reported.insert(lockfile.as_path()) {
+                lines.push(format!(
+                    "warning: {} may be stale after syncing a manifest; refresh it with your \
+                     package manager",
+                    lockfile.display()
+                ));
+            }
+        }
+    }
+    lines
 }
 
 /// The repository backing `root`, when one exists.
@@ -523,6 +573,8 @@ fn ensure_config(root: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
+    use crate::domain::manifest::{ManifestPlan, SkipReason};
+
     #[test]
     fn every_command_has_an_installed_verb() {
         let commands = [
@@ -568,5 +620,57 @@ mod tests {
             ],
             "the verb list drifted from the surface"
         );
+    }
+
+    /// An `Outcome` carrying `plan` and nothing else that matters here.
+    fn outcome(manifest: Option<ManifestPlan>) -> Outcome {
+        Outcome {
+            version: Version::new(0, 1, 0),
+            changelog: PathBuf::from("CHANGELOG.md"),
+            version_file: PathBuf::from(".momo/version"),
+            consumed: Vec::new(),
+            manifest,
+        }
+    }
+
+    /// A plan that left `lockfile` stale.
+    fn stale(lockfile: &str) -> ManifestPlan {
+        ManifestPlan {
+            writes: Vec::new(),
+            lockfiles: vec![PathBuf::from(lockfile)],
+            skipped: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_shared_lockfile_is_reported_once() {
+        // Two members of one workspace resolve to the same root lockfile.
+        let a = outcome(Some(stale("/repo/Cargo.lock")));
+        let b = outcome(Some(stale("/repo/Cargo.lock")));
+
+        let lines = manifest_warnings([&a, &b].into_iter());
+
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].contains("Cargo.lock"), "{lines:?}");
+        assert!(lines[0].contains("may be stale"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_skip_is_reported_with_its_reason() {
+        let skipped = outcome(Some(ManifestPlan {
+            writes: Vec::new(),
+            lockfiles: Vec::new(),
+            skipped: vec![(PathBuf::from("Cargo.toml"), SkipReason::NoVersion)],
+        }));
+
+        assert_eq!(
+            manifest_warnings(std::iter::once(&skipped)),
+            vec!["skipped Cargo.toml: no version momo owns"]
+        );
+    }
+
+    #[test]
+    fn a_package_without_a_manifest_reports_nothing() {
+        assert!(manifest_warnings(std::iter::once(&outcome(None))).is_empty());
     }
 }

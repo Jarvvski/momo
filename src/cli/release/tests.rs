@@ -3,6 +3,7 @@ use super::*;
 use std::path::Path;
 
 use crate::domain::config::Recording;
+use crate::domain::manifest::SkipReason;
 use crate::domain::vcs::{Vcs, VcsError, VcsKind};
 use tempfile::TempDir;
 use time::Date;
@@ -647,8 +648,9 @@ fn a_release_syncs_the_ecosystem_manifest() {
         .expect("something to release");
 
     assert_eq!(outcome.version, Version::new(0, 1, 0));
-    let update = outcome.manifest.as_ref().expect("a manifest was synced");
-    assert_eq!(update.manifest, root.join("Cargo.toml"));
+    let plan = outcome.manifest.as_ref().expect("a manifest was synced");
+    assert_eq!(plan.writes.len(), 1, "{plan:?}");
+    assert_eq!(plan.writes[0].path, root.join("Cargo.toml"));
     assert_eq!(
         read(root, "Cargo.toml"),
         "[package]\nname = \"momo\"\nversion = \"0.1.0\"\n"
@@ -669,6 +671,30 @@ fn a_release_without_a_manifest_skips_sync() {
 }
 
 #[test]
+fn a_manifest_without_a_version_is_reported_as_skipped() {
+    let dir = TempDir::new().expect("temp dir");
+    let root = dir.path();
+    fragment(root, "add-a-thing.md", "Add a thing");
+    fs::write(root.join("Cargo.toml"), "[package]\nname = \"momo\"\n")
+        .expect("seed a versionless manifest");
+
+    let outcome = release(root, &fragments(), &package(), None, date(), false)
+        .expect("release")
+        .expect("something to release");
+
+    let plan = outcome
+        .manifest
+        .as_ref()
+        .expect("the manifest was considered");
+    assert!(plan.writes.is_empty(), "{plan:?}");
+    assert_eq!(
+        plan.skipped,
+        vec![(root.join("Cargo.toml"), SkipReason::NoVersion)],
+        "{plan:?}"
+    );
+}
+
+#[test]
 fn a_dry_run_release_reports_the_manifest_without_writing_it() {
     let dir = TempDir::new().expect("temp dir");
     let root = dir.path();
@@ -679,11 +705,11 @@ fn a_dry_run_release_reports_the_manifest_without_writing_it() {
         .expect("dry-run release")
         .expect("something to release");
 
-    let update = outcome
+    let plan = outcome
         .manifest
         .as_ref()
         .expect("the manifest is reported under --dry-run");
-    assert_eq!(update.manifest, root.join("Cargo.toml"));
+    assert_eq!(plan.writes[0].path, root.join("Cargo.toml"));
     assert_eq!(
         read(root, "Cargo.toml"),
         seeded,
@@ -848,8 +874,8 @@ fn a_monorepo_release_rewrites_the_shared_workspace_version() {
         .expect("something to release");
 
     assert_eq!(outcome.version, Version::new(0, 1, 0));
-    let update = outcome.manifest.as_ref().expect("a manifest was synced");
-    assert_eq!(update.manifest, root.join("Cargo.toml"));
+    let plan = outcome.manifest.as_ref().expect("a manifest was synced");
+    assert_eq!(plan.writes[0].path, root.join("Cargo.toml"));
     assert_eq!(
         read(root, "Cargo.toml"),
         seeded.replace("version = \"0.0.0\"", "version = \"0.1.0\""),

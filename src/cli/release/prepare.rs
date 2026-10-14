@@ -167,20 +167,22 @@ fn prepare(
         changelog: changelog_path.clone(),
         version_file: version_file.clone(),
         consumed,
-        manifest: manifest.as_ref().map(|(_, update)| update.clone()),
+        manifest,
     };
     let version_text = format!("{}\n", outcome.version);
 
     // Every artefact, rendered: the Changelog, the version file, and — when the
-    // Package has one — the manifest. An inherited version's manifest is the
-    // shared workspace root, outside this Package's directory, but it stages
-    // and commits in the same transaction as the rest.
+    // Package has one — each manifest in the plan. An inherited version's
+    // manifest is the shared workspace root, outside this Package's directory,
+    // but it stages and commits in the same transaction as the rest.
     let mut writes: Vec<(PathBuf, String)> = vec![
         (changelog_path, changelog.render()),
         (version_file, version_text),
     ];
-    if let Some((text, update)) = &manifest {
-        writes.push((update.manifest.clone(), text.clone()));
+    if let Some(plan) = &outcome.manifest {
+        for write in &plan.writes {
+            writes.push((write.path.clone(), write.text.clone()));
+        }
     }
 
     Ok(Some(Prepared { outcome, writes }))
