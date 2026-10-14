@@ -553,6 +553,20 @@ mod tests {
                 "no task wrapper for `{verb}`"
             );
         }
-        assert_eq!(VERBS.len(), 9, "the verb list drifted from the surface");
+        assert_eq!(
+            VERBS,
+            [
+                "break",
+                "add",
+                "fix",
+                "status",
+                "release",
+                "candidate",
+                "tag",
+                "init",
+                "install",
+            ],
+            "the verb list drifted from the surface"
+        );
     }
 }

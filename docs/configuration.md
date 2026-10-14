@@ -17,18 +17,17 @@ tag_prefix = "v"
 
 ## Keys
 
+**momo is not accepting new keys.** The recognised set is deliberately closed: a key is a permanent compatibility promise, and one is added only when reality genuinely varies or a safety valve is needed. [The option philosophy](option-philosophy.md) states the rule and what a request has to show before it is considered.
+
 | Key | Default | Meaning |
 |---|---|---|
 | `recording` | `"changelog"` | `"changelog"` or `"fragments"` |
 | `changelog` | `"CHANGELOG.md"` | Changelog path, relative to the package root |
-| `changes_dir` | `".momo/changes"` | Fragment store, relative to the repo root |
 | `tag_prefix` | `"v"` | Prefix on the tag version |
 | `remote` | *(unset)* | Override the changelog footer's remote; supplies one with no VCS |
-| `task_env` | *(unset)* | Recorded by `momo install` |
-| `rc_format` | `"-rc.{n}"` | Release-candidate suffix template; `{n}` is the number |
 | `command_timeout` | `60` | Seconds a spawned `git`/`jj`/`mise` command may run before it is killed |
 
-`task_env` is written by `momo install`. `remote`, `rc_format` and `command_timeout` are optional.
+`remote` and `command_timeout` are optional; the rest have defaults that suit most projects. Three further keys are scoped, managed or deprecated rather than general knobs — see below.
 
 `changelog`, `changes_dir` and a package's `manifest` are **paths**. They must be relative and must not escape upward with `..`: an absolute path would discard the directory they are joined onto, and `..` would write outside the tree, so both are rejected at parse time. A key that momo does not recognise is an error too, so a misspelled key fails loudly instead of silently taking its default.
 
@@ -41,18 +40,30 @@ $ momo release
 error: reading /repo/momo.toml: invalid value `not a remote` for `remote`; expected a remote URL
 ```
 
-`rc_format` must contain exactly one `{n}` and form a valid pre-release once it is substituted, so a template that would never advance — `"-rc"` — is rejected rather than minting the same candidate for every number:
-
-```console
-$ MOMO_RC_FORMAT='-rc' momo candidate
-error: validating the configuration: invalid value `-rc` for `rc_format`: `-rc` must contain exactly one `{n}`
-```
-
 `command_timeout` bounds every external command momo spawns (`git`, `jj` and `mise`). A child that outlives it is killed and the command fails with a timeout error, so a hung process — a held jj workspace lock, for instance — cannot stall an unattended release job. It is a whole number of seconds and must be positive; raise it for a very large repository where a read legitimately takes longer:
 
 ```toml
 command_timeout = 300
 ```
+
+### Scoped keys
+
+`changes_dir` (`".momo/changes"`) sets the Fragment store, relative to the repo root. It is meaningful only when `recording = "fragments"`: the default `changelog` model writes no fragments, so the key does nothing there. Set it alongside the model that uses it:
+
+```toml
+recording = "fragments"
+changes_dir = ".changes"
+```
+
+Like the other path keys it must be relative and must not contain `..`.
+
+### Managed keys
+
+`task_env` records the task environment `momo install` installed into, and `install --uninstall` clears it. Do not set it by hand: it is a record of what install did, not a knob.
+
+### Deprecated keys
+
+`rc_format` (`"-rc.{n}"`) is **deprecated**. It templates the release-candidate suffix, a fixed concept the `-rc.N` default already covers. momo still parses and honours it, so an existing `momo.toml` keeps working, but it is no longer a supported knob and is scheduled for removal at **1.0**. Leave it unset. A value set here is not warned about at runtime, by design — see [the option philosophy](option-philosophy.md).
 
 ## Per-package overrides
 

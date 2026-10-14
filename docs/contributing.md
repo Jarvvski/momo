@@ -53,6 +53,12 @@ Ports live in `domain`; adapters implement them; the CLI wires them. `domain` mu
 
 `AGENTS.md` is the fuller, agent-facing version of all of this — read it before making a change.
 
+## Configuration policy
+
+`momo.toml` has a deliberately closed surface. The recognised keys are pinned by name in tests, and adding one is a deliberate, documented change rather than a routine one. Before proposing a key — or a verb — read [the option philosophy](option-philosophy.md): it is the rule the surface is held to, and the answer to most "add a flag?" requests.
+
+If a change does add a config key or a verb, it updates the frozen-surface test and the option philosophy in the same pull request. The checklist in the pull request template asks for this.
+
 ## Landing a change
 
 This repository uses **Jujutsu (jj)**, not git, in a colocated repo. Never invoke `git` directly — it can corrupt jj's operation log.

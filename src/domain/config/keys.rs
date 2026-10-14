@@ -11,7 +11,12 @@ use super::paths::{parse_packages, parse_path};
 use super::{ConfigError, ConfigOverrides, Recording, UnknownValue};
 
 /// The top-level keys a `momo.toml` may set.
-const KNOWN_KEYS: [&str; 9] = [
+///
+/// The surface is frozen and pinned by name in `tests.rs`: a key is a permanent
+/// compatibility promise, so adding one is a deliberate edit to this list, the
+/// name test and the docs, never a swap that slips through a length check. See
+/// `docs/option-philosophy.md`.
+pub(super) const KNOWN_KEYS: [&str; 9] = [
     "recording",
     "changelog",
     "changes_dir",

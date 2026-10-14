@@ -16,7 +16,7 @@ mod common;
 use common::require_tool;
 
 /// The `MOMO_*` variables the CLI reads; every test clears them.
-const MOMO_VARS: [&str; 7] = [
+const MOMO_VARS: [&str; 8] = [
     "MOMO_RECORDING",
     "MOMO_CHANGELOG",
     "MOMO_CHANGES_DIR",
@@ -24,6 +24,7 @@ const MOMO_VARS: [&str; 7] = [
     "MOMO_REMOTE",
     "MOMO_TASK_ENV",
     "MOMO_RC_FORMAT",
+    "MOMO_COMMAND_TIMEOUT",
 ];
 
 /// The CI variables momo must never read.
