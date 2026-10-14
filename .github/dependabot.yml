@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Rust dependencies. momo is an application, so Cargo.lock is committed and a
+  # bump arrives as a reviewable pull request rather than a silent update.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # The actions pinned by commit SHA in .github/workflows, so a pin is advanced
+  # by a pull request that also updates the trailing version comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

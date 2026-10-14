@@ -1,0 +1,35 @@
+# cargo-deny configuration. CI runs
+# `cargo deny check advisories bans licenses sources`; run the same locally with
+# `cargo deny check` (or a single section, e.g. `cargo deny check licenses`).
+
+[advisories]
+# A known vulnerability fails the build. An advisory that genuinely cannot be
+# fixed yet is recorded here with a reason and a date to revisit it, never by
+# relaxing the level.
+ignore = []
+
+[bans]
+# Duplicate versions are usually transitive churn and worth a look rather than a
+# failed build, so warn; a wildcard requirement is always a mistake, so deny.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[licenses]
+# momo itself is GPL-3.0-or-later (see Cargo.toml); its dependencies are the
+# usual permissive set. Anything outside this list fails, which is the point —
+# adding a licence here is a deliberate decision, not a reflex.
+allow = [
+    "GPL-3.0-or-later",
+    "Apache-2.0",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+]
+confidence-threshold = 0.93
+
+[sources]
+# crates.io is the only trusted source. A dependency that moves to a git source
+# or an unknown registry should surface for review rather than slip through.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -8,18 +8,54 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# A burst of pushes to one pull request only needs the newest result, so a new
+# run cancels the run it supersedes rather than stacking redundant builds.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
-    runs-on: ubuntu-latest
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS is a first-class target: the crate ships macOS binaries and its
+        # spawn/process code is Unix-specific, so the suite runs there too.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     env:
       # A missing jj/mise must fail the run rather than skip the tests that
       # need it, so a green check means the strongest tests actually ran.
       MOMO_REQUIRE_TOOLS: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
         with:
           # Rustup components live outside mise's cached data directory.
           cache: false
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: mise run check
+
+  # Branch protection requires a status check named exactly `check`, but a
+  # matrix expands the job name to `check (<os>)`. This fans the legs back in
+  # under that name so the protected branch keeps its single required check.
+  check-required:
+    name: check
+    needs: [check]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every check leg to pass
+        if: needs.check.result != 'success'
+        run: exit 1
+
+  deny:
+    name: deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-deny
+      - run: cargo deny check advisories bans licenses sources
