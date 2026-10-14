@@ -1,7 +1,7 @@
 # 36: One source of truth for a package's version
 
 Type: refactor
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/version + cli
 Verified: yes — the divergence is read at the cited lines
@@ -85,3 +85,24 @@ minted release — not a version source. `status` and `release` read only the ta
 source; `tag` reads the ledger, because the version it must tag is by definition
 one no tag records yet. Document the split; tickets 06 and 07 fall out of the
 same change.
+
+## Resolution
+
+Landed the pending-release ledger. `.momo/version` is documented as the record of
+the last *minted* version — a Release or a Release Candidate — written by
+`release`/`candidate` and read by `tag`; `status`/`release` read the tag source.
+`docs/usage.md`, `docs/ci.md`, `GLOSSARY.md` and `spec.md` §5 record the split.
+
+- `VersionSource` now answers two questions: `current()` (the newest tag, or the
+  ledger with no VCS — an `Option<Version>`) and `last_release()` (the newest
+  stable Release). The `Vcs` port gained `latest_release_tag`, which the git and
+  jj adapters implement by filtering Candidate tags (`tags::latest_release`).
+- `tag` reads the ledger through the same source and **refuses a ledger older
+  than the newest tag**, so a stale `.momo/version` can no longer tag a version
+  behind the newest one — the genuine defect from 06.
+- `release::tag` returns the Version it names, so `commands::tag` no longer
+  re-reads the file (the second copy of the rule noted in triage).
+
+Tests: `status_reads_the_tag_while_tag_reads_the_ledger` and
+`tag_refuses_a_ledger_older_than_the_newest_tag` (integration), plus the
+version-source unit tests and `tags::latest_release` tests.

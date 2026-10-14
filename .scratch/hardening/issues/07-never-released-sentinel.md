@@ -1,7 +1,7 @@
 # 07: `0.0.0` is both the "never released" sentinel and a legal version
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: domain/version
 Verified: yes — read at the cited lines
@@ -64,3 +64,21 @@ baseline (both use `0.0.0` as the bump base), so only the displayed `current` an
 ## Decision (owner, 2026-10-14)
 
 **Subsumed by ticket 36** (pending-release ledger). Implement there.
+
+## Resolution
+
+Landed with 36. `VersionSource` models absence explicitly: `current()` and
+`last_release()` return `Option<Version>`, and `None` — never a `0.0.0` sentinel —
+means the Package has never released. `TagVersionSource` returns the latest tag
+(or `None`) and `FileVersionSource` returns the ledger (or `None`); no magic
+baseline is minted anywhere.
+
+`status --format json` reports `"current": null` for a never-released Package and
+`"current": "0.0.0"` for a genuine `0.0.0` Release, so the two are
+distinguishable (a documented JSON change). `tag`'s `exists()` workaround is
+gone: it reads `current()`'s `Option`.
+
+Tests: `a_never_released_package_is_not_a_zero_version` (domain),
+`status_json_distinguishes_a_zero_release_from_never_released` (output),
+`status_distinguishes_a_never_released_package_from_a_zero_release`
+(integration).

@@ -6,6 +6,7 @@
 //! goes through [`crate::recording`] and [`FileVersionSource`], and the
 //! repository is touched only through the injected [`Vcs`].
 
+use std::cmp::Ordering;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -17,7 +18,7 @@ use crate::domain::package::Package;
 use crate::domain::remote::Remote;
 use crate::domain::vcs::Vcs;
 use crate::domain::version::{
-    DEFAULT_RC_FORMAT, VersionSource, candidate_version, next_candidate, release_version,
+    DEFAULT_RC_FORMAT, VersionSource, candidate_version, next_candidate, release_target,
 };
 use anyhow::{Context, Result, bail};
 use semver::Version;
@@ -25,7 +26,7 @@ use time::Date;
 
 use crate::cli::atomic;
 use crate::cli::recording;
-use crate::cli::version::{FileVersionSource, source};
+use crate::cli::version::{FileVersionSource, release_base, source};
 
 /// What a `release` or `candidate` run did, or would do under `--dry-run`.
 #[derive(Debug)]
@@ -100,12 +101,24 @@ pub fn candidate(
     )
 }
 
-/// Create the VCS tag for `package`'s current Version.
+/// A tag [`tag`] created, or would create.
+#[derive(Debug)]
+pub struct Tagged {
+    /// The Version the tag names.
+    pub version: Version,
+    /// The full tag name, prefix included.
+    pub name: String,
+}
+
+/// Create the VCS tag for the Version the ledger records.
 ///
-/// The tag names the Version the Package's version file holds — the one the last
-/// Release minted — so `tag` brings the repository and momo's own record into
-/// sync. `rev` overrides the adapter's default anchor (jj: `@-`, git: `HEAD`).
-/// Returns the tag name, or `None` when the Package has never released.
+/// The tag names the Version the last `release`/`candidate` minted — the one no
+/// tag records yet — so `tag` brings the repository and momo's own record into
+/// sync. A ledger that is *older* than the newest tag is stale: a later Version
+/// is already tagged, so tagging this one would move the release backwards. It
+/// is refused rather than created. `rev` overrides the adapter's default anchor
+/// (jj: `@-`, git: `HEAD`). Returns the tag, or `None` when the Package has
+/// never minted a Version.
 pub fn tag(
     repo_root: &Path,
     config: &Config,
@@ -113,19 +126,32 @@ pub fn tag(
     vcs: &dyn Vcs,
     rev: Option<&str>,
     dry_run: bool,
-) -> Result<Option<String>> {
-    let file = FileVersionSource::new(&package.dir(repo_root));
-    if !file.exists() {
+) -> Result<Option<Tagged>> {
+    let Some(version) = FileVersionSource::new(&package.dir(repo_root)).current()? else {
         return Ok(None);
+    };
+    let prefix = package.tag_prefix(&config.tag_prefix);
+
+    // The ledger must name the pending Version: one no tag records yet. A
+    // Version below the newest tag is stale — a later one is already tagged, so
+    // tagging this one would publish a release behind it.
+    if let Some(latest) = vcs.latest_tag(&prefix)?
+        && version.cmp_precedence(&latest) == Ordering::Less
+    {
+        bail!(
+            "the version file holds `{version}`, which is older than the newest tag `{latest}`; \
+             run `momo release` to advance it before tagging"
+        );
     }
 
-    let version = file.current()?;
-    let prefix = package.tag_prefix(&config.tag_prefix);
     let message = format!("Release {version}");
     if !dry_run {
         vcs.create_tag(rev, &prefix, &version, &message)?;
     }
-    Ok(Some(format!("{prefix}{version}")))
+    Ok(Some(Tagged {
+        name: format!("{prefix}{version}"),
+        version,
+    }))
 }
 
 /// The shared body of [`release`] and [`candidate`].
@@ -141,12 +167,21 @@ fn run(
     let changes = recording::unreleased(repo_root, config, package)?;
     let prefix = package.tag_prefix(&config.tag_prefix);
     let package_dir = package.dir(repo_root);
-    let current = source(&package_dir, &prefix, vcs).current()?;
-    let Some(target) = release_version(&changes, &current)? else {
+    let mut changelog = read_changelog(repo_root, config, package)?;
+
+    // The base is the last *release*: a Candidate cut since it does not move the
+    // target, and recomputing from the Candidate would double-count the bump.
+    // The version source reports it from the tags; a VCS-less Package whose
+    // ledger holds a Candidate falls back to the newest Release the Changelog
+    // records.
+    let version_source = source(&package_dir, &prefix, vcs);
+    let last_release = release_base(version_source.as_ref(), &changelog)?;
+    let current = version_source.current()?;
+    let candidate = current.as_ref().filter(|version| !version.pre.is_empty());
+    let Some(target) = release_target(&changes, &last_release, candidate)? else {
         return Ok(None);
     };
 
-    let mut changelog = read_changelog(repo_root, config, package)?;
     // In fragments mode the Changelog holds releases only. A hand-written
     // Unreleased section would be dropped without ever being promoted, so
     // refuse rather than silently discard it.
@@ -177,11 +212,7 @@ fn run(
         Mode::Candidate => {
             let format = rc_format(config);
             let recorded = changelog.released_versions();
-            let n = next_candidate(
-                &target,
-                format,
-                recorded.iter().chain(std::iter::once(&current)),
-            )?;
+            let n = next_candidate(&target, format, recorded.iter().chain(current.iter()))?;
             let version = candidate_version(&target, n, format)?;
             changelog.candidate(&version, date, &changes, links);
             version
@@ -319,7 +350,11 @@ fn render_manifest(
 }
 
 /// The Changelog on disk, or a new one when the file is missing.
-fn read_changelog(repo_root: &Path, config: &Config, package: &Package) -> Result<Changelog> {
+pub(crate) fn read_changelog(
+    repo_root: &Path,
+    config: &Config,
+    package: &Package,
+) -> Result<Changelog> {
     let path = package.changelog(repo_root, config);
     match fs::read_to_string(&path) {
         Ok(text) => Changelog::parse(&text).with_context(|| format!("reading {}", path.display())),
@@ -370,6 +405,7 @@ mod tests {
     /// A [`Vcs`] that reports fixed state and never touches a repository.
     struct FakeVcs {
         latest: Option<Version>,
+        release: Option<Version>,
         remote: Option<String>,
     }
 
@@ -377,12 +413,22 @@ mod tests {
         fn new() -> Self {
             Self {
                 latest: None,
+                release: None,
                 remote: None,
             }
         }
 
+        /// Record `version` as the highest tag; a stable Version is also the
+        /// highest Release tag.
         fn latest(mut self, version: Version) -> Self {
+            self.release = version.pre.is_empty().then(|| version.clone());
             self.latest = Some(version);
+            self
+        }
+
+        /// Record `version` as the highest Release tag, below a Candidate.
+        fn release(mut self, version: Version) -> Self {
+            self.release = Some(version);
             self
         }
 
@@ -403,6 +449,10 @@ mod tests {
 
         fn latest_tag(&self, _prefix: &str) -> Result<Option<Version>, VcsError> {
             Ok(self.latest.clone())
+        }
+
+        fn latest_release_tag(&self, _prefix: &str) -> Result<Option<Version>, VcsError> {
+            Ok(self.release.clone())
         }
 
         fn remote(&self) -> Result<Option<String>, VcsError> {
@@ -591,6 +641,65 @@ mod tests {
             .expect("something to release");
 
         assert_eq!(outcome.version, Version::new(0, 2, 0));
+    }
+
+    #[test]
+    fn a_release_recomputes_from_the_last_release_not_the_candidate() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-add-a-thing.md", "Add a thing");
+        // Released `1.0.0`, with a `1.1.0-rc.1` cut from it and the same Add
+        // still open.
+        let vcs = FakeVcs::new()
+            .latest(Version::parse("1.1.0-rc.1").expect("a valid version"))
+            .release(Version::new(1, 0, 0));
+
+        let outcome = release(root, &fragments(), &package(), Some(&vcs), date(), false)
+            .expect("release")
+            .expect("something to release");
+
+        // Not `1.2.0`: the bump applies to `1.0.0`, not to the candidate's
+        // `1.1.0` — recomputing from the candidate would double-count the bump.
+        assert_eq!(outcome.version, Version::new(1, 1, 0));
+    }
+
+    #[test]
+    fn a_release_after_a_candidate_is_refused_when_a_break_moves_the_target() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-add-a-thing.md", "Add a thing");
+        fragment(root, "break-break-a-thing.md", "Break a thing");
+        // Released `1.0.0`, with a `1.1.0-rc.1` cut from it; the Break now
+        // implies `2.0.0`, so the cut candidate is stale.
+        let vcs = FakeVcs::new()
+            .latest(Version::parse("1.1.0-rc.1").expect("a valid version"))
+            .release(Version::new(1, 0, 0));
+
+        let err = release(root, &fragments(), &package(), Some(&vcs), date(), false)
+            .expect_err("the cut candidate is stale");
+        let message = err.to_string();
+        assert!(message.contains("1.1.0-rc.1"), "{message}");
+        assert!(message.contains("2.0.0"), "{message}");
+        assert!(message.contains("cut a new candidate"), "{message}");
+
+        // Nothing was promoted, so the tree is ready for a fresh candidate.
+        assert!(!root.join("CHANGELOG.md").exists());
+        assert!(!root.join(".momo/version").exists());
+    }
+
+    #[test]
+    fn a_candidate_after_a_candidate_at_major_one_is_refused_when_a_break_lands() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        fragment(root, "add-add-a-thing.md", "Add a thing");
+        fragment(root, "break-break-a-thing.md", "Break a thing");
+        let vcs = FakeVcs::new()
+            .latest(Version::parse("1.1.0-rc.1").expect("a valid version"))
+            .release(Version::new(1, 0, 0));
+
+        let err = candidate(root, &fragments(), &package(), Some(&vcs), date(), false)
+            .expect_err("the cut candidate is stale");
+        assert!(err.to_string().contains("cut a new candidate"), "{err}");
     }
 
     #[test]
@@ -805,7 +914,7 @@ mod tests {
             .write(&Version::new(1, 2, 3))
             .expect("write the version file");
 
-        let name = tag(
+        let tagged = tag(
             root,
             &Config::default(),
             &package(),
@@ -816,7 +925,8 @@ mod tests {
         .expect("tag")
         .expect("something to tag");
 
-        assert_eq!(name, "v1.2.3");
+        assert_eq!(tagged.name, "v1.2.3");
+        assert_eq!(tagged.version, Version::new(1, 2, 3));
     }
 
     #[test]
@@ -830,11 +940,11 @@ mod tests {
             .expect("something to cut");
         assert_eq!(outcome.version.to_string(), "0.1.0-rc.1");
 
-        let name = tag(root, &fragments(), &package(), &FakeVcs::new(), None, false)
+        let tagged = tag(root, &fragments(), &package(), &FakeVcs::new(), None, false)
             .expect("tag")
             .expect("something to tag");
 
-        assert_eq!(name, "v0.1.0-rc.1");
+        assert_eq!(tagged.name, "v0.1.0-rc.1");
     }
 
     #[test]
@@ -880,7 +990,7 @@ mod tests {
         let name = tag(root, &fragments(), &package, &FakeVcs::new(), None, false)
             .expect("tag")
             .expect("something to tag");
-        assert_eq!(name, "cargo-a-v0.1.0");
+        assert_eq!(name.name, "cargo-a-v0.1.0");
     }
 
     /// Seed a Cargo manifest at `path` with the bootstrap version.

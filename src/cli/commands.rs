@@ -23,7 +23,7 @@ use time::Date;
 
 use crate::domain::change::{Change, Kind};
 use crate::domain::config::Config;
-use crate::domain::version::{VersionSource, release_version};
+use crate::domain::version::next_version;
 
 use crate::cli::config::{self, CONFIG_FILE};
 use crate::cli::output::{self, ReleasePackage, StatusPackage, TagPackage, Verb};
@@ -137,8 +137,11 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
     for package in packages {
         let changes = recording::unreleased(&root, &config, package)?;
         let prefix = package.tag_prefix(&config.tag_prefix);
-        let current = version::source(&package.dir(&root), &prefix, vcs.as_deref()).current()?;
-        let next = release_version(&changes, &current)?;
+        let changelog = release::read_changelog(&root, &config, package)?;
+        let source = version::source(&package.dir(&root), &prefix, vcs.as_deref());
+        let base = version::release_base(source.as_ref(), &changelog)?;
+        let current = source.current()?;
+        let next = next_version(&changes, &base)?;
         report.packages.push(StatusPackage {
             package: package.identity().to_owned(),
             current,
@@ -257,18 +260,18 @@ fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
         packages: Vec::new(),
     };
     for package in packages {
-        let Some(name) = release::tag(&root, &config, package, vcs.as_ref(), rev, cli.dry_run)?
+        let Some(tagged_package) =
+            release::tag(&root, &config, package, vcs.as_ref(), rev, cli.dry_run)?
         else {
             if explicit {
                 bail!("nothing to tag: run `momo release` first");
             }
             continue;
         };
-        let version = FileVersionSource::new(&package.dir(&root)).current()?;
         report.packages.push(TagPackage {
             package: package.identity().to_owned(),
-            name,
-            version,
+            name: tagged_package.name,
+            version: tagged_package.version,
         });
     }
     if report.packages.is_empty() {

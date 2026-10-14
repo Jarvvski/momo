@@ -1,7 +1,7 @@
 # 04: A pre-release current version suspends the "highest Kind wins" rule
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/version
 Verified: yes — read at the cited lines
@@ -104,3 +104,23 @@ target disagrees with the recomputed one, fail and tell the user to cut a new RC
 rather than shipping the stale target.
 
 Depends on ticket 36's pending-release-ledger model for "the last release".
+
+## Resolution
+
+`release_target(changes, last_release, candidate)` recomputes the target as
+`next_version(changes, last_release)` — the last stable Release — whether or not
+a Candidate exists. A Candidate whose target no longer matches the recomputed one
+is `VersionError::StaleCandidate`; `release`/`candidate` fail and tell the user to
+cut a new candidate, writing nothing.
+
+`release_base(source, changelog)` supplies the base: the source's
+`last_release()` (the newest stable tag), falling back to the Changelog's newest
+stable heading for a VCS-less Package whose ledger holds a Candidate rather than
+a Release. `status` reports the recomputed `next` without the staleness check, so
+a read-only report never fails.
+
+Tests: `a_break_after_a_candidate_at_major_one_is_stale` and
+`below_major_one_a_break_cannot_stale_a_candidate` (domain);
+`a_release_recomputes_from_the_last_release_not_the_candidate` and
+`a_release_after_a_candidate_is_refused_when_a_break_moves_the_target` (unit);
+`a_break_after_a_tagged_candidate_refuses_the_stale_release` (integration).

@@ -86,10 +86,24 @@ fn git_round_trip() {
         .unwrap();
 
     assert_eq!(vcs.latest_tag("v").unwrap().as_ref(), Some(&version));
+    assert_eq!(
+        vcs.latest_release_tag("v").unwrap().as_ref(),
+        Some(&version)
+    );
     // `cat-file -t` reports `tag` only for an annotated tag.
     assert_eq!(
         capture(dir.path(), "git", &["cat-file", "-t", "refs/tags/v0.1.0"]),
         "tag"
+    );
+
+    // A Candidate tag is the latest tag, but not the latest Release.
+    let candidate = Version::parse("0.2.0-rc.1").unwrap();
+    vcs.create_tag(None, "v", &candidate, "Release 0.2.0-rc.1")
+        .unwrap();
+    assert_eq!(vcs.latest_tag("v").unwrap().as_ref(), Some(&candidate));
+    assert_eq!(
+        vcs.latest_release_tag("v").unwrap().as_ref(),
+        Some(&version)
     );
 
     let err = vcs

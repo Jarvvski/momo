@@ -7,6 +7,7 @@
 use semver::Version;
 
 use crate::domain::vcs::VcsError;
+use crate::domain::version::cmp_version_rank;
 
 /// The tag name for `version` under `prefix`: `v1.2.3` or `cargo-momo-v1.2.3`.
 pub(crate) fn tag_name(prefix: &str, version: &Version) -> String {
@@ -61,14 +62,30 @@ pub(crate) fn parse_tag(tag: &str, prefix: &str) -> Option<Version> {
 ///
 /// Ordering is semver precedence, not lexicographic and not build metadata:
 /// `v0.10.0` outranks `v0.9.0`, and on a precedence tie the tag without build
-/// metadata wins, so `v1.0.0` outranks `v1.0.0+meta`.
+/// metadata wins, so `v1.0.0` outranks `v1.0.0+meta`. The ranking is shared with
+/// the Changelog's fallback base, so the two cannot disagree.
 pub(crate) fn latest_version<'a>(
     tags: impl IntoIterator<Item = &'a str>,
     prefix: &str,
 ) -> Option<Version> {
     tags.into_iter()
         .filter_map(|tag| parse_tag(tag, prefix))
-        .max_by(|a, b| a.cmp_precedence(b).then_with(|| b.build.cmp(&a.build)))
+        .max_by(cmp_version_rank)
+}
+
+/// The highest *release* version among `tags` that matches `prefix`.
+///
+/// A Release carries no pre-release suffix; a Candidate tag (`v1.1.0-rc.1`) is
+/// skipped, because the base for the next bump is the Release it was cut from.
+pub(crate) fn latest_release<'a>(
+    tags: impl IntoIterator<Item = &'a str>,
+    prefix: &str,
+) -> Option<Version> {
+    latest_version(
+        tags.into_iter()
+            .filter(|tag| parse_tag(tag, prefix).is_some_and(|version| version.pre.is_empty())),
+        prefix,
+    )
 }
 
 #[cfg(test)]
@@ -96,6 +113,20 @@ mod tests {
     #[test]
     fn reports_none_when_nothing_matches() {
         assert_eq!(latest_version(["nightly"], "v"), None);
+    }
+
+    #[test]
+    fn latest_release_skips_candidate_tags() {
+        let tags = ["v1.0.0", "v1.1.0-rc.1", "v1.1.0-rc.2"];
+        assert_eq!(latest_release(tags, "v"), Some(Version::new(1, 0, 0)));
+
+        // A Candidate below the newest Release does not hide it.
+        let tags = ["v1.0.0-rc.1", "v1.0.0"];
+        assert_eq!(latest_release(tags, "v"), Some(Version::new(1, 0, 0)));
+
+        // With only Candidates there is no Release to bump from.
+        assert_eq!(latest_release(["v1.0.0-rc.1"], "v"), None);
+        assert_eq!(latest_release(["nightly"], "v"), None);
     }
 
     #[test]
