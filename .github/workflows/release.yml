@@ -51,7 +51,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # momo reads the current version from the newest tag, and the guards
           # below need every tag. The PAT, not GITHUB_TOKEN, because the release
@@ -60,11 +60,11 @@ jobs:
           # with GITHUB_TOKEN would be rejected.
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN || github.token }}
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
         with:
           # Rustup components live outside mise's cached data directory.
           cache: false
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       # The canonical gate, before anything irreversible.
       - name: Pre-land gate
@@ -157,14 +157,14 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # On a dispatch the release commit is tagged; build exactly that.
           ref: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', needs.prepare.outputs.version) || '' }}
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2.4.4
         with:
           cache: false
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ${{ matrix.target }}
       - run: rustup target add ${{ matrix.target }}
@@ -185,7 +185,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/momo" "dist/${name}/"
           tar -C dist -czf "dist/${name}.tar.gz" "${name}"
           ls -l "dist/${name}.tar.gz"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: momo-${{ matrix.target }}
           path: dist/*.tar.gz
@@ -199,14 +199,22 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           merge-multiple: true
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          # This job runs on Ubuntu, where `sha256sum` is present — the macOS
+          # runners carry `shasum -a 256` instead. Hash every archive into one
+          # file so a download can be verified against the release.
+          sha256sum -- *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
       - name: Attach assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "v${{ needs.prepare.outputs.version }}" dist/*.tar.gz \
+          gh release create "v${{ needs.prepare.outputs.version }}" dist/*.tar.gz dist/SHA256SUMS \
             --title "v${{ needs.prepare.outputs.version }}" --generate-notes
