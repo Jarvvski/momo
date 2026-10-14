@@ -46,8 +46,8 @@ Dependabot bumps #68 (`download-artifact`), #69 (`mise-action`), #70 (`upload-ar
 | 16 | **Declare Unix-only** — a non-Unix build fails with a clear compile error. |
 | 17 | **Keep the issue files, untrack research/prototypes** — non-destructively. |
 
-## Follow-ups (not in this batch)
+## Closed out (2026-10-14)
 
-- **15, remaining modules.** `changelog.rs` was split; `cli/release.rs` (1415), `cli/output.rs` (1118) and `domain/config.rs` (1021) are still single files. Each is its own PR, per the ticket.
-- **13 fallout to review.** The shrink put ~14 items under dead-code analysis; #75 resolved it with a scoped `#[cfg_attr(not(test), allow(dead_code))]` on the two private module roots (recorded in ADR 0004). If the broad allow is unwanted, the alternative is keeping `domain` public.
-- **12, optional.** The JSON serializer is still hand-rolled; migrating to `serde`/`serde_json` was deferred as an owner call.
+- **15 complete.** After `changelog.rs` (#76), the remaining modules were split: `cli/release.rs` → prepare/manifest/tag (#79), `domain/config.rs` → keys/env/paths (#78), and `cli/output.rs`'s tests → `output/tests.rs` (#81).
+- **12 done.** The hand-rolled JSON serializer was replaced with `serde`/`serde_json` (#80); the `docs/ci.md` contract is byte-for-byte unchanged.
+- **13 verified.** The shrink surfaced 8 dead-code items, all used by the test build, so `#[cfg_attr(not(test), allow(dead_code))]` on the two private module roots is the idiomatic fix — confirmed correct, no change needed.

@@ -18,9 +18,12 @@ Split one at a time, each its own PR, starting with `domain/changelog.rs` (model
 
 ## Resolution
 
-The changelog module was split in #76 into `parse.rs`, `render.rs`, `footer.rs`, `tests.rs` and the existing `property_tests.rs`, with the root down from 1515 to 387 lines — a pure move, tests preserved.
+All four modules were split, one PR each:
 
-**Remaining scope (follow-ups, one PR each as this ticket requires):** `cli/release.rs` (1415), `cli/output.rs` (1118) and `domain/config.rs` (1021) are still single files.
+- `domain/changelog.rs` → parse/render/footer/tests (#76)
+- `cli/release.rs` → prepare/manifest/tag/tests (#79)
+- `domain/config.rs` → keys/env/paths/tests (#78)
+- `cli/output.rs` → tests moved to `output/tests.rs` (#81), after the serde migration (#80) had already shrunk it
 
 ## Related
 
