@@ -9,10 +9,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::domain::manifest::{
-    ManifestError, ManifestPlan, ManifestSync, ManifestWrite, SkipReason,
+    DependencyRequirement, ManifestError, ManifestPlan, ManifestSync, ManifestWrite, SkipReason,
 };
 use semver::Version;
-use toml_edit::{DocumentMut, Item};
+use toml_edit::{DocumentMut, Item, TableLike};
 
 use super::toml;
 
@@ -21,6 +21,13 @@ const MANIFEST: &str = "Cargo.toml";
 
 /// The lockfile Cargo maintains; momo never rewrites it.
 const LOCKFILE: &str = "Cargo.lock";
+
+/// The dependency tables Cargo resolves, by the name each is declared under.
+///
+/// Every one is scanned, because mise's project graph reports an edge for a
+/// dependency declared in any of them — a `[dev-dependencies]` entry is as much
+/// an edge as a `[dependencies]` one.
+const DEPENDENCY_TABLES: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
 
 /// The Rust manifest adapter.
 pub struct CargoManifest;
@@ -62,6 +69,130 @@ impl ManifestSync for CargoManifest {
 
         Ok(plan)
     }
+
+    fn dependencies(&self, manifest: &Path) -> Result<Vec<DependencyRequirement>, ManifestError> {
+        let text = toml::read(manifest)?;
+        let doc = toml::parse(&text, manifest)?;
+        Ok(read_dependencies(&doc, manifest))
+    }
+
+    fn satisfied(&self, requirement: &str, version: &Version) -> Option<bool> {
+        // Cargo's own range semantics: the requirement grammar is the `semver`
+        // crate's, so a range it parses is one Cargo honours and a range it
+        // rejects is one momo must report as unchecked rather than guess at.
+        semver::VersionReq::parse(requirement)
+            .ok()
+            .map(|parsed| parsed.matches(version))
+    }
+}
+
+/// Every version requirement `doc` declares on another package.
+///
+/// The three dependency tables and every `[target.<cfg>.<kind>]` variant are
+/// scanned. A dependency renamed with `package = "…"` is reported under its real
+/// name, and a `workspace = true` inheritance is resolved against the workspace
+/// root. A dependency with no version — a `path`- or `git`-only entry — carries
+/// no requirement and is omitted.
+fn read_dependencies(doc: &DocumentMut, manifest: &Path) -> Vec<DependencyRequirement> {
+    let mut requirements = Vec::new();
+    for table in dependency_tables(doc) {
+        for (key, item) in table.iter() {
+            let Some(requirement) = entry_requirement(manifest, key, item) else {
+                continue;
+            };
+            requirements.push(DependencyRequirement {
+                package: entry_package(key, item),
+                requirement,
+            });
+        }
+    }
+    requirements
+}
+
+/// The dependency tables `doc` declares, in the order Cargo resolves them.
+///
+/// `[dependencies]`, `[dev-dependencies]` and `[build-dependencies]`, plus the
+/// same three under every `[target.<cfg>]` — a platform-specific dependency is
+/// still a dependency the graph reports an edge for.
+fn dependency_tables(doc: &DocumentMut) -> Vec<&dyn TableLike> {
+    let mut tables = Vec::new();
+    collect_dependency_tables(doc.as_table(), &mut tables);
+    if let Some(target) = doc.get("target").and_then(Item::as_table_like) {
+        for (_, entry) in target.iter() {
+            if let Some(cfg) = entry.as_table_like() {
+                collect_dependency_tables(cfg, &mut tables);
+            }
+        }
+    }
+    tables
+}
+
+/// Push the three dependency tables `table` declares onto `tables`.
+fn collect_dependency_tables<'a>(table: &'a dyn TableLike, tables: &mut Vec<&'a dyn TableLike>) {
+    for kind in DEPENDENCY_TABLES {
+        if let Some(item) = table.get(kind).and_then(Item::as_table_like) {
+            tables.push(item);
+        }
+    }
+}
+
+/// The version requirement `item` declares for the dependency named `key`.
+///
+/// `None` when the dependency carries no version — a `path`- or `git`-only
+/// entry, or a `workspace = true` whose shared requirement cannot be resolved.
+fn entry_requirement(manifest: &Path, key: &str, item: &Item) -> Option<String> {
+    if let Some(table) = item.as_table_like()
+        && table.get("workspace").and_then(Item::as_bool) == Some(true)
+    {
+        return inherited_requirement(manifest, key);
+    }
+    requirement_of(item)
+}
+
+/// The requirement a dependency value declares, when it declares one.
+fn requirement_of(item: &Item) -> Option<String> {
+    if let Some(requirement) = item.as_str() {
+        return Some(requirement.to_owned());
+    }
+    item.as_table_like()?
+        .get("version")?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// The package name `item` names, honouring a `package = "…"` rename.
+fn entry_package(key: &str, item: &Item) -> String {
+    item.as_table_like()
+        .and_then(|table| table.get("package"))
+        .and_then(Item::as_str)
+        .unwrap_or(key)
+        .to_owned()
+}
+
+/// The requirement a `workspace = true` dependency inherits from its root.
+///
+/// Cargo resolves the shared requirement against the workspace root's
+/// `[workspace.dependencies]`. The search starts at the member's own directory,
+/// so a root that is also a package resolves against itself.
+fn inherited_requirement(member: &Path, key: &str) -> Option<String> {
+    for ancestor in member.parent()?.ancestors() {
+        let candidate = ancestor.join(MANIFEST);
+        let Ok(text) = fs::read_to_string(&candidate) else {
+            continue;
+        };
+        let Ok(doc) = text.parse::<DocumentMut>() else {
+            continue;
+        };
+        if let Some(requirement) = doc
+            .get("workspace")
+            .and_then(|workspace| workspace.get("dependencies"))
+            .and_then(|dependencies| dependencies.get(key))
+            .and_then(requirement_of)
+        {
+            return Some(requirement);
+        }
+    }
+    None
 }
 
 /// The lockfile Cargo keeps beside `manifest`, when there is one.
@@ -571,5 +702,137 @@ version = \"0.1.0\"
         let updated = updated(original, manifest(), &version("1.2.3"));
 
         assert_eq!(updated, "[package]\nname = \"momo\"\nversion = \"1.2.3\"\n");
+    }
+
+    /// The requirements `text` declares, read from `manifest`.
+    fn requirements(text: &str, manifest: &Path) -> Vec<DependencyRequirement> {
+        let doc = text.parse::<DocumentMut>().expect("valid TOML");
+        read_dependencies(&doc, manifest)
+    }
+
+    #[test]
+    fn a_dependency_reports_the_package_and_requirement_it_declares() {
+        let text = "\
+[package]
+name = \"momo\"
+
+[dependencies]
+semver = \"1.0\"
+serde = { version = \"^1\", features = [\"derive\"] }
+";
+
+        assert_eq!(
+            requirements(text, manifest()),
+            vec![
+                DependencyRequirement {
+                    package: "semver".to_owned(),
+                    requirement: "1.0".to_owned(),
+                },
+                DependencyRequirement {
+                    package: "serde".to_owned(),
+                    requirement: "^1".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_renamed_dependency_reports_its_real_package_name() {
+        let text = "\
+[dependencies]
+toml = { package = \"toml_edit\", version = \"0.25\" }
+";
+
+        assert_eq!(
+            requirements(text, manifest()),
+            vec![DependencyRequirement {
+                package: "toml_edit".to_owned(),
+                requirement: "0.25".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn every_dependency_table_is_scanned() {
+        let text = "\
+[dependencies]
+a = \"1\"
+
+[dev-dependencies]
+b = \"2\"
+
+[build-dependencies]
+c = \"3\"
+
+[target.'cfg(unix)'.dependencies]
+d = \"4\"
+";
+
+        let packages: Vec<String> = requirements(text, manifest())
+            .into_iter()
+            .map(|requirement| requirement.package)
+            .collect();
+        assert_eq!(packages, ["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn a_dependency_without_a_version_is_omitted() {
+        // A path- or git-only dependency constrains nothing momo could break.
+        let text = "\
+[dependencies]
+local = { path = \"../local\" }
+remote = { git = \"https://example.com/remote.git\" }
+";
+
+        assert!(requirements(text, manifest()).is_empty());
+    }
+
+    #[test]
+    fn an_inherited_dependency_resolves_against_the_workspace_root() {
+        let (_dir, _root, member, member_text) = workspace(
+            "[workspace]\nmembers = [\"crates/a\"]\n\n\
+             [workspace.dependencies]\na = \"^0.3\"\n",
+            "[package]\nname = \"a\"\nversion = \"0.1.0\"\n\n\
+             [dependencies]\na = { workspace = true }\n",
+        );
+
+        assert_eq!(
+            requirements(&member_text, &member),
+            vec![DependencyRequirement {
+                package: "a".to_owned(),
+                requirement: "^0.3".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn an_unresolvable_inherited_dependency_is_omitted() {
+        let text = "[dependencies]\na = { workspace = true }\n";
+        // No ancestor manifest declares `[workspace.dependencies]`, so there is
+        // no requirement momo can read.
+        assert!(requirements(text, manifest()).is_empty());
+    }
+
+    #[test]
+    fn a_requirement_is_matched_with_cargos_semantics() {
+        let cargo = CargoManifest;
+        assert_eq!(cargo.satisfied("1.0", &version("1.2.0")), Some(true));
+        assert_eq!(cargo.satisfied("^1.0", &version("1.9.9")), Some(true));
+        assert_eq!(cargo.satisfied("^1.0", &version("2.0.0")), Some(false));
+        assert_eq!(cargo.satisfied("~1.2", &version("1.3.0")), Some(false));
+        assert_eq!(cargo.satisfied("=1.2.0", &version("1.2.0")), Some(true));
+        assert_eq!(cargo.satisfied(">=1.0", &version("0.9.0")), Some(false));
+        assert_eq!(cargo.satisfied("*", &version("9.9.9")), Some(true));
+        assert_eq!(
+            cargo.satisfied(">=1.0, <2.0", &version("1.5.0")),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn an_unrecognised_requirement_is_never_reported_as_satisfied() {
+        let cargo = CargoManifest;
+        assert_eq!(cargo.satisfied("not a range", &version("1.0.0")), None);
+        assert_eq!(cargo.satisfied("", &version("1.0.0")), None);
     }
 }

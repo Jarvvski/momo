@@ -27,6 +27,7 @@ fn status(changes: &[Change]) -> Status {
             next,
             changes: changes.to_vec(),
             unversioned: Vec::new(),
+            cascade: Vec::new(),
         }],
     }
 }
@@ -55,7 +56,8 @@ fn status_json_has_the_documented_shape() {
           "text": "Add a shiny thing"
         }
       ],
-      "unversioned": []
+      "unversioned": [],
+      "cascade": []
     }
   ]
 }
@@ -84,6 +86,7 @@ fn status_json_distinguishes_a_zero_release_from_never_released() {
             next: None,
             changes: Vec::new(),
             unversioned: Vec::new(),
+            cascade: Vec::new(),
         }],
     };
     assert!(
@@ -161,6 +164,7 @@ fn status_human_reports_the_current_version_once_released() {
             next: Some(version("1.3.0")),
             changes: vec![Change::new(Kind::Add, "Add a shiny thing")],
             unversioned: Vec::new(),
+            cascade: Vec::new(),
         }],
     };
 
@@ -203,6 +207,7 @@ fn status_with_unversioned(unversioned: Vec<UnreadSection>) -> Status {
             next: None,
             changes: Vec::new(),
             unversioned,
+            cascade: Vec::new(),
         }],
     }
 }
@@ -268,6 +273,7 @@ fn status_reports_every_package() {
                 next: Some(Version::new(0, 1, 0)),
                 changes: vec![Change::new(Kind::Add, "Add a thing")],
                 unversioned: Vec::new(),
+                cascade: Vec::new(),
             },
             StatusPackage {
                 package: "cargo:b".to_owned(),
@@ -275,6 +281,7 @@ fn status_reports_every_package() {
                 next: None,
                 changes: Vec::new(),
                 unversioned: Vec::new(),
+                cascade: Vec::new(),
             },
         ],
     };
@@ -293,6 +300,114 @@ fn status_reports_every_package() {
     assert!(json.contains("\"name\": \"cargo:b\""), "{json}");
 }
 
+/// A cascade entry for `dependent` requiring `requirement` at `target`.
+fn cascade(dependent: &str, requirement: Option<&str>, satisfied: Option<bool>) -> Cascade {
+    Cascade {
+        dependent: dependent.to_owned(),
+        dependency: "cargo:a".to_owned(),
+        requirement: requirement.map(str::to_owned),
+        target: Version::new(2, 0, 0),
+        satisfied,
+    }
+}
+
+/// A status report for one never-released Package with no Changes and `cascade`.
+fn status_with(cascade: Vec<Cascade>) -> Status {
+    Status {
+        packages: vec![StatusPackage {
+            package: "momo".to_owned(),
+            current: None,
+            next: None,
+            changes: Vec::new(),
+            unversioned: Vec::new(),
+            cascade,
+        }],
+    }
+}
+
+#[test]
+fn status_json_reports_an_unsatisfied_cascade_entry() {
+    let json = status_with(vec![cascade("cargo:b", Some("^1.0"), Some(false))]).json();
+
+    assert_eq!(
+        json,
+        r#"{
+  "unreleased": false,
+  "packages": [
+    {
+      "name": "momo",
+      "current": null,
+      "next": "0.0.0",
+      "changes": [],
+      "unversioned": [],
+      "cascade": [
+        {
+          "dependent": "cargo:b",
+          "dependency": "cargo:a",
+          "requirement": "^1.0",
+          "target": "2.0.0",
+          "satisfied": false
+        }
+      ]
+    }
+  ]
+}
+"#
+    );
+}
+
+#[test]
+fn status_json_reports_an_unchecked_cascade_entry_as_null() {
+    // A Node dependent, and an unreadable requirement, both report `null` —
+    // never `true`, so a consumer cannot mistake them for a satisfied edge.
+    let json = status_with(vec![
+        cascade("node:ui", None, None),
+        cascade("cargo:c", Some("nonsense"), None),
+    ])
+    .json();
+
+    assert!(json.contains("\"requirement\": null"), "{json}");
+    assert!(json.contains("\"satisfied\": null"), "{json}");
+    assert!(!json.contains("\"satisfied\": true"), "{json}");
+}
+
+#[test]
+fn status_human_names_the_cascade_after_the_next_version() {
+    let report = status_with(vec![
+        cascade("cargo:b", Some("^1.0"), Some(false)),
+        cascade("node:ui", None, None),
+        cascade("cargo:c", Some("nonsense"), None),
+    ]);
+
+    assert_eq!(
+        report.human(),
+        "Unreleased\n\n  momo\n    current: —\n    → next: 0.0.0\n\
+         \x20   cascade: cargo:b requires cargo:a ^1.0 — unsatisfied at 2.0.0\n\
+         \x20   cascade: node:ui requires cargo:a — unsupported ecosystem, not checked\n\
+         \x20   cascade: cargo:c requires cargo:a nonsense — not checked\n"
+    );
+}
+
+#[test]
+fn release_human_names_the_cascade_after_what_it_wrote() {
+    let report = Release {
+        verb: Verb::Release,
+        dry_run: false,
+        packages: vec![ReleasePackage {
+            cascade: vec![cascade("cargo:b", Some("^1.0"), Some(false))],
+            ..package_entry("momo", "0.1.0")
+        }],
+    };
+
+    assert!(
+        report
+            .human()
+            .ends_with("cascade: cargo:b requires cargo:a ^1.0 — unsatisfied at 2.0.0\n"),
+        "{}",
+        report.human()
+    );
+}
+
 /// One Package's entry in a `release` envelope, with the fixture paths.
 fn package_entry(name: &str, text: &str) -> ReleasePackage {
     ReleasePackage {
@@ -303,6 +418,7 @@ fn package_entry(name: &str, text: &str) -> ReleasePackage {
         manifest: vec![PathBuf::from("/repo/Cargo.toml")],
         skipped: Vec::new(),
         consumed: vec![PathBuf::from("/repo/.momo/changes/add-a-thing.md")],
+        cascade: Vec::new(),
     }
 }
 
@@ -339,7 +455,8 @@ fn release_json_has_the_documented_shape() {
       "skipped": [],
       "consumed": [
         "/repo/.momo/changes/add-a-thing.md"
-      ]
+      ],
+      "cascade": []
     }
   ]
 }

@@ -54,6 +54,61 @@ fn render(cli: &Cli, report: &impl Report) -> String {
     }
 }
 
+/// One dependent edge a Release would leave with an unsatisfied requirement.
+///
+/// Reported, never fixed — the rewrite is a later change. `satisfied` is
+/// `false` for a requirement momo read and found unsatisfied at `target`, and
+/// `null` for one it could not check: a Node/uv/Go dependent, or a requirement
+/// whose syntax momo does not recognise. It is never `true` — a satisfied edge
+/// is not reported, so an absent entry is the satisfied case.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Cascade {
+    /// The dependent Package, e.g. `cargo:b`.
+    pub dependent: String,
+    /// The Package being released, e.g. `cargo:a`.
+    pub dependency: String,
+    /// The dependent's declared requirement, when momo could read one.
+    pub requirement: Option<String>,
+    /// The Version the released Package would mint.
+    pub target: Version,
+    /// Whether the requirement is satisfied at `target`; `null` when unchecked.
+    pub satisfied: Option<bool>,
+}
+
+impl Cascade {
+    /// The entry's human line, without indentation.
+    fn line(&self) -> String {
+        match (&self.requirement, self.satisfied) {
+            (Some(requirement), Some(false)) => format!(
+                "{} requires {} {requirement} — unsatisfied at {}",
+                self.dependent, self.dependency, self.target
+            ),
+            (Some(requirement), _) => format!(
+                "{} requires {} {requirement} — not checked",
+                self.dependent, self.dependency
+            ),
+            (None, _) => format!(
+                "{} requires {} — {}",
+                self.dependent,
+                self.dependency,
+                self.unchecked_reason()
+            ),
+        }
+    }
+
+    /// Why an entry with no requirement is unchecked.
+    ///
+    /// A dependent momo has no manifest adapter for cannot be read at all; one
+    /// it can read but that declares no requirement for the edge is simply not
+    /// something momo checked.
+    fn unchecked_reason(&self) -> &'static str {
+        match self.dependent.split_once(':').map(|(provider, _)| provider) {
+            Some("cargo") | None => "not checked",
+            Some(_) => "unsupported ecosystem, not checked",
+        }
+    }
+}
+
 /// One Package's line in a `status` report.
 pub struct StatusPackage {
     /// The Package's identity, e.g. `cargo:momo`.
@@ -68,6 +123,10 @@ pub struct StatusPackage {
     /// The Unreleased sections under a Keep-a-Changelog heading momo cannot
     /// read. Empty in the common case; non-empty means a mint would refuse.
     pub unversioned: Vec<UnreadSection>,
+    /// The dependent edges this Package's Release would leave unsatisfied, or
+    /// could not check. Empty when it has no dependents or every one is
+    /// satisfied.
+    pub cascade: Vec<Cascade>,
 }
 
 impl StatusPackage {
@@ -89,19 +148,20 @@ impl StatusPackage {
 impl Serialize for StatusPackage {
     /// The documented shape: the Package's `name`, its `current` Version (or
     /// `null`), the `next` Version a Release would mint, the `changes` that
-    /// justify it, and the `unversioned` sections a mint would refuse. `next` is
-    /// computed rather than the stored field, so the envelope cannot be a
-    /// derived impl.
+    /// justify it, the `unversioned` sections a mint would refuse, and the
+    /// `cascade` edges the Release would leave unsatisfied. `next` is computed
+    /// rather than the stored field, so the envelope cannot be a derived impl.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("StatusPackage", 5)?;
+        let mut state = serializer.serialize_struct("StatusPackage", 6)?;
         state.serialize_field("name", &self.package)?;
         state.serialize_field("current", &self.current)?;
         state.serialize_field("next", &self.computed())?;
         state.serialize_field("changes", &Changes(&self.changes))?;
         state.serialize_field("unversioned", &Unversioned(&self.unversioned))?;
+        state.serialize_field("cascade", &self.cascade)?;
         state.end()
     }
 }
@@ -120,7 +180,8 @@ impl Serialize for StatusPackage {
 ///       "current": null,
 ///       "next": "0.1.0",
 ///       "changes": [{ "kind": "add", "text": "Add a shiny thing" }],
-///       "unversioned": []
+///       "unversioned": [],
+///       "cascade": []
 ///     }
 ///   ]
 /// }
@@ -132,7 +193,9 @@ impl Serialize for StatusPackage {
 /// mint, or the current Version when nothing is Unreleased; `changes` is empty
 /// in that case. `unversioned` lists the Unreleased sections under a
 /// Keep-a-Changelog heading momo cannot read — the condition that makes a mint
-/// refuse; it is empty in the common case.
+/// refuse; it is empty in the common case. `cascade` names the dependent edges
+/// that Release would leave unsatisfied — or could not check — as
+/// `{ "dependent", "dependency", "requirement", "target", "satisfied" }`.
 pub struct Status {
     /// The Packages, in discovery order.
     pub packages: Vec<StatusPackage>,
@@ -201,6 +264,9 @@ impl Report for Status {
             };
             out.push_str(&format!("    current: {current}\n"));
             out.push_str(&format!("    → next: {}\n", package.computed()));
+            for cascade in &package.cascade {
+                out.push_str(&format!("    cascade: {}\n", cascade.line()));
+            }
         }
         out
     }
@@ -281,6 +347,10 @@ pub struct ReleasePackage {
     /// The Fragments the run consumed.
     #[serde(serialize_with = "serialize_paths")]
     pub consumed: Vec<PathBuf>,
+    /// The dependent edges this Package's Release would leave unsatisfied, or
+    /// could not check. Empty when it has no dependents or every one is
+    /// satisfied.
+    pub cascade: Vec<Cascade>,
 }
 
 /// What `momo release` / `momo candidate` report.
@@ -298,7 +368,8 @@ pub struct ReleasePackage {
 ///       "version_file": ".momo/version",
 ///       "manifest": ["Cargo.toml"],
 ///       "skipped": [],
-///       "consumed": [".momo/changes/add-a-thing.md"]
+///       "consumed": [".momo/changes/add-a-thing.md"],
+///       "cascade": []
 ///     }
 ///   ]
 /// }
@@ -310,8 +381,9 @@ pub struct ReleasePackage {
 /// `release` and `candidate` advance it, so the run can be tagged. `manifest` is
 /// the ecosystem manifests the run synced — `[]` when the Package has none —
 /// and `skipped` names the manifests it considered but left alone, so a skip is
-/// never silent. Under `--dry-run` the paths are what the run *would* have
-/// written.
+/// never silent. `cascade` names the dependent edges the new Version leaves
+/// unsatisfied, or could not check — `[]` when there are none. Under
+/// `--dry-run` the paths are what the run *would* have written.
 #[derive(Serialize)]
 pub struct Release {
     /// Which verb minted the Version. The two verbs share one document, so it
@@ -348,6 +420,9 @@ impl Report for Release {
             }
             for path in &package.consumed {
                 out.push_str(&format!("{removed} {}\n", path.display()));
+            }
+            for cascade in &package.cascade {
+                out.push_str(&format!("cascade: {}\n", cascade.line()));
             }
         }
         out

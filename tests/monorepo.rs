@@ -145,6 +145,113 @@ fn status_reports_each_package_and_its_next_version() {
     assert!(stdout.contains("→ next: 0.0.0"), "{stdout}");
 }
 
+/// [`monorepo`] with `crates/b` declaring `requirement` on `crates/a`.
+fn monorepo_with_range(dir: &TempDir, requirement: &str) {
+    monorepo(dir);
+    fs::write(
+        dir.path().join("crates/b/Cargo.toml"),
+        format!(
+            "[package]\nname = \"b\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+             [dependencies]\na = {{ path = \"../a\", version = \"{requirement}\" }}\n"
+        ),
+    )
+    .expect("seed the dependent manifest");
+}
+
+#[test]
+fn status_reports_a_dependent_range_the_release_would_break() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    monorepo_with_range(&dir, "=0.0.1");
+    momo(&dir)
+        .args(["-p", "cargo:a", "add", "Add a thing"])
+        .assert()
+        .success();
+
+    // The human rendering names the dependent and its range.
+    momo(&dir)
+        .arg("status")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "cascade: cargo:b requires cargo:a =0.0.1 — unsatisfied at 0.1.0",
+        ));
+
+    let assert = momo(&dir)
+        .args(["status", "--format", "json"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("the status report is one JSON document");
+    let cascade = value["packages"][0]["cascade"]
+        .as_array()
+        .expect("a `cascade` array");
+    assert_eq!(cascade.len(), 1, "{stdout}");
+    assert_eq!(cascade[0]["dependent"], "cargo:b", "{stdout}");
+    assert_eq!(cascade[0]["dependency"], "cargo:a", "{stdout}");
+    assert_eq!(cascade[0]["requirement"], "=0.0.1", "{stdout}");
+    assert_eq!(cascade[0]["target"], "0.1.0", "{stdout}");
+    assert_eq!(cascade[0]["satisfied"], serde_json::Value::Bool(false));
+}
+
+#[test]
+fn a_satisfied_dependent_range_is_not_reported() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    // `cargo:a` targets 0.1.0, which `^0.1.0` satisfies, so there is nothing to
+    // report — an absent entry is the satisfied case.
+    monorepo_with_range(&dir, "^0.1.0");
+    momo(&dir)
+        .args(["-p", "cargo:a", "add", "Add a thing"])
+        .assert()
+        .success();
+
+    let assert = momo(&dir)
+        .args(["status", "--format", "json"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("the status report is one JSON document");
+    assert_eq!(
+        value["packages"][0]["cascade"],
+        serde_json::json!([]),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn a_dry_run_release_reports_the_cascade_it_would_leave() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    monorepo_with_range(&dir, "=0.0.1");
+    momo(&dir)
+        .args(["-p", "cargo:a", "add", "Add a thing"])
+        .assert()
+        .success();
+
+    let assert = momo(&dir)
+        .args(["-p", "cargo:a", "release", "--dry-run", "--format", "json"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("the release report is one JSON document");
+    let cascade = value["packages"][0]["cascade"]
+        .as_array()
+        .expect("a `cascade` array");
+    assert_eq!(cascade.len(), 1, "{stdout}");
+    assert_eq!(cascade[0]["dependent"], "cargo:b", "{stdout}");
+    assert_eq!(cascade[0]["satisfied"], serde_json::Value::Bool(false));
+}
+
 #[test]
 fn package_scopes_a_command_and_all_covers_every_package() {
     if !require_tool("mise") {

@@ -16,7 +16,9 @@ pub use python::PythonManifest;
 
 use std::path::{Path, PathBuf};
 
-use crate::domain::manifest::{ManifestError, ManifestPlan, ManifestSync, SkipReason};
+use crate::domain::manifest::{
+    DependencyRequirement, ManifestError, ManifestPlan, ManifestSync, SkipReason,
+};
 use crate::domain::package::Package;
 use semver::Version;
 
@@ -113,6 +115,21 @@ impl ManifestSync for Probe {
             Some(adapter) => adapter.write(manifest, version),
             None => Ok(unowned(manifest)),
         }
+    }
+
+    /// The requirements the adapter owning `manifest` reads; none when no
+    /// adapter owns it.
+    fn dependencies(&self, manifest: &Path) -> Result<Vec<DependencyRequirement>, ManifestError> {
+        match self.owner(manifest) {
+            Some(adapter) => adapter.dependencies(manifest),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// A single-package repo carries no ecosystem prefix, so the range grammar
+    /// is unknown until a manifest is located; momo reports it unchecked.
+    fn satisfied(&self, _requirement: &str, _version: &Version) -> Option<bool> {
+        None
     }
 }
 

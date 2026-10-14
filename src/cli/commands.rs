@@ -33,12 +33,13 @@ use crate::domain::tag;
 use crate::domain::version::next_version;
 
 use crate::cli::config::{self, CONFIG_FILE};
-use crate::cli::output::{self, ReleasePackage, SkippedManifest, StatusPackage, TagPackage, Verb};
+use crate::cli::output::{
+    self, Cascade, ReleasePackage, SkippedManifest, StatusPackage, TagPackage, Verb,
+};
 use crate::cli::recording;
 use crate::cli::release::{self, Outcome};
 use crate::cli::version::{self, FileVersionSource, VERSION_FILE};
-use crate::cli::workspace;
-use crate::cli::{Cli, Command};
+use crate::cli::{Cli, Command, cascade, workspace};
 
 /// The momo verbs exposed as `momo:*` tasks, in command-surface order.
 ///
@@ -180,12 +181,19 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
         let base = version::release_base(source.as_ref(), &changelog)?;
         let current = source.current()?;
         let next = next_version(&changes, &base)?;
+        // Only a Package with something to release can break a dependent, so
+        // the cascade is read against the Version a Release would mint.
+        let cascade = match &next {
+            Some(target) => cascade::for_package(&root, discovery.workspace(), package, target),
+            None => Vec::new(),
+        };
         report.packages.push(StatusPackage {
             package: package.identity().to_owned(),
             current,
             next,
             changes,
             unversioned,
+            cascade,
         });
     }
 
@@ -241,9 +249,10 @@ fn release(cli: &Cli) -> Result<()> {
     }
     report_manifest(committed.iter().map(|(_, outcome)| outcome));
     for (package, outcome) in committed {
+        let cascade = cascade::for_package(&root, discovery.workspace(), package, &outcome.version);
         report
             .packages
-            .push(release_package(package.identity(), outcome));
+            .push(release_package(package.identity(), outcome, cascade));
     }
     if report.packages.is_empty() {
         bail!("nothing unreleased to release");
@@ -297,9 +306,10 @@ fn candidate(cli: &Cli) -> Result<()> {
     }
     report_manifest(committed.iter().map(|(_, outcome)| outcome));
     for (package, outcome) in committed {
+        let cascade = cascade::for_package(&root, discovery.workspace(), package, &outcome.version);
         report
             .packages
-            .push(release_package(package.identity(), outcome));
+            .push(release_package(package.identity(), outcome, cascade));
     }
     if report.packages.is_empty() {
         bail!("nothing unreleased to release");
@@ -347,7 +357,7 @@ fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
 }
 
 /// One Package's entry in a `release`/`candidate` report.
-fn release_package(package: &str, outcome: Outcome) -> ReleasePackage {
+fn release_package(package: &str, outcome: Outcome, cascade: Vec<Cascade>) -> ReleasePackage {
     let Outcome {
         version,
         changelog,
@@ -377,6 +387,7 @@ fn release_package(package: &str, outcome: Outcome) -> ReleasePackage {
         manifest,
         skipped,
         consumed,
+        cascade,
     }
 }
 

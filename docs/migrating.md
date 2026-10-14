@@ -300,7 +300,7 @@ $ momo -p cargo:momo add "Add a thing"
 $ momo --all release
 ```
 
-`release` with no `-p` releases every package that has unreleased changes, in one run. There is no cascading: releasing a package does not bump its dependents.
+`release` with no `-p` releases every package that has unreleased changes, in one run. There is no cascading: releasing a package does not bump its dependents. `status` and `release` do report a dependent's unsatisfied range (the `cascade` array), but nothing rewrites it.
 
 ### Slugs are worth pinning
 
