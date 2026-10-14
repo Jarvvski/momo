@@ -35,7 +35,7 @@ src/
 ├── adapters/
 │   ├── vcs/        git + jj, behind the Vcs port
 │   ├── taskenv/    mise, behind the TaskEnvironment port
-│   └── manifest/   Cargo.toml + pyproject.toml, behind the ManifestSync port
+│   └── manifest/   Cargo.toml + package.json + pyproject.toml, behind the ManifestSync port
 └── cli/            the clap tree, handlers, and the wiring
 ```
 

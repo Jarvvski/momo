@@ -59,9 +59,13 @@ In fragments mode a `.md` file in the changes dir that is not a recognised fragm
 
 A member with `version.workspace = true` takes its version from the root's `[workspace.package].version` — one scalar shared by every member. `release` resolves the root by walking up to the manifest declaring `[workspace]` and rewrites that scalar there, leaving the member's own manifest alone. Because the scalar is shared, `--all` writes it only when every affected member resolves to the same target; otherwise the whole run fails rather than letting the last writer win. A root that is both a package and a workspace keeps its own `[package].version` — that is the root crate's version, distinct from the default its members inherit.
 
+### Node
+
+A `node:` package syncs its `package.json`. Only the top-level `version` string is rewritten, spliced in place by byte span, so indentation, key order, the newline style and whether the file ends in a newline survive byte-for-byte; a `version` nested in `dependencies` or `devDependencies`, and keys like `packageManager` and `engines`, are untouched by construction. A Node lockfile (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lockb`) embeds the package's version and lives at the workspace root, not beside the package, so it is found by walking up; it is reported as possibly stale and left for the package manager to refresh, never rewritten.
+
 ### Python
 
-A `uv:` package syncs its `pyproject.toml`. `[project].version` (PEP 621) and, when present, `[tool.poetry].version` are both rewritten, so a Poetry 2 migration never leaves one stale. A project whose version is computed elsewhere — `[project].dynamic = ["version"]`, setuptools-scm, setuptools dynamic, hatch-vcs, poetry-dynamic-versioning — is **skipped** with the backend named, because the tag *is* the version there; a static scalar beside a dynamic declaration is an error, never a guess. The value written is PEP 440, so the tag `v1.2.0-rc.1` yields `version = "1.2.0rc1"`. A single-package repo is probed for a `Cargo.toml`, then a `pyproject.toml`.
+A `uv:` package syncs its `pyproject.toml`. `[project].version` (PEP 621) and, when present, `[tool.poetry].version` are both rewritten, so a Poetry 2 migration never leaves one stale. A project whose version is computed elsewhere — `[project].dynamic = ["version"]`, setuptools-scm, setuptools dynamic, hatch-vcs, poetry-dynamic-versioning — is **skipped** with the backend named, because the tag *is* the version there; a static scalar beside a dynamic declaration is an error, never a guess. The value written is PEP 440, so the tag `v1.2.0-rc.1` yields `version = "1.2.0rc1"`. A single-package repo is probed for a `Cargo.toml`, then a `package.json`, then a `pyproject.toml`.
 
 Neither `release` nor `candidate` commits or tags. The ceremony is split so the tag lands on the commit that contains the changelog:
 
@@ -190,5 +194,5 @@ A package that has never released has **no** version, not version `0.0.0`: `stat
 ## Not yet supported
 
 - Task environments beyond `mise` (gradle, bun).
-- Manifest sync is Cargo and Python today: `release` rewrites the version scalar in a `Cargo.toml` or a `pyproject.toml`, format-preserving, and warns when a neighbouring lockfile may be stale — but never rewrites the lockfile and never runs the ecosystem's tooling. Node and Gradle are later adapters behind the same port.
+- Manifest sync beyond Cargo, Node and Python: `release` rewrites the version scalar in a `Cargo.toml` or a `pyproject.toml`, or the top-level `version` in a `package.json`, format-preserving — a `Cargo.toml` re-rendered from a syntax tree, a `package.json` spliced by byte span, so comments, indentation and key order survive. It warns when a lockfile may be stale — a `Cargo.lock` beside the manifest, or a Node lockfile found by walking up to the workspace root — but never rewrites the lockfile and never runs the ecosystem's tooling. Gradle is a later adapter behind the same port.
 - Monorepo discovery independent of `mise` — momo reads mise's project graph.
