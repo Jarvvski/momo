@@ -9,6 +9,7 @@ use crate::cli::version::FileVersionSource;
 use crate::domain::config::Config;
 use crate::domain::package::Package;
 use crate::domain::remote::Remote;
+use crate::domain::tag;
 use crate::domain::vcs::Vcs;
 use crate::domain::version::VersionSource;
 
@@ -34,8 +35,10 @@ pub fn tag(
     let Some(version) = FileVersionSource::new(&package.dir(repo_root)).current()? else {
         return Ok(None);
     };
-    let prefix = package.tag_prefix(&config.tag_prefix);
-    if let Some(warning) = crate::domain::tag::go_prefix_warning(package, &config.tag_prefix) {
+    let prefix = tag::prefix(package, &config.tag_prefix);
+    if let Some(module) = tag::go_module_path(package)
+        && let Some(warning) = tag::go_major_warning(module, &version)
+    {
         eprintln!("warning: {warning}");
     }
 

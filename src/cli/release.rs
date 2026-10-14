@@ -69,7 +69,7 @@ pub struct Prepared {
 
 impl Prepared {
     /// The Version the run would mint.
-    fn version(&self) -> &Version {
+    pub(crate) fn version(&self) -> &Version {
         &self.outcome.version
     }
 

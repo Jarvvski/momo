@@ -306,6 +306,17 @@ A slug is derived from the identity unless you set it, and it namespaces your ta
 slug = "cargo-momo"
 ```
 
+### Go modules
+
+A Go module's version *is* its git tag, and Go resolves a module version by its **directory**, not its module name. momo therefore tags a `go:` package by its directory: a module rooted at `api/` is tagged `api/v1.3.0`, and a module at the repo root `v1.3.0`. Every other package is namespaced by its slug (`cargo-momo-v1.3.0`), so a Go module's tags are the one place the slug does not apply.
+
+The `/vN` major suffix lives in the **module path**, never in the tag. From v2 onward Go serves a version only when the module path ends in `/vN` for that major, so `example.com/acme/api` tagged `v2.0.0` resolves as `v2.0.0+incompatible`, while `example.com/acme/api/v2` resolves properly. Tagging `v2.0.0` is legitimate — only the path decides — so momo warns on the mismatch and does not refuse the release. A per-package `tag_prefix` overrides the derived prefix outright:
+
+```toml
+[packages."go:example.com/acme/api"]
+tag_prefix = "api/v"
+```
+
 ## Worked example
 
 A single-crate repo, tagged `v1.4.2`, with a Keep a Changelog `CHANGELOG.md` and GitHub releases. The `[1.4.2]` footer link uses the wrong URL shape, and the Unreleased section has one entry under a heading momo does not read.
@@ -357,5 +368,6 @@ If the project already used an earlier momo, two changes will bite:
 
 - **Unknown config keys now error**, and `tag_kind` is gone.
 - **`.momo/version` is a ledger, not a version source.** `status` and `release` read tags; `tag` reads the ledger and refuses a stale one.
+- **Go packages are now tagged by their directory.** A `go:` module in a monorepo used to be tagged `go-example-com-acme-api-v1.3.0`, which `go get` could not resolve; it is now tagged `api/v1.3.0`. The old tags were unusable, so there is nothing to preserve — but check the prefix before the first release, and set a per-package `tag_prefix` if you need a different one.
 
 Both are documented in the release notes for the versions that introduced them.

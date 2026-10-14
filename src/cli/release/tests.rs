@@ -625,6 +625,64 @@ fn a_monorepo_release_writes_the_package_changelog_and_namespaced_tag() {
     assert_eq!(name.name, "cargo-a-v0.1.0");
 }
 
+#[test]
+fn a_go_module_is_tagged_by_its_directory_not_its_slug() {
+    let dir = TempDir::new().expect("temp dir");
+    let root = dir.path();
+    let package = Package::from_identity("go:example.com/acme/api", "api");
+    fs::create_dir_all(root.join("api")).expect("package dir");
+    fs::create_dir_all(root.join(".momo/changes/go-example-com-acme-api"))
+        .expect("package changes dir");
+    fs::write(
+        root.join(".momo/changes/go-example-com-acme-api/add-a-thing.md"),
+        "Add a thing\n",
+    )
+    .expect("write a fragment");
+
+    release(root, &fragments(), &package, None, date(), false)
+        .expect("release")
+        .expect("something to release");
+
+    // Go resolves a module version by its directory, so the tag is `api/v…`,
+    // not the slug-namespaced `go-example-com-acme-api-v…`.
+    let name = tag(root, &fragments(), &package, &FakeVcs::new(), None, false)
+        .expect("tag")
+        .expect("something to tag");
+    assert_eq!(name.name, "api/v0.1.0");
+}
+
+#[test]
+fn a_configured_tag_prefix_overrides_the_derivation_in_the_tag() {
+    let dir = TempDir::new().expect("temp dir");
+    let root = dir.path();
+    let mut config = fragments();
+    config.packages.insert(
+        "go:example.com/acme/api".to_owned(),
+        crate::domain::config::PackageConfig {
+            tag_prefix: Some("api/v".to_owned()),
+            ..crate::domain::config::PackageConfig::default()
+        },
+    );
+    let package = Package::from_identity("go:example.com/acme/api", "api").configured(&config);
+    fs::create_dir_all(root.join("api")).expect("package dir");
+    fs::create_dir_all(root.join(".momo/changes/go-example-com-acme-api"))
+        .expect("package changes dir");
+    fs::write(
+        root.join(".momo/changes/go-example-com-acme-api/add-a-thing.md"),
+        "Add a thing\n",
+    )
+    .expect("write a fragment");
+
+    release(root, &config, &package, None, date(), false)
+        .expect("release")
+        .expect("something to release");
+
+    let name = tag(root, &config, &package, &FakeVcs::new(), None, false)
+        .expect("tag")
+        .expect("something to tag");
+    assert_eq!(name.name, "api/v0.1.0");
+}
+
 /// Seed a Cargo manifest at `path` with the bootstrap version.
 fn manifest(root: &Path, path: &str) -> String {
     let contents = "[package]\nname = \"momo\"\nversion = \"0.0.0\"\n";

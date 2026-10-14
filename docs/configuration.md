@@ -74,9 +74,12 @@ In a monorepo, overrides are keyed by ecosystem identity:
 identity = "cargo:renamed"   # override the identity
 slug = "alpha"               # override the ref/path-safe slug
 manifest = "Cargo.toml"      # override the discovered manifest, relative to the package directory
+tag_prefix = "api/v"         # override the derived tag prefix, used verbatim
 ```
 
 `manifest` is resolved **relative to the package's directory**, not the repo root. For a package rooted at `crates/momo`, `Cargo.toml` resolves to `crates/momo/Cargo.toml`; a repo-relative value like `crates/momo/Cargo.toml` would resolve to `crates/momo/crates/momo/Cargo.toml` and silently fail to find the manifest. Like the other path keys it must be relative and must not contain `..`.
+
+`tag_prefix` overrides the prefix the package's tags carry, and is used **verbatim** — no `-` or `/` is inserted for you. Without one the prefix is derived: a `go:` module is prefixed by its directory relative to the repo root (`api/v1.3.0`, or `v1.3.0` at the root), because Go resolves a module version by its directory; every other package is namespaced by its slug (`cargo-momo-v1.3.0`). It is the escape hatch for a naming scheme momo does not derive.
 
 `slug` is derived from the identity unless set explicitly, and it namespaces the package's tags and Fragment store. An `identity` override with no `slug` recomputes the slug from the new identity, so renaming a package moves its tag namespace and Fragment store to the new name; pin `slug` explicitly to keep the old ones. Two packages that derive the same slug are an error — give one a distinct `slug`.
 

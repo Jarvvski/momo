@@ -29,7 +29,7 @@ pub(super) const KNOWN_KEYS: [&str; 9] = [
 ];
 
 /// The keys a `[packages.<id>]` table may set.
-pub(super) const KNOWN_PACKAGE_KEYS: [&str; 3] = ["identity", "slug", "manifest"];
+pub(super) const KNOWN_PACKAGE_KEYS: [&str; 4] = ["identity", "slug", "manifest", "tag_prefix"];
 
 impl FromStr for ConfigOverrides {
     type Err = ConfigError;

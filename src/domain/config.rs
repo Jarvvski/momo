@@ -226,6 +226,9 @@ impl fmt::Display for Config {
                 if let Some(manifest) = &package.manifest {
                     entry["manifest"] = value(manifest.to_string_lossy().as_ref());
                 }
+                if let Some(tag_prefix) = &package.tag_prefix {
+                    entry["tag_prefix"] = value(tag_prefix.as_str());
+                }
                 packages[identity.as_str()] = Item::Table(entry);
             }
             table["packages"] = Item::Table(packages);

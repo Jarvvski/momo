@@ -22,6 +22,7 @@ pub struct Package {
     root: PathBuf,
     monorepo: bool,
     manifest: Option<PathBuf>,
+    tag_prefix: Option<String>,
 }
 
 impl Package {
@@ -38,6 +39,7 @@ impl Package {
             root: root.into(),
             monorepo,
             manifest: None,
+            tag_prefix: None,
         }
     }
 
@@ -75,6 +77,9 @@ impl Package {
             }
             if let Some(manifest) = &overrides.manifest {
                 self.manifest = Some(manifest.clone());
+            }
+            if let Some(tag_prefix) = &overrides.tag_prefix {
+                self.tag_prefix = Some(tag_prefix.clone());
             }
         }
         self
@@ -142,9 +147,22 @@ impl Package {
         self.manifest.as_deref()
     }
 
-    /// The Package's tag prefix: `<slug>-<base>` in a monorepo, `<base>` alone
-    /// for a single package.
-    pub fn tag_prefix(&self, base: &str) -> String {
+    /// The configured tag-prefix override, relative to nothing — it is used
+    /// verbatim.
+    ///
+    /// `None` when the Package's tag prefix is left to derivation (see
+    /// [`crate::domain::tag::prefix`]).
+    pub fn tag_prefix_override(&self) -> Option<&str> {
+        self.tag_prefix.as_deref()
+    }
+
+    /// The Package's slug-namespaced tag prefix: `<slug>-<base>` in a monorepo,
+    /// `<base>` alone for a single package.
+    ///
+    /// This is the derivation for every ecosystem but Go, whose tag prefix
+    /// follows the module directory instead; [`crate::domain::tag::prefix`] is
+    /// the seam that picks between them.
+    pub fn slug_prefix(&self, base: &str) -> String {
         if self.monorepo {
             format!("{}-{base}", self.slug)
         } else {
@@ -244,14 +262,14 @@ mod tests {
     }
 
     #[test]
-    fn the_tag_prefix_is_namespaced_only_in_a_monorepo() {
-        assert_eq!(Package::single("momo").tag_prefix("v"), "v");
+    fn the_slug_prefix_is_namespaced_only_in_a_monorepo() {
+        assert_eq!(Package::single("momo").slug_prefix("v"), "v");
         assert_eq!(
-            Package::from_identity("cargo:momo", "crates/momo").tag_prefix("v"),
+            Package::from_identity("cargo:momo", "crates/momo").slug_prefix("v"),
             "cargo-momo-v"
         );
         assert_eq!(
-            Package::from_identity("cargo:momo", "crates/momo").tag_prefix("rel-"),
+            Package::from_identity("cargo:momo", "crates/momo").slug_prefix("rel-"),
             "cargo-momo-rel-"
         );
     }
@@ -278,6 +296,7 @@ mod tests {
                 identity: Some("cargo:renamed".to_owned()),
                 slug: Some("alpha".to_owned()),
                 manifest: None,
+                tag_prefix: None,
             },
         );
         let package = Package::from_identity("cargo:momo", "crates/momo").configured(&config);
@@ -294,12 +313,13 @@ mod tests {
                 identity: Some("cargo:renamed".to_owned()),
                 slug: None,
                 manifest: None,
+                tag_prefix: None,
             },
         );
         let package = Package::from_identity("cargo:momo", "crates/momo").configured(&config);
         assert_eq!(package.identity(), "cargo:renamed");
         assert_eq!(package.slug(), "cargo-renamed");
-        assert_eq!(package.tag_prefix("v"), "cargo-renamed-v");
+        assert_eq!(package.slug_prefix("v"), "cargo-renamed-v");
     }
 
     #[test]
@@ -311,6 +331,7 @@ mod tests {
                 identity: None,
                 slug: None,
                 manifest: Some(PathBuf::from("manifest.toml")),
+                tag_prefix: None,
             },
         );
         let package = Package::from_identity("cargo:momo", "crates/momo").configured(&config);
@@ -321,10 +342,27 @@ mod tests {
     }
 
     #[test]
+    fn configured_takes_the_tag_prefix_override() {
+        let mut config = Config::default();
+        config.packages.insert(
+            "go:example.com/acme/api".to_owned(),
+            crate::domain::config::PackageConfig {
+                identity: None,
+                slug: None,
+                manifest: None,
+                tag_prefix: Some("api/v".to_owned()),
+            },
+        );
+        let package = Package::from_identity("go:example.com/acme/api", "api").configured(&config);
+        assert_eq!(package.tag_prefix_override(), Some("api/v"));
+    }
+
+    #[test]
     fn configured_leaves_an_unmentioned_package_alone() {
         let package = Package::from_identity("cargo:momo", "crates/momo").configured(&config());
         assert_eq!(package.identity(), "cargo:momo");
         assert_eq!(package.slug(), "cargo-momo");
         assert_eq!(package.manifest_override(), None);
+        assert_eq!(package.tag_prefix_override(), None);
     }
 }

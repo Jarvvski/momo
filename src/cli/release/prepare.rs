@@ -12,6 +12,7 @@ use crate::cli::version::{release_base, source};
 use crate::domain::changelog::Links;
 use crate::domain::config::{Config, Recording};
 use crate::domain::package::Package;
+use crate::domain::tag;
 use crate::domain::vcs::Vcs;
 use crate::domain::version::{
     DEFAULT_RC_FORMAT, candidate_version, next_candidate, release_target,
@@ -96,7 +97,7 @@ fn prepare(
     mode: Mode,
 ) -> Result<Option<Prepared>> {
     let changes = recording::unreleased(repo_root, config, package)?;
-    let prefix = package.tag_prefix(&config.tag_prefix);
+    let prefix = tag::prefix(package, &config.tag_prefix);
     let package_dir = package.dir(repo_root);
     let mut changelog = read_changelog(repo_root, config, package)?;
 
