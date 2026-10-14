@@ -24,7 +24,9 @@ exclude = [
   "docs/",
   "AGENTS.md",
   "CLAUDE.md",
+  "CODE_OF_CONDUCT.md",
   "GLOSSARY.md",
+  "SECURITY.md",
   "mise.toml",
   "momo.toml",
   # `rust-version` already states the toolchain floor; shipping the pin would
