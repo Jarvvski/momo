@@ -144,7 +144,24 @@ fn status_human_lists_kinds_and_ends_with_the_next_version() {
 
     assert_eq!(
         human,
-        "Unreleased\n\n  momo\n    Added\n      - Add a shiny thing\n    Fixed\n      - Fix a nasty bug\n    → next: 0.1.0\n"
+        "Unreleased\n\n  momo\n    Added\n      - Add a shiny thing\n    Fixed\n      - Fix a nasty bug\n    current: —\n    → next: 0.1.0\n"
+    );
+}
+
+#[test]
+fn status_human_reports_the_current_version_once_released() {
+    let report = Status {
+        packages: vec![StatusPackage {
+            package: "momo".to_owned(),
+            current: Some(version("1.2.3")),
+            next: Some(version("1.3.0")),
+            changes: vec![Change::new(Kind::Add, "Add a shiny thing")],
+        }],
+    };
+
+    assert_eq!(
+        report.human(),
+        "Unreleased\n\n  momo\n    Added\n      - Add a shiny thing\n    current: 1.2.3\n    → next: 1.3.0\n"
     );
 }
 
@@ -152,7 +169,10 @@ fn status_human_lists_kinds_and_ends_with_the_next_version() {
 fn status_human_with_nothing_unreleased_reports_the_current_version() {
     let human = status(&[]).human();
 
-    assert_eq!(human, "Unreleased\n\n  momo\n    → next: 0.0.0\n");
+    assert_eq!(
+        human,
+        "Unreleased\n\n  momo\n    current: —\n    → next: 0.0.0\n"
+    );
 }
 
 #[test]
