@@ -1,7 +1,7 @@
 # 13: CRLF changelogs are silently rewritten to LF
 
 Type: bug
-Status: wontfix
+Status: resolved
 Severity: low
 Area: domain/changelog
 Verified: yes — read at the cited lines
@@ -56,6 +56,29 @@ whole-file-diff nuisance, not data loss.
 model, untouched regions would round-trip, but momo's own inserted lines are
 still LF — so CRLF is not "fixed for free".
 
+> **Correction (2026-10-14).** 38 did land the preserve model, and the prediction
+> above was wrong: momo's own inserted lines are written with the document's own
+> ending, so a CRLF changelog round-trips in full. This ticket is `resolved`, not
+> `wontfix`. See `## Resolution`.
+
 **Implementation sketch:** none. Add a line under "Not yet supported" in
 `docs/usage.md`: CRLF line endings in a changelog (or `Cargo.toml`) are
 normalised to LF on the first write; run git with `core.autocrlf=input`.
+
+## Resolution
+
+Fixed by the `changelog-model` change set (ticket 38, ADR 0003) rather than closed
+as `wontfix`.
+
+`Changelog` now detects the document's ending once on parse (`Ending::Lf` or
+`Ending::Crlf`) and reapplies it to **every** line it writes, not only to the
+regions it passes through. A CRLF changelog therefore round-trips in full,
+including the headings and bullets momo itself inserts — the triage's "not fixed
+for free" prediction was wrong.
+
+`docs/usage.md` records the behaviour positively (user footer definitions and CRLF
+"pass through untouched"), and no "Not yet supported" note was added, because
+there is no longer a limitation to document.
+
+Test: `a_crlf_changelog_keeps_its_line_endings`, which asserts a momo-inserted
+bullet comes back as `- a fix\r\n`.
