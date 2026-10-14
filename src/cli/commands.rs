@@ -14,12 +14,15 @@
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::domain::taskenv::{InstallMode, InstallPlan, TaskEnvironment};
 use crate::domain::vcs::Vcs;
 use crate::domain::workspace::DefaultTarget;
 use anyhow::{Context, Result, bail};
+use clap::CommandFactory;
+use clap_complete::{Shell, generate};
 use semver::Version;
 use time::Date;
 
@@ -39,9 +42,8 @@ use crate::cli::{Cli, Command};
 
 /// The momo verbs exposed as `momo:*` tasks, in command-surface order.
 ///
-/// The command surface is wider than this list: `version` (and, later,
-/// `completions`) reports and writes nothing, so it must never become a task
-/// wrapper.
+/// The command surface is wider than this list: `version` and `completions`
+/// report and write nothing, so neither must ever become a task wrapper.
 const INSTALLABLE_VERBS: [&str; 9] = [
     "break",
     "add",
@@ -75,6 +77,7 @@ pub fn run(cli: &Cli) -> Result<()> {
             uninstall,
         } => install(cli, env.as_deref(), *update, *uninstall),
         Command::Version => show_version(),
+        Command::Completions { shell } => completions(*shell),
     }
 }
 
@@ -107,6 +110,18 @@ fn reject_output_flags(cli: &Cli) -> Result<()> {
 /// Print the momo version, exactly as `--version` does.
 fn show_version() -> Result<()> {
     println!("momo {VERSION}");
+    Ok(())
+}
+
+/// Write a shell completion script to stdout.
+///
+/// Generated from the same clap tree the parser uses, so the script cannot
+/// drift from the command surface. Reads nothing and writes nothing on disk:
+/// redirect the output where the shell expects to find it.
+fn completions(shell: Shell) -> Result<()> {
+    let mut command = Cli::command();
+    let mut stdout = io::stdout();
+    generate(shell, &mut command, "momo", &mut stdout);
     Ok(())
 }
 

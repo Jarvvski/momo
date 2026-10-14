@@ -115,6 +115,7 @@ Two deviations from convention are deliberate and owned out loud: a `fix` at `0.
 | `momo init` | | Scaffold `momo.toml`, optionally with a start version |
 | `momo install [env]` | | Install momo into a task environment |
 | `momo version` | | Print the momo version |
+| `momo completions <shell>` | | Write a shell completion script to stdout |
 
 Global flags:
 
