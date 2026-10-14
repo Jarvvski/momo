@@ -1,7 +1,7 @@
 # 38: Stop modelling the changelog as a lossy parse → render round-trip
 
 Type: refactor
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: domain/changelog
 Verified: yes — the lossy paths are read at the cited lines
@@ -95,3 +95,55 @@ touching foreign content, fail loudly naming the line.
 
 Supersedes 09/10/13 and the duplicate/out-of-order half of 11. Update spec §6
 (consider an ADR) and add round-trip fidelity tests.
+
+## Resolution
+
+Resolved in the `changelog-model` change set (ADR 0003).
+
+`Changelog` (`src/domain/changelog.rs`) no longer parses into a struct and
+re-renders it. It keeps the document's original lines — a preamble, a list of
+`##` sections (each a verbatim heading plus its body lines), and the trailing
+reference-link footer — plus the line ending the document uses. Only the spans
+momo owns are edited: the Unreleased body (`record` appends to it, `release`
+moves it whole into the new dated section), momo's own footer lines
+(`is_owned_link`/`link_label`, unchanged from 09), and the release headings momo
+inserts. Everything else round-trips byte-for-byte: CRLF, `*` bullets, HTML
+comments, `### Changed`, user-authored footer definitions, out-of-order released
+sections.
+
+`parse` is now fallible: more than one Unreleased heading is refused with a
+`ChangelogError::DuplicateUnreleased { line }` that names the line, rather than
+silently splitting the document. This is the "fail loudly" fallback; the three
+Kind vocabulary is unchanged (unrecognised headings are preserved, never
+interpreted).
+
+Behaviour changes from the old model:
+- `parse` returns `Result`; callers (`cli/release.rs`, `cli/recording.rs`)
+  propagate the error.
+- `unreleased()` returns `Vec<Change>` (owned) instead of a slice — the body is
+  parsed on demand, so there is no cached parse to go stale.
+- `has_unreleased` now means "the Unreleased body has a non-blank line of any
+  kind", not "has parsed entries", so a hand-written `### Changed` body is no
+  longer invisible to the fragments-mode guard (14) or to a Release.
+- A release inserts the new section above the existing ones (newest first) even
+  when the Unreleased section sat below a released section; the released section
+  is no longer lost into the preamble.
+- `release`/`candidate` move the preserved Unreleased body when one exists; a
+  bare `## [Unreleased]` heading falls back to the minted Changes (fragments).
+- CRLF is preserved (new lines use the document's ending), so ticket 13's
+  "normalised to LF" limitation is gone; the note in `docs/usage.md` is removed.
+
+Tests: 30 unit tests in `src/domain/changelog.rs`, including the new round-trip
+fidelity cases `an_unrecognised_heading_and_its_bullets_survive_a_release`,
+`html_comments_and_star_bullets_survive_a_release`,
+`recording_preserves_unmodelled_unreleased_content`,
+`a_crlf_changelog_keeps_its_line_endings`,
+`an_out_of_order_unreleased_section_is_promoted_not_lost`,
+`duplicate_unreleased_sections_are_refused_naming_the_line` and
+`an_empty_unreleased_heading_is_replaced_by_the_release`; integration:
+`a_recording_verb_preserves_the_document_it_does_not_own`,
+`a_duplicate_unreleased_section_is_refused_naming_the_line`,
+`release_preserves_a_hand_written_changelog_body_and_footer`.
+
+Docs: ADR 0003; spec §6 updated; `docs/usage.md` recording-model and
+"Not yet supported" sections updated.

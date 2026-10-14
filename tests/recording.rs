@@ -111,6 +111,67 @@ fn each_verb_records_its_kind() {
     }
 }
 #[test]
+fn a_recording_verb_preserves_the_document_it_does_not_own() {
+    let dir = TempDir::new().expect("temp dir");
+    let seeded = "\
+# Changelog
+
+## [Unreleased]
+
+<!-- keep this note -->
+
+### Changed
+
+- Reworked the parser
+* a star bullet
+
+## [1.0.0] - 2026-01-01
+
+### Added
+
+- old
+
+[Keep a Changelog]: https://keepachangelog.com/en/1.0.0/
+";
+    fs::write(dir.path().join("CHANGELOG.md"), seeded).expect("seed the changelog");
+
+    momo(&dir).args(["fix", "a fix"]).assert().success();
+
+    let changelog = read(&dir, "CHANGELOG.md");
+    assert!(changelog.contains("<!-- keep this note -->"), "{changelog}");
+    assert!(
+        changelog.contains("### Changed\n\n- Reworked the parser"),
+        "the `### Changed` section was dropped:\n{changelog}"
+    );
+    assert!(changelog.contains("* a star bullet"), "{changelog}");
+    assert!(
+        changelog.contains("[Keep a Changelog]: https://keepachangelog.com/en/1.0.0/"),
+        "the user footer definition was dropped:\n{changelog}"
+    );
+    assert!(changelog.contains("### Fixed\n\n- a fix"), "{changelog}");
+    assert!(changelog.contains("## [1.0.0] - 2026-01-01"), "{changelog}");
+}
+
+#[test]
+fn a_duplicate_unreleased_section_is_refused_naming_the_line() {
+    let dir = TempDir::new().expect("temp dir");
+    let seeded = "# Changelog\n\n## [Unreleased]\n\n- one\n\n## [Unreleased]\n\n- two\n";
+    fs::write(dir.path().join("CHANGELOG.md"), seeded).expect("seed the changelog");
+
+    momo(&dir)
+        .args(["add", "a thing"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("line 7"));
+
+    assert_eq!(
+        read(&dir, "CHANGELOG.md"),
+        seeded,
+        "a refused record rewrote the changelog"
+    );
+}
+
+#[test]
 fn fragments_mode_writes_one_fragment_per_change() {
     let dir = TempDir::new().expect("temp dir");
     seed_recording(&dir, "fragments");

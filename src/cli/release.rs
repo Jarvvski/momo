@@ -320,7 +320,7 @@ fn render_manifest(
 fn read_changelog(repo_root: &Path, config: &Config, package: &Package) -> Result<Changelog> {
     let path = package.changelog(repo_root, config);
     match fs::read_to_string(&path) {
-        Ok(text) => Ok(Changelog::parse(&text)),
+        Ok(text) => Changelog::parse(&text).with_context(|| format!("reading {}", path.display())),
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(Changelog::empty()),
         Err(err) => Err(err).with_context(|| format!("reading {}", path.display())),
     }

@@ -70,6 +70,16 @@ integrates into a task environment (`mise` in v0).
     link is emitted only while the document has an Unreleased section.
   - In **changelog mode** the `## Unreleased` section is the source; in **fragment
     mode** the changelog holds only releases and `status` reports unreleased.
+  - **Preservation.** The document is kept verbatim; momo edits only the spans it
+    owns — the Unreleased body, its own footer lines (`[Unreleased]`, `[x.y.z]`)
+    and the release headings it inserts. CRLF, `*` bullets, HTML comments,
+    `### Changed` headings and user-authored footer definitions pass through
+    byte-for-byte. Recording appends to the Unreleased body; releasing moves the
+    whole body into the new dated section. A document momo cannot edit without
+    touching foreign content — more than one Unreleased heading — is refused,
+    naming the line (ADR 0003). The three-Kind vocabulary is unchanged:
+    unrecognised headings are preserved, never interpreted, so they do not affect
+    the bump.
 - `release` **consumes** fragments (deletes them); `candidate` does **not** (they
   are shared with the final release).
 - Prototype: `prototypes/changelog-format/`.
