@@ -1,16 +1,18 @@
 # momo hardening — triage effort
 
 Type: map
-Status: landed
+Status: complete
 
 A bug hunt over the whole codebase on 2026-10-13 produced 45 tickets, triaged in
 six batches by fresh sub-agents, plus 3 tickets the triage itself surfaced (46,
-47, 48). 48 tickets total.
+47, 48). 48 tickets total: **44 resolved, 4 `wontfix`**, shipped across 16 PRs.
 
 ## What landed
 
-Eight of the nine groups shipped as PRs #40–#47, each implemented in its own jj
-workspace and merged once `check` was green.
+### First wave
+
+Eight groups shipped as PRs #40–#47, each implemented in its own jj workspace and
+merged once `check` was green.
 
 | Group | PR | Tickets |
 |-------|----|---------|
@@ -23,12 +25,35 @@ workspace and merged once `check` was green.
 | 7 Process & mise | #46 | 30, 32, 33, 34 |
 | 8 Test & tooling | #45 | 40, 41, 43, 44, 45 |
 
-Group 9 (03, 42) is still blocked on the multi-package JSON-shape ruling, and the
-eleven `ready-for-human` tickets still await the owner's decisions.
+Released as **0.3.0**.
+
+### Second wave
+
+The eleven `ready-for-human` tickets were ruled on 2026-10-14 (see the decisions
+table below) and shipped as PRs #50–#55.
+
+| Group | PR | Tickets |
+|-------|----|---------|
+| 9 Multi-package output | #50 | 03, 42 |
+| 10 jj tag anchor | #51 | 25 |
+| 11 Shared workspace version | #52 | 15 |
+| 12 Changelog document model | #53 | 38, 10 |
+| 13 Version model | #54 | 36, 04, 06, 07 |
+| 14 Process seam | #55 | 39, 48 |
+
+Several of these merged under each other and needed their conflicts reconciled by
+hand — the changelog redesign against the ledger accessor, the `create_tag`
+signature against the ledger, and the output aggregation against both the
+`prepare`/`commit` split and the ledger-aware `tag`. Each reconciliation kept both
+intents; none deleted an assertion.
+
+One defect reached CI and was fixed there: the new command timeout killed the
+direct child but not a forked grandchild, so `mise` (which forks) could still hold
+the call open. The child now leads its own process group and the group is killed.
 
 The CRLF question resolved as **(c)**: ticket 34 is fixed — the `Cargo.toml` edit
-now preserves line endings — and ticket 13 is `wontfix`, a CRLF changelog still
-being normalised, recorded as a known limitation rather than a defect.
+preserves line endings — and ticket 13's changelog case was then overtaken by the
+changelog redesign, which preserves CRLF too.
 
 ## Method
 
