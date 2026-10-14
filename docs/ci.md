@@ -21,6 +21,7 @@ Unreleased
   proj
     Added
       - Add a shiny thing
+    current: —
     → next: 0.1.0
 $ echo $?
 0
@@ -30,6 +31,7 @@ $ momo status --check
 Unreleased
 
   proj
+    current: 0.1.0
     → next: 0.1.0
 error: nothing unreleased
 $ echo $?

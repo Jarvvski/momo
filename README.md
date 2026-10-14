@@ -51,12 +51,13 @@ cargo install --path . --locked
 
 ## Quick start
 
+In a git repo with a `CHANGELOG.md`, momo needs no configuration. The path is:
+
 ```console
-$ momo init                        # optional — commands create config lazily
-$ momo add "Add a shiny thing"
+$ momo add "Add a shiny thing"        # 1. record a change
 $ momo fix "Fix a nasty bug"
 
-$ momo status
+$ momo status                         # 2. inspect: current, next, and the changes between
 Unreleased
 
   proj
@@ -64,16 +65,20 @@ Unreleased
       - Add a shiny thing
     Fixed
       - Fix a nasty bug
+    current: —
     → next: 0.1.0
 
-$ momo release
+$ momo release                        # 3. mint the version and write the changelog
 released 0.1.0
 
-$ momo tag                         # after committing
+$ git commit -am "release 0.1.0"      # 4. commit the release
+$ momo tag                            # 5. tag it
 tagged v0.1.0
 ```
 
 `release` mints the version and writes the changelog and version record. It does **not** commit and does **not** tag — you commit the result, then `momo tag` creates the VCS tag.
+
+`momo init` is optional: it scaffolds `momo.toml` when you want to change a default, and write commands create it lazily otherwise.
 
 ## Kinds and the semver rules
 

@@ -2,6 +2,7 @@
 
 Deeper notes on how momo behaves. For the command list and the semver rules, see the [README](../README.md); for adopting momo on a project that already has releases, see [Migrating](migrating.md).
 
+- [The path](#the-path)
 - [Recording models](#recording-models)
 - [Releases and release candidates](#releases-and-release-candidates)
 - [Tagging](#tagging)
@@ -9,6 +10,29 @@ Deeper notes on how momo behaves. For the command list and the semver rules, see
 - [Task-environment integration](#task-environment-integration)
 - [Where the version comes from](#where-the-version-comes-from)
 - [Not yet supported](#not-yet-supported)
+
+## The path
+
+`status` is the entry verb: it is read-only and valid in every state, where `release --dry-run` errors when there is nothing unreleased. The sequence is:
+
+```console
+$ momo add "Add a shiny thing"        # record a change
+$ momo status                         # inspect: current, next, and the changes between
+$ momo release --dry-run              # see exactly what a release would write
+$ momo release                        # mint the version, write the changelog and version record
+$ git commit -am "release 0.1.0"      # commit the release (or: jj commit)
+$ momo tag                            # tag the committed release
+```
+
+momo never commits and never pushes; the commit and the tag are the steps you own.
+
+**The zero-config boundary.** A single-package repo under git or jj, with changelog recording, a `CHANGELOG.md` at the root and a `v` tag prefix, needs **no** `momo.toml` at all — those defaults are the contract, and `momo init` only exists to change them. Everything beyond that needs configuration:
+
+- **Monorepo discovery** needs `mise.toml` with `monorepo_root = true`.
+- **Fragments recording** needs `recording = "fragments"`.
+- **A non-`CHANGELOG.md` changelog or a non-`v` tag prefix** needs `changelog` or `tag_prefix`.
+
+Write commands create `momo.toml` lazily on first use; read-only commands never create it.
 
 ## Recording models
 
@@ -76,9 +100,11 @@ Unreleased
   cargo:a
     Added
       - Add a thing
+    current: —
     → next: 0.1.0
 
   cargo:b
+    current: —
     → next: 0.0.0
 
 $ momo --all release

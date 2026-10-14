@@ -36,6 +36,7 @@ $ momo status
 Unreleased
 
   widget
+    current: 1.4.2
     → next: 1.4.2
 
 $ momo status --format json | jq '.packages[] | {name, current, next}'
@@ -137,6 +138,7 @@ Unreleased
       - Hand-written added thing
     Fixed
       - Hand-written fixed thing
+    current: —
     → next: 0.1.0
 ```
 
@@ -315,6 +317,7 @@ Unreleased
   widget
     Added
       - A new thing
+    current: 1.4.2
     → next: 1.5.0
 ```
 

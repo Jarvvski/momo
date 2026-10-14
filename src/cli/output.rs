@@ -171,6 +171,11 @@ impl Report for Status {
                     out.push_str(&format!("      - {}\n", change.text));
                 }
             }
+            let current = match &package.current {
+                Some(version) => version.to_string(),
+                None => "—".to_owned(),
+            };
+            out.push_str(&format!("    current: {current}\n"));
             out.push_str(&format!("    → next: {}\n", package.computed()));
         }
         out
