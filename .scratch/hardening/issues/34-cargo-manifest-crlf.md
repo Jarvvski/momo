@@ -75,8 +75,9 @@ Tests: `a_crlf_manifest_keeps_its_line_endings`,
 (`writing_a_crlf_manifest_preserves_its_line_endings`). The LF cases are
 unchanged.
 
-Note: this is deliberately inconsistent with ticket 13 (changelog CRLF), which is
-`wontfix` — the owner ruled that 34 is the one to fix. Changelogs still normalise
-CRLF to LF; if a "Not yet supported" note was added for 13, it should not mention
-`Cargo.toml` (none is present in `docs/` today).
+Note: ticket 13 (changelog CRLF) was ruled `wontfix` at the time, so this fix was
+deliberately one-sided — the owner ruled that `Cargo.toml` was the one to fix.
+Ticket 13 has since been resolved as well: the changelog redesign (38, ADR 0003)
+reapplies the document's own ending to the lines momo writes, so both writers now
+preserve line endings and the two tickets are consistent.
 

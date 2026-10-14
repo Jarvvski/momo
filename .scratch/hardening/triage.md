@@ -5,7 +5,7 @@ Status: complete
 
 A bug hunt over the whole codebase on 2026-10-13 produced 45 tickets, triaged in
 six batches by fresh sub-agents, plus 3 tickets the triage itself surfaced (46,
-47, 48). 48 tickets total: **44 resolved, 4 `wontfix`**, shipped across 16 PRs.
+47, 48). 48 tickets total: **45 resolved, 3 `wontfix`**, shipped across 16 PRs.
 
 ## What landed
 
@@ -69,16 +69,22 @@ bugs.
 
 ## Status roll-up
 
+As triaged, before the owner's rulings and the second wave:
+
 - **ready-for-agent:** 05, 08, 09, 11, 12, 14, 16, 17, 18, 19, 20, 21, 22, 23,
   24, 26, 27, 28, 30, 31, 32, 33, 34, 35, 37, 40, 41, 42, 43, 44, 45, 46, 47 (33)
 - **ready-for-human:** 03, 04, 06, 07, 10, 15, 25, 36, 38, 39, 48 (11)
 - **wontfix:** 01, 02, 13, 29 (4)
 
+Final: **45 resolved, 3 `wontfix`**. Ticket 13 moved to resolved when 38 landed —
+the redesign preserves CRLF after all (see the CRLF note below).
+
 `wontfix` here does **not** mean "not a bug":
 
 - **01, 02** — real, but superseded by 37. The staged transaction is the fix for
   both; implementing either separately would redo the same code.
-- **13** — real, but ruled out of scope (CRLF, see the conflict note below).
+- **13** — real; first ruled out of scope, then fixed by 38 (see the CRLF note
+  below).
 - **29** — jj's first-remote fallback is deliberate and pinned by a test.
 
 ## Owner decisions (2026-10-14)
@@ -113,6 +119,13 @@ it), so 34 breaks a stated contract; the changelog makes no such promise. Option
 - **(c)** fix 34 (it contradicts a stated guarantee) and document 13.
 
 Recommendation: **(c)**. Needs the owner's call.
+
+**Outcome:** **(c)** — 34 was fixed (its writer preserves line endings) and 13 was
+closed `wontfix` with a documented limitation. Then 38 landed the preserve model
+and made that limitation moot: `Changelog` reapplies the document's own ending to
+every line it writes, momo's own included, so 13 is `resolved` too and the two
+writers are consistent. No "Not yet supported" note was needed, and none is
+present.
 
 ## Grouping into PRs
 
