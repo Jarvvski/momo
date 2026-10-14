@@ -1,7 +1,7 @@
 # 03: Multi-package `--format json` and `--output` are broken
 
 Type: bug
-Status: ready-for-human
+Status: ready-for-agent
 Severity: high
 Area: cli/output
 Verified: yes — read at the cited lines
@@ -93,3 +93,13 @@ content, which is the undecided shape. Ties to 42 (no multi-package JSON or
 `Report` and call `output::emit` exactly once (mirroring `status`,
 `:134-150`); add the aggregate type in `src/cli/output.rs`. `--output` then
 writes once by construction. Cover it with the multi-package test from 42.
+
+## Decision (owner, 2026-10-14)
+
+**Shape: a `status`-style `packages` envelope.** `release`, `candidate` and `tag`
+return a top-level object carrying a `packages` array, mirroring `status`, so
+every reporting verb shares one shape. `emit` is called once per run, so
+`--output` writes once and `--format json` is a single document. This is a
+breaking change to the shape documented in `docs/ci.md`; update that too.
+
+Ticket 42 is this change's test and lands with it.

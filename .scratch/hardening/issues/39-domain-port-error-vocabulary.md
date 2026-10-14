@@ -1,7 +1,7 @@
 # 39: Domain port errors carry process vocabulary
 
 Type: refactor
-Status: ready-for-human
+Status: ready-for-agent
 Severity: medium
 Area: domain/vcs + domain/taskenv
 Verified: yes — read at the cited lines
@@ -85,3 +85,11 @@ behaviour). Do not fold into a test PR.
   `adapters/taskenv/{graph,mise,detect}.rs`; tests in `adapters/vcs/roundtrip.rs`,
   `test_support.rs`, and the `TaskEnvError::Graph` assertions in
   `adapters/taskenv/graph.rs`.
+
+## Decision (owner, 2026-10-14)
+
+**Reshape the ports.** Keep a domain-level "operation failed" variant carrying an
+opaque source, and let the adapters format the process detail (program, args,
+stderr) at the CLI boundary. Give `TaskEnvError::Graph` structured variants too.
+This changes public error types — update the docs and every test that matches on
+the old shapes.

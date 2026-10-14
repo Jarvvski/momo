@@ -56,22 +56,22 @@ bugs.
 - **13** — real, but ruled out of scope (CRLF, see the conflict note below).
 - **29** — jj's first-remote fallback is deliberate and pinned by a test.
 
-## Human decision queue
+## Owner decisions (2026-10-14)
 
-These need an owner ruling before they can become agent work. Each is one
-question.
+All eleven were ruled; each ticket now carries a `## Decision` section.
 
-| # | Question |
-|---|----------|
-| 03 | What is the aggregate JSON shape for multi-package `release`/`candidate`/`tag`? (`status`-style `packages` envelope vs always-wrapped `releases`.) Breaking change to `docs/ci.md` either way. |
-| 04 | When a `break` lands *after* an RC is cut, does the target move? Note the reporter's trigger was wrong: at MAJOR 0 it never moves; it only bites at MAJOR ≥ 1. |
-| 36 | Which model — `.momo/version` derived from the tag, or fallback-only? Parent of 06 and 07. The spec ("VCS authoritative") is incoherent for `tag`, which needs a version no tag records. |
-| 06, 07 | Subsumed by 36; keep as symptoms. |
-| 38 | Changelog document model: preserve the raw document and edit owned spans, or fail loudly? Parent of 10 (and overlaps 09/11/14). Vocabulary ruled: three Kinds only. |
-| 15 | Policy for a *shared* `[workspace.package].version` under per-package versioning: refuse, treat the workspace as one package, or allow a root write with an explicit conflict rule. |
-| 25 | jj tag anchor: what is the correct rule — narrow the dirtiness heuristic, or make the revision explicit? Reshapes the `Vcs` port. |
-| 39 | Reshape the domain port error vocabulary. Needs a ruling on how much process detail the CLI must show. |
-| 48 | Timeout policy: default duration, configurable?, new error variant, dependency? |
+| # | Ruling |
+|---|--------|
+| 03 | A `status`-style `packages` envelope — one shape across every reporting verb. Breaking change to `docs/ci.md`. |
+| 04 | Recompute the target from the last release; if a cut RC disagrees, fail and ask for a new RC. |
+| 36 | Pending-release ledger: `.momo/version` records the last *minted* release; `status`/`release` read tags; `tag` reads the ledger. |
+| 06, 07 | Subsumed by 36. |
+| 38 | Preserve the document: raw lines plus momo-owned spans, everything else byte-for-byte; fail loudly when an edit would touch foreign content. |
+| 10 | Subsumed by 38. |
+| 15 | Support the shared workspace version — resolve the workspace root and write `[workspace.package].version`, failing rather than letting `--all`'s last writer win. |
+| 25 | Default the jj tag anchor to `@-`, with `--rev` for an uncommitted release; drop the dirtiness heuristic. |
+| 39 | Reshape the ports: an opaque "operation failed" variant in the domain, process detail formatted at the CLI boundary. |
+| 48 | Add a timeout (60s default, configurable), paired with 39's new error vocabulary. |
 
 ## Cross-batch conflict — CRLF (13 vs 34)
 
@@ -106,8 +106,16 @@ integrity work is the natural first landing.
 | 8 | 40, 41, 43, 44, 45 | Test & tooling hardening: purity guard, skip gate, env coverage, assertions, date hoist |
 | 9 | 03, 42 | Multi-package output (blocked on the shape ruling; 42 is its test) |
 
-Blocked on a human ruling: 04, 06, 07, 10, 15, 25, 36, 38, 39, 48. Each becomes
-its own PR once ruled — 36 and 38 are the two large design changes.
+### Second wave (ruled 2026-10-14)
+
+| Group | Tickets | Theme |
+|-------|---------|-------|
+| 10 | 36, 04, 06, 07 | Version model: the pending-release ledger and RC target recomputation |
+| 11 | 38, 10 | Changelog document model: preserve raw lines and edit owned spans |
+| 12 | 03, 42 | Multi-package output: the `packages` envelope, and its test |
+| 13 | 39, 48 | Process seam: reshaped port errors and a command timeout |
+| 14 | 25 | jj tag anchor: default `@-`, add `--rev` |
+| 15 | 15 | Shared workspace version: resolve the root and write it |
 
 ## Notes
 

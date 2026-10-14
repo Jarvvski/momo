@@ -1,7 +1,7 @@
 # 06: `tag` and `status`/`release` derive the current version from different sources
 
 Type: bug
-Status: ready-for-human
+Status: ready-for-agent
 Severity: medium
 Area: domain/version + cli
 Verified: yes — read at the cited lines
@@ -72,3 +72,7 @@ settle.
 
 **Scope:** duplicate of 36 (with 07). Keep this file as the concrete symptom; the
 decision and the code change land under 36.
+
+## Decision (owner, 2026-10-14)
+
+**Subsumed by ticket 36** (pending-release ledger). Implement there.

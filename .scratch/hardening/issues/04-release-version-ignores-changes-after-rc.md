@@ -1,7 +1,7 @@
 # 04: A pre-release current version suspends the "highest Kind wins" rule
 
 Type: bug
-Status: ready-for-human
+Status: ready-for-agent
 Severity: medium
 Area: domain/version
 Verified: yes — read at the cited lines
@@ -95,3 +95,12 @@ stripping the suffix off `current`. Keep the RC's target only to drive the
 candidate counter (`next_candidate`). Domain tests in `version.rs`:
 `1.1.0-rc.1` + `{add, break}` → `2.0.0`; `1.1.0-rc.1` + `{add}` → `1.1.0`
 (unchanged); `0.1.0-rc.1` + `{add, break}` → `0.1.0` (unchanged).
+
+## Decision (owner, 2026-10-14)
+
+**Recompute the target from the last release.** The release target is always
+`next_version(changes, last_release)`, whether or not an RC exists. If a cut RC's
+target disagrees with the recomputed one, fail and tell the user to cut a new RC
+rather than shipping the stale target.
+
+Depends on ticket 36's pending-release-ledger model for "the last release".
