@@ -23,6 +23,14 @@ curl -fsSL https://raw.githubusercontent.com/Jarvvski/momo/main/install.sh | sh
 
 The installer picks the release for your OS and architecture, verifies it against the published checksums, and drops the `momo` binary in `$HOME/.local/bin` (override with `--to <dir>`, pin a version with `--version <x.y.z>`).
 
+The release workflow publishes a GitHub build-provenance attestation for each archive, tying it to the commit and workflow that built it. With the [GitHub CLI](https://cli.github.com) installed and authenticated, you can check a downloaded archive against this repository:
+
+```bash
+gh attestation verify momo-<version>-<target>.tar.gz --repo Jarvvski/momo
+```
+
+The installer runs the same check when `gh` is available, and always verifies the published checksum.
+
 Or from crates.io:
 
 ```bash

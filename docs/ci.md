@@ -213,6 +213,12 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 ```
 
+A release archive also carries a GitHub build-provenance attestation, tying it to the workflow and commit that built it. `gh` verifies the archive against the repository — the installer runs the same check when `gh` is installed and authenticated, so this is only needed to verify a download you fetched yourself:
+
+```bash
+gh attestation verify momo-<version>-x86_64-unknown-linux-gnu.tar.gz --repo Jarvvski/momo
+```
+
 Or fetch a pinned release archive by hand and unpack it straight into `/usr/local/bin`:
 
 ```yaml
