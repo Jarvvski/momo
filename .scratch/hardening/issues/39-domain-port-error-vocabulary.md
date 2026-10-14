@@ -1,7 +1,7 @@
 # 39: Domain port errors carry process vocabulary
 
 Type: refactor
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/vcs + domain/taskenv
 Verified: yes — read at the cited lines
@@ -93,3 +93,30 @@ opaque source, and let the adapters format the process detail (program, args,
 stderr) at the CLI boundary. Give `TaskEnvError::Graph` structured variants too.
 This changes public error types — update the docs and every test that matches on
 the old shapes.
+
+## Resolution
+
+Landed on `process-seam` (with ticket 48).
+
+- `VcsError` now has `Operation { source: Box<dyn Error + Send + Sync> }` in place
+  of `Spawn`/`CommandFailed`, plus `Timeout { timeout: Duration }`. The
+  domain-meaningful variants (`NoRepository`, `TagAlreadyExists`,
+  `InvalidTagName`) are unchanged.
+- `TaskEnvError` mirrors it (`Operation`, `Timeout`), and `Graph(String)` is
+  replaced by `Graph { source: GraphError }`, where `GraphError` is a structured
+  enum: `Malformed`, `MissingProjects`, `MissingId`, `MissingRoot`, `Duplicate`,
+  `AbsoluteRoot`, `EscapingRoot`, `Empty`. Callers match variants, not strings.
+- The process vocabulary now lives in `adapters::spawn::ProcessError`
+  (`Spawn`/`Failed`/`TimedOut`, carrying `program`/`args`/`stderr`). Adapters wrap
+  it in `Operation` opaquely; the CLI's `{err:#}` source chain prints the detail,
+  so the user still sees "`git remote` failed: …" while the domain never does.
+- `Vcs::is_dirty` was dead (ticket 25 dropped its last caller): removed from the
+  port, both adapters, and the two in-tree fakes. The round-trip tests now assert
+  working-copy state with a direct `git status --porcelain` / `jj diff --summary`
+  capture.
+
+Out of the Decision's scope, deliberately left alone: the `std::io::Error` fields
+on `Read`/`Write`/`Remove` (I/O, not process vocabulary), so the purity guard's
+`io` note was corrected rather than the guard tightened. One behaviour change: the
+non-UTF8 branch of the graph reader is gone — `spawn` decodes stdout lossily, so a
+non-UTF8 graph now reports `GraphError::Malformed`.

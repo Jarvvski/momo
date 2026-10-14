@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 use crate::domain::vcs::{Vcs, VcsError, VcsKind};
 use semver::Version;
 
-use super::process::{CommandRunner, ProcessOutput, require_success};
+use super::process::{CommandRunner, require_success};
 use super::tags::{checked_tag_name, latest_release, latest_version};
+use crate::adapters::spawn::ProcessOutput;
 
 /// A git repository, driven through the `git` CLI.
 pub struct GitVcs<R> {
@@ -92,12 +93,6 @@ impl<R: CommandRunner> Vcs for GitVcs<R> {
         }
         require_success("git", &create, self.git(&create)?)?;
         Ok(())
-    }
-
-    fn is_dirty(&self) -> Result<bool, VcsError> {
-        let args = ["status", "--porcelain"];
-        let output = require_success("git", &args, self.git(&args)?)?;
-        Ok(!output.stdout.trim().is_empty())
     }
 }
 
@@ -203,15 +198,6 @@ mod tests {
     }
 
     #[test]
-    fn is_dirty_tracks_the_status_output() {
-        let dirty = FakeRunner::new().ok("git", &["status", "--porcelain"], " M a.txt\n");
-        assert!(adapter(dirty).is_dirty().unwrap());
-
-        let clean = FakeRunner::new().ok("git", &["status", "--porcelain"], "");
-        assert!(!adapter(clean).is_dirty().unwrap());
-    }
-
-    #[test]
     fn remote_reads_origins_url() {
         let runner = FakeRunner::new().ok("git", &["remote"], "origin\n").ok(
             "git",
@@ -242,7 +228,10 @@ mod tests {
     fn remote_reports_a_failure_to_list_remotes() {
         let runner = FakeRunner::new().fail("git", &["remote"], "fatal: dubious ownership\n");
         let err = adapter(runner).remote().unwrap_err();
-        assert!(matches!(err, VcsError::CommandFailed { ref program, .. } if program == "git"));
+        let VcsError::Operation { source } = &err else {
+            panic!("expected an operation failure, got {err:?}");
+        };
+        assert!(source.to_string().contains("git remote"), "{source}");
     }
 
     #[test]

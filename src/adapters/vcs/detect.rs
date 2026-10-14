@@ -11,7 +11,7 @@ use super::process::{CommandRunner, SystemRunner};
 
 /// Detect the repository at or above `start` and build the matching adapter.
 pub fn detect(start: &Path) -> Result<Box<dyn Vcs>, VcsError> {
-    detect_with(SystemRunner, start)
+    detect_with(SystemRunner::default(), start)
 }
 
 /// Like [`detect`], but with an injected [`CommandRunner`].

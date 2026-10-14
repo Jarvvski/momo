@@ -6,9 +6,11 @@
 //! pre-flight, but a grep a contributor can skip is not enforcement — this test
 //! is the source of truth, because `mise run check` runs `cargo test`.
 //!
-//! `std::io` is deliberately *not* banned: the domain's error types carry
-//! `std::io::Error` today. Ticket 39 removes that; add `io` here (and in
-//! `mise.toml`) once it lands.
+//! `std::io` is deliberately *not* banned: the domain's file-backed error types
+//! still carry `std::io::Error`. Ticket 39 reshaped only the *process*
+//! vocabulary (the binary, its arguments, its stderr) into an opaque source, so
+//! `io` stays out of scope; add it here (and in `mise.toml`) if a later ticket
+//! boxes those too.
 
 use std::fs;
 use std::path::{Path, PathBuf};

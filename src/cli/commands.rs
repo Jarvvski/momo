@@ -129,7 +129,7 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
     let config = config::load(&root)?;
     let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
-    let vcs = detect_vcs(&root);
+    let vcs = detect_vcs(&root, &config);
 
     let mut report = output::Status {
         packages: Vec::new(),
@@ -168,7 +168,7 @@ fn release(cli: &Cli) -> Result<()> {
     let config = config::load(&root)?;
     let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
-    let vcs = detect_vcs(&root);
+    let vcs = detect_vcs(&root, &config);
 
     // Read the date once for the whole run: `today()` inside the loop could
     // straddle UTC midnight and stamp a multi-package release with two dates.
@@ -217,7 +217,7 @@ fn candidate(cli: &Cli) -> Result<()> {
     let config = config::load(&root)?;
     let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
-    let vcs = detect_vcs(&root);
+    let vcs = detect_vcs(&root, &config);
 
     // Read the date once for the whole run: `today()` inside the loop could
     // straddle UTC midnight and stamp a multi-package release with two dates.
@@ -263,7 +263,7 @@ fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
     let config = config::load(&root)?;
     let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
-    let Some(vcs) = detect_vcs(&root) else {
+    let Some(vcs) = detect_vcs(&root, &config) else {
         bail!("no VCS detected — nothing to tag");
     };
     let explicit = cli.package.is_some();
@@ -324,8 +324,15 @@ fn warn_stale_lockfile(outcome: &Outcome) {
 }
 
 /// The repository backing `root`, when one exists.
-fn detect_vcs(root: &Path) -> Option<Box<dyn Vcs>> {
-    crate::adapters::vcs::detect(root).ok()
+///
+/// The adapter's spawned commands are bounded by the configured timeout, so a
+/// hung git or jj cannot stall the run.
+fn detect_vcs(root: &Path, config: &Config) -> Option<Box<dyn Vcs>> {
+    crate::adapters::vcs::detect_with(
+        crate::adapters::vcs::SystemRunner::new(config.command_timeout),
+        root,
+    )
+    .ok()
 }
 
 /// Today's date, in UTC.

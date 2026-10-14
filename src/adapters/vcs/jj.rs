@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 use crate::domain::vcs::{Vcs, VcsError, VcsKind};
 use semver::Version;
 
-use super::process::{CommandRunner, ProcessOutput, require_success};
+use super::process::{CommandRunner, require_success};
 use super::tags::{checked_tag_name, latest_release, latest_version};
+use crate::adapters::spawn::ProcessOutput;
 
 /// A jj repository, driven through the `jj` CLI.
 pub struct JjVcs<R> {
@@ -103,12 +104,6 @@ impl<R: CommandRunner> Vcs for JjVcs<R> {
         let set = ["tag", "set", tag.as_str(), "-r", revision];
         require_success("jj", &set, self.jj(&set)?)?;
         Ok(())
-    }
-
-    fn is_dirty(&self) -> Result<bool, VcsError> {
-        let args = ["diff", "--summary"];
-        let output = require_success("jj", &args, self.jj(&args)?)?;
-        Ok(!output.stdout.trim().is_empty())
     }
 }
 
@@ -206,15 +201,6 @@ mod tests {
             .create_tag(None, "v 1", &Version::new(2, 3, 0), "Release 2.3.0")
             .unwrap_err();
         assert!(matches!(err, VcsError::InvalidTagName { ref name } if name == "v 12.3.0"));
-    }
-
-    #[test]
-    fn is_dirty_tracks_the_diff_summary() {
-        let dirty = FakeRunner::new().ok("jj", &["diff", "--summary"], "M a.txt\n");
-        assert!(adapter(dirty).is_dirty().unwrap());
-
-        let clean = FakeRunner::new().ok("jj", &["diff", "--summary"], "");
-        assert!(!adapter(clean).is_dirty().unwrap());
     }
 
     #[test]
