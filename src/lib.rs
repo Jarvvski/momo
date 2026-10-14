@@ -4,6 +4,14 @@
 //! The [`domain`] and [`adapters`] modules are public so the versioning model
 //! can be reused; the command-line surface is private and reached only through
 //! [`run`].
+//!
+//! momo is Unix-only: its process handling leads each child in its own process
+//! group so a timeout stops everything the child forked, and there is no
+//! equivalent off Unix. The build fails clearly there rather than shipping a
+//! half-supported fallback.
+
+#[cfg(not(unix))]
+compile_error!("momo targets Unix only (Linux and macOS); Windows is not supported");
 
 pub mod adapters;
 pub mod domain;

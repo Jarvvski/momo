@@ -244,4 +244,4 @@ jobs:
             | sudo tar xz -C /usr/local/bin --strip-components=1
 ```
 
-Release binaries are built for Linux and macOS only — `x86_64`/`aarch64` × `unknown-linux-gnu`/`apple-darwin` — so there is no Windows asset. `cargo install momo-cli` works anywhere but compiles from source.
+Release binaries are built for Linux and macOS only — `x86_64`/`aarch64` × `unknown-linux-gnu`/`apple-darwin` — so there is no Windows asset. momo is Unix-only: `cargo install momo-cli` compiles from source on Linux and macOS, and a Windows build fails at compile time (see the [platform note](../README.md)).
