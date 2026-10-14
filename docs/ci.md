@@ -234,7 +234,16 @@ jobs:
 
 ### Installing momo
 
-`jdx/mise-action` above installs whatever the repo pins, so a repo already using mise needs no extra step. Without mise, take the release binary:
+`jdx/mise-action` above installs whatever the repo pins, so a repo already using mise needs no extra step. Without mise, the simplest path is the installer — it detects the runner's target, verifies the published checksum, and installs to `$HOME/.local/bin`, which the job then adds to `PATH`:
+
+```yaml
+      - name: Install momo
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/Jarvvski/momo/main/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+```
+
+Or fetch a pinned release archive by hand and unpack it straight into `/usr/local/bin`:
 
 ```yaml
       - name: Install momo

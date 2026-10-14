@@ -18,6 +18,14 @@ Record a change with one of three verbs — `break`, `add`, `fix` — and momo w
 momo is Unix-only: it builds on Linux and macOS, and there is no Windows build.
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/Jarvvski/momo/main/install.sh | sh
+```
+
+The installer picks the release for your OS and architecture, verifies it against the published checksums, and drops the `momo` binary in `$HOME/.local/bin` (override with `--to <dir>`, pin a version with `--version <x.y.z>`).
+
+Or from crates.io:
+
+```bash
 cargo install momo-cli          # from crates.io; installs the `momo` binary
 ```
 
