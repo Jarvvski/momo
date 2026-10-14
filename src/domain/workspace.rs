@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::domain::config::Config;
+use crate::domain::graph::DependencyGraph;
 use crate::domain::package::Package;
 
 /// Why a Workspace could not be assembled.
@@ -67,16 +68,17 @@ pub enum SelectionError {
     },
 }
 
-/// The Packages a repo holds.
+/// The Packages a repo holds, and the dependency graph discovery produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Workspace {
     root: PathBuf,
     packages: Vec<Package>,
+    graph: DependencyGraph,
 }
 
 impl Workspace {
-    /// A Workspace of `packages`, with the config's per-package overrides
-    /// applied.
+    /// A Workspace of `packages` and their dependency `graph`, with the config's
+    /// per-package overrides applied.
     ///
     /// Fails when two Packages derive the same slug: they would share a tag
     /// prefix and a Fragment store, so the collision is fatal rather than
@@ -84,6 +86,7 @@ impl Workspace {
     pub fn new(
         root: impl Into<PathBuf>,
         packages: Vec<Package>,
+        graph: DependencyGraph,
         config: &Config,
     ) -> Result<Self, WorkspaceError> {
         let packages: Vec<Package> = packages
@@ -94,6 +97,7 @@ impl Workspace {
         Ok(Self {
             root: root.into(),
             packages,
+            graph,
         })
     }
 
@@ -102,7 +106,13 @@ impl Workspace {
         Self {
             root: root.into(),
             packages: vec![Package::single(name).configured(config)],
+            graph: DependencyGraph::default(),
         }
+    }
+
+    /// The dependency graph discovery produced; empty for a single-package repo.
+    pub fn graph(&self) -> &DependencyGraph {
+        &self.graph
     }
 
     /// Reject Packages whose slugs collide.
@@ -196,6 +206,8 @@ mod tests {
 
     use crate::domain::config::PackageConfig;
 
+    use crate::domain::graph::{Edge, Project};
+
     /// A workspace with two discovered Packages.
     fn monorepo() -> Workspace {
         Workspace::new(
@@ -204,9 +216,34 @@ mod tests {
                 Package::from_identity("cargo:a", "crates/a"),
                 Package::from_identity("cargo:b", "crates/b"),
             ],
+            DependencyGraph::default(),
             &Config::default(),
         )
         .expect("distinct slugs")
+    }
+
+    #[test]
+    fn the_workspace_exposes_the_discovered_graph() {
+        let graph = DependencyGraph::new(
+            vec![
+                Project::new("cargo:a", "crates/a", None, None, None),
+                Project::new("cargo:b", "crates/b", None, None, None),
+            ],
+            vec![Edge::new("cargo:b", "cargo:a", None)],
+        );
+        let workspace = Workspace::new(
+            "/repo",
+            vec![
+                Package::from_identity("cargo:a", "crates/a"),
+                Package::from_identity("cargo:b", "crates/b"),
+            ],
+            graph,
+            &Config::default(),
+        )
+        .expect("distinct slugs");
+
+        assert_eq!(workspace.graph().projects().len(), 2);
+        assert_eq!(workspace.graph().dependents_of("cargo:a").len(), 1);
     }
 
     #[test]
@@ -315,6 +352,7 @@ mod tests {
         let workspace = Workspace::new(
             "/repo",
             vec![Package::from_identity("cargo:a", "crates/a")],
+            DependencyGraph::default(),
             &config,
         )
         .expect("a single package cannot collide");
@@ -329,6 +367,7 @@ mod tests {
                 Package::from_identity("node:@acme/ui", "packages/scoped"),
                 Package::from_identity("node:acme-ui", "packages/plain"),
             ],
+            DependencyGraph::default(),
             &Config::default(),
         )
         .expect_err("both slug to node-acme-ui");
@@ -357,6 +396,7 @@ mod tests {
                 Package::from_identity("node:@acme/ui", "packages/scoped"),
                 Package::from_identity("node:acme-ui", "packages/plain"),
             ],
+            DependencyGraph::default(),
             &config,
         )
         .expect("the override disambiguates the slug");
@@ -372,6 +412,7 @@ mod tests {
                 Package::from_identity("cargo:ui", "crates/ui"),
                 Package::from_identity("node:ui", "packages/ui"),
             ],
+            DependencyGraph::default(),
             &Config::default(),
         )
         .expect("distinct slugs");
