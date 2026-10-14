@@ -23,6 +23,8 @@ use time::Date;
 
 use crate::domain::change::{Change, Kind};
 use crate::domain::config::Config;
+use crate::domain::package::Package;
+use crate::domain::tag;
 use crate::domain::version::next_version;
 
 use crate::cli::config::{self, CONFIG_FILE};
@@ -185,6 +187,9 @@ fn release(cli: &Cli) -> Result<()> {
         }
     }
     release::reject_shared_manifest_conflicts(&planned)?;
+    for (package, _) in &planned {
+        warn_go_prefix(package, &config.tag_prefix);
+    }
 
     let mut report = output::Release {
         verb: Verb::Release,
@@ -234,6 +239,9 @@ fn candidate(cli: &Cli) -> Result<()> {
         }
     }
     release::reject_shared_manifest_conflicts(&planned)?;
+    for (package, _) in &planned {
+        warn_go_prefix(package, &config.tag_prefix);
+    }
 
     let mut report = output::Release {
         verb: Verb::Candidate,
@@ -302,6 +310,18 @@ fn release_package(package: &str, outcome: Outcome) -> ReleasePackage {
         version_file: outcome.version_file,
         manifest: outcome.manifest.map(|update| update.manifest),
         consumed: outcome.consumed,
+    }
+}
+
+/// Warn when a Package's Go tag prefix would be unresolvable by `go get`.
+///
+/// A `go:` module in a monorepo is namespaced by its slug, but Go resolves a
+/// module version by its directory: the tag momo would write cannot be fetched.
+/// The warning names that consequence and the tag that would resolve; it never
+/// blocks the release.
+fn warn_go_prefix(package: &Package, base: &str) {
+    if let Some(warning) = tag::go_prefix_warning(package, base) {
+        eprintln!("warning: {warning}");
     }
 }
 
