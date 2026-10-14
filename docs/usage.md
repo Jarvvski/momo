@@ -54,6 +54,10 @@ In a monorepo the fragment store is namespaced by package slug.
 
 A member with `version.workspace = true` takes its version from the root's `[workspace.package].version` — one scalar shared by every member. `release` resolves the root by walking up to the manifest declaring `[workspace]` and rewrites that scalar there, leaving the member's own manifest alone. Because the scalar is shared, `--all` writes it only when every affected member resolves to the same target; otherwise the whole run fails rather than letting the last writer win. A root that is both a package and a workspace keeps its own `[package].version` — that is the root crate's version, distinct from the default its members inherit.
 
+### Python
+
+A `uv:` package syncs its `pyproject.toml`. `[project].version` (PEP 621) and, when present, `[tool.poetry].version` are both rewritten, so a Poetry 2 migration never leaves one stale. A project whose version is computed elsewhere — `[project].dynamic = ["version"]`, setuptools-scm, setuptools dynamic, hatch-vcs, poetry-dynamic-versioning — is **skipped** with the backend named, because the tag *is* the version there; a static scalar beside a dynamic declaration is an error, never a guess. The value written is PEP 440, so the tag `v1.2.0-rc.1` yields `version = "1.2.0rc1"`. A single-package repo is probed for a `Cargo.toml`, then a `pyproject.toml`.
+
 Neither `release` nor `candidate` commits or tags. The ceremony is split so the tag lands on the commit that contains the changelog:
 
 ```console
@@ -169,5 +173,5 @@ A package that has never released has **no** version, not version `0.0.0`: `stat
 ## Not yet supported
 
 - Task environments beyond `mise` (gradle, bun).
-- Manifest sync beyond Rust: `release` rewrites the version scalar in a `Cargo.toml`, format-preserving, and warns when a neighbouring lockfile may be stale — but never rewrites the lockfile and never runs `cargo`. Node, Gradle and Python are later adapters behind the same port.
+- Manifest sync is Cargo and Python today: `release` rewrites the version scalar in a `Cargo.toml` or a `pyproject.toml`, format-preserving, and warns when a neighbouring lockfile may be stale — but never rewrites the lockfile and never runs the ecosystem's tooling. Node and Gradle are later adapters behind the same port.
 - Monorepo discovery independent of `mise` — momo reads mise's project graph.
