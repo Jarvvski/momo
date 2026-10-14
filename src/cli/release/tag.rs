@@ -35,6 +35,9 @@ pub fn tag(
         return Ok(None);
     };
     let prefix = package.tag_prefix(&config.tag_prefix);
+    if let Some(warning) = crate::domain::tag::go_prefix_warning(package, &config.tag_prefix) {
+        eprintln!("warning: {warning}");
+    }
 
     // The ledger must name the pending Version: one no tag records yet. A
     // Version below the newest tag is stale — a later one is already tagged, so

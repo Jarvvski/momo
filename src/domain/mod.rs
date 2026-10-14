@@ -12,6 +12,7 @@ pub mod manifest;
 pub mod package;
 pub mod remote;
 mod slug;
+pub mod tag;
 pub mod taskenv;
 pub mod vcs;
 pub mod version;
