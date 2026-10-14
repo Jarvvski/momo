@@ -1,7 +1,8 @@
 # Usage
 
 Deeper notes on how momo behaves. For the command list and the semver rules, see
-the [README](../README.md).
+the [README](../README.md); for adopting momo on a project that already has
+releases, see [Migrating](migrating.md).
 
 - [Recording models](#recording-models)
 - [Releases and release candidates](#releases-and-release-candidates)

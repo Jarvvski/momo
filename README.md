@@ -113,6 +113,8 @@ Global flags:
 - **[Usage](https://github.com/Jarvvski/momo/blob/main/docs/usage.md)** — recording
   models, releases and release candidates, tagging, monorepos, task-environment
   install.
+- **[Migrating](https://github.com/Jarvvski/momo/blob/main/docs/migrating.md)** —
+  adopting momo on a project that already has tags, a changelog and releases.
 - **[Configuration](https://github.com/Jarvvski/momo/blob/main/docs/configuration.md)**
   — every `momo.toml` key, the precedence order, and the `MOMO_*` environment
   variables.
