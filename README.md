@@ -2,7 +2,7 @@
 
 <h1 align="center">momo</h1>
 
-<p align="center"> <a href="https://github.com/Jarvvski/momo/blob/main/LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"></a> <a href="https://github.com/Jarvvski/momo/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Jarvvski/momo/actions/workflows/ci.yml/badge.svg"></a> </p>
+<p align="center"> <a href="https://github.com/Jarvvski/momo/blob/main/LICENSE-MIT"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue"></a> <a href="https://github.com/Jarvvski/momo/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Jarvvski/momo/actions/workflows/ci.yml/badge.svg"></a> </p>
 
 momo turns a project's accumulated changes into semver releases, a changelog and VCS tags. It is a small, standalone Rust CLI.
 
@@ -106,4 +106,4 @@ Global flags:
 
 ## License
 
-GPL-3.0-or-later. See [`LICENSE`](https://github.com/Jarvvski/momo/blob/main/LICENSE).
+Dual-licensed under either of [MIT](https://github.com/Jarvvski/momo/blob/main/LICENSE-MIT) or [Apache-2.0](https://github.com/Jarvvski/momo/blob/main/LICENSE-APACHE), at your option. Contributions are accepted under the same terms.

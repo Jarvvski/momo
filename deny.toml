@@ -15,11 +15,11 @@ multiple-versions = "warn"
 wildcards = "deny"
 
 [licenses]
-# momo itself is GPL-3.0-or-later (see Cargo.toml); its dependencies are the
-# usual permissive set. Anything outside this list fails, which is the point —
-# adding a licence here is a deliberate decision, not a reflex.
+# momo itself is MIT OR Apache-2.0 (see Cargo.toml); this list governs only its
+# dependencies, the usual permissive set. Anything outside this list fails,
+# which is the point — adding a licence here is a deliberate decision, not a
+# reflex.
 allow = [
-    "GPL-3.0-or-later",
     "Apache-2.0",
     "MIT",
     "Unicode-3.0",
