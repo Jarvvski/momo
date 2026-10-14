@@ -37,17 +37,40 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: mise run check
 
+  # `rust-version` declares the MSRV, but every other leg builds with the pinned
+  # toolchain in rust-toolchain.toml. This one builds with the declared floor
+  # itself, so the number stays honest: raising the pin without raising
+  # `rust-version` cannot strand the floor, and a dependency that lifts its own
+  # MSRV past it fails here.
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read the declared MSRV
+        id: msrv
+        run: |
+          set -euo pipefail
+          msrv="$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)"
+          test -n "$msrv"
+          echo "version=$msrv" >> "$GITHUB_OUTPUT"
+      - name: Install the declared MSRV
+        run: rustup toolchain install "${{ steps.msrv.outputs.version }}" --profile minimal
+      # `+<msrv>` overrides the pinned rust-toolchain.toml, so this compiles with
+      # the floor rather than the pin.
+      - run: cargo +${{ steps.msrv.outputs.version }} check --locked --all-targets
+
   # Branch protection requires a status check named exactly `check`, but a
   # matrix expands the job name to `check (<os>)`. This fans the legs back in
   # under that name so the protected branch keeps its single required check.
   check-required:
     name: check
-    needs: [check]
+    needs: [check, msrv]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Require every check leg to pass
-        if: needs.check.result != 'success'
+        if: needs.check.result != 'success' || needs.msrv.result != 'success'
         run: exit 1
 
   deny:
