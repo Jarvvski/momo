@@ -9,10 +9,10 @@ use tempfile::TempDir;
 
 /// The canonical commands on the surface, in help order.
 ///
-/// This is the whole surface: `version` sits here but not in momo's
-/// `INSTALLABLE_VERBS`, because it gets no `momo:*` task wrapper (see
-/// `tests/install.rs`).
-const COMMANDS: [&str; 10] = [
+/// This is the whole surface: `version` and `completions` sit here but not in
+/// momo's `INSTALLABLE_VERBS`, because neither gets a `momo:*` task wrapper
+/// (see `tests/install.rs`).
+const COMMANDS: [&str; 11] = [
     "break",
     "add",
     "fix",
@@ -23,6 +23,7 @@ const COMMANDS: [&str; 10] = [
     "init",
     "install",
     "version",
+    "completions",
 ];
 
 /// The global flags on the command surface.
@@ -120,6 +121,22 @@ fn each_verb_help_shows_the_global_flags() {
             );
         }
     }
+}
+
+#[test]
+fn completions_emit_a_non_empty_script_to_stdout() {
+    let dir = TempDir::new().expect("temp dir");
+
+    let assert = momo(&dir).args(["completions", "bash"]).assert().success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    assert!(
+        !stdout.trim().is_empty(),
+        "`momo completions bash` emitted nothing"
+    );
+    assert!(
+        stdout.contains("momo"),
+        "`momo completions bash` never names the binary:\n{stdout}"
+    );
 }
 
 #[test]
@@ -360,7 +377,7 @@ fn init_dry_run_with_a_version_writes_nothing() {
 #[test]
 fn output_flags_are_rejected_on_verbs_without_a_report() {
     let dir = TempDir::new().expect("temp dir");
-    let cases: [(&[&str], &str, &str); 17] = [
+    let cases: [(&[&str], &str, &str); 21] = [
         (&["add", "a thing", "--format", "json"], "--format", "add"),
         (&["add", "a thing", "--json"], "--json", "add"),
         (
@@ -398,6 +415,22 @@ fn output_flags_are_rejected_on_verbs_without_a_report() {
         (&["install", "--json"], "--json", "install"),
         (&["install", "--version-only"], "--version-only", "install"),
         (&["install", "--output", "out.txt"], "--output", "install"),
+        (
+            &["completions", "bash", "--format", "json"],
+            "--format",
+            "completions",
+        ),
+        (&["completions", "bash", "--json"], "--json", "completions"),
+        (
+            &["completions", "bash", "--version-only"],
+            "--version-only",
+            "completions",
+        ),
+        (
+            &["completions", "bash", "--output", "out.txt"],
+            "--output",
+            "completions",
+        ),
     ];
 
     for (args, flag, verb) in cases {

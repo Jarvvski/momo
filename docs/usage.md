@@ -8,6 +8,7 @@ Deeper notes on how momo behaves. For the command list and the semver rules, see
 - [Tagging](#tagging)
 - [Monorepos](#monorepos)
 - [Task-environment integration](#task-environment-integration)
+- [Shell completions](#shell-completions)
 - [Where the version comes from](#where-the-version-comes-from)
 - [Not yet supported](#not-yet-supported)
 
@@ -152,6 +153,18 @@ momo status "$@"
 So `mise run momo:status` runs the pinned CLI — once that version is published as a GitHub release. `install` is idempotent; a wrapper pinning a different version is left alone and reported as stale, and `--update` refreshes it. `--uninstall` removes what install wrote and clears the recorded `task_env`. With no task environment and no explicit name, `install` warns and exits zero.
 
 Release assets are built for **Linux and macOS only** — four Unix targets (`x86_64`/`aarch64` × `apple-darwin`/`unknown-linux-gnu`). There is no Windows build, so the pinned wrappers resolve only on those platforms.
+
+## Shell completions
+
+`momo completions <shell>` writes a completion script to stdout. The script is generated from the same clap tree the parser uses, so it cannot drift from the command surface. The command reads nothing and writes nothing on disk; redirect the output where your shell looks for completions:
+
+```console
+$ momo completions bash > ~/.local/share/bash-completion/completions/momo
+$ momo completions zsh  > ~/.zsh/completions/_momo      # with ~/.zsh/completions on $fpath
+$ momo completions fish > ~/.config/fish/completions/momo.fish
+```
+
+The supported shells are `bash`, `zsh`, `fish`, `elvish` and `powershell`; `momo completions --help` lists them. `completions` is deliberately **not** a `momo:*` task: it is one-off setup, not a verb a task environment should pin.
 
 ## Where the version comes from
 

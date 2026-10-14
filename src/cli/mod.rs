@@ -17,6 +17,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 use semver::Version;
 
 /// The quick-start block `momo --help` closes with.
@@ -57,6 +58,10 @@ Examples:
   momo install
   momo install --update    refresh the pinned CLI version";
 const VERSION_EXAMPLES: &str = "Examples:\n  momo version";
+const COMPLETIONS_EXAMPLES: &str = "\
+Examples:
+  momo completions bash > ~/.local/share/bash-completion/completions/momo
+  momo completions zsh > ~/.zsh/completions/_momo";
 
 /// The parsed command line.
 #[derive(Debug, Parser)]
@@ -189,6 +194,14 @@ pub enum Command {
     /// Print the momo version.
     #[command(after_help = VERSION_EXAMPLES)]
     Version,
+
+    /// Write a shell completion script to stdout.
+    #[command(after_help = COMPLETIONS_EXAMPLES)]
+    Completions {
+        /// The shell to generate completions for.
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 impl fmt::Display for Command {
@@ -205,6 +218,7 @@ impl fmt::Display for Command {
             Self::Init { .. } => "init",
             Self::Install { .. } => "install",
             Self::Version => "version",
+            Self::Completions { .. } => "completions",
         })
     }
 }

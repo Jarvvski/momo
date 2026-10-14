@@ -42,6 +42,9 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
+# Shell completion generation, from the same clap tree the parser uses, so the
+# script cannot drift from the command surface.
+clap_complete = "4"
 # A safe wrapper around `kill(2)`: the timeout must stop the child's whole
 # process group, and `unsafe` is forbidden crate-wide, so the group signal
 # cannot be issued through a raw libc call.
