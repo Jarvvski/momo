@@ -1,9 +1,6 @@
 # Configuration
 
-momo reads `momo.toml` from the repo root. It is **optional**: write commands
-create it lazily on first use, and read-only commands (`status`, `--dry-run`)
-never create it. `momo init` writes it up front and refuses to overwrite an
-existing file.
+momo reads `momo.toml` from the repo root. It is **optional**: write commands create it lazily on first use, and read-only commands (`status`, `--dry-run`) never create it. `momo init` writes it up front and refuses to overwrite an existing file.
 
 `momo init` writes exactly this:
 
@@ -16,8 +13,7 @@ changes_dir = ".momo/changes"
 tag_prefix = "v"
 ```
 
-`momo init --version <x.y.z>` additionally records a start version in
-`.momo/version`, so the first release bumps from there instead of `0.0.0`.
+`momo init --version <x.y.z>` additionally records a start version in `.momo/version`, so the first release bumps from there instead of `0.0.0`.
 
 ## Keys
 
@@ -32,43 +28,27 @@ tag_prefix = "v"
 | `rc_format` | `"-rc.{n}"` | Release-candidate suffix template; `{n}` is the number |
 | `command_timeout` | `60` | Seconds a spawned `git`/`jj`/`mise` command may run before it is killed |
 
-`task_env` is written by `momo install`. `remote`, `rc_format` and
-`command_timeout` are optional.
+`task_env` is written by `momo install`. `remote`, `rc_format` and `command_timeout` are optional.
 
-`changelog`, `changes_dir` and a package's `manifest` are **paths**. They must be
-relative and must not escape upward with `..`: an absolute path would discard the
-directory they are joined onto, and `..` would write outside the tree, so both are
-rejected at parse time. A key that momo does not recognise is an error too, so a
-misspelled key fails loudly instead of silently taking its default.
+`changelog`, `changes_dir` and a package's `manifest` are **paths**. They must be relative and must not escape upward with `..`: an absolute path would discard the directory they are joined onto, and `..` would write outside the tree, so both are rejected at parse time. A key that momo does not recognise is an error too, so a misspelled key fails loudly instead of silently taking its default.
 
-The changelog's release heading is stamped with the **UTC** date
-(`## [0.1.0] - 2026-10-13`), so a release is reproducible across machines and CI
-runners regardless of the local timezone. Every package in one run shares the
-date: it is read once, before the per-package loop.
+The changelog's release heading is stamped with the **UTC** date (`## [0.1.0] - 2026-10-13`), so a release is reproducible across machines and CI runners regardless of the local timezone. Every package in one run shares the date: it is read once, before the per-package loop.
 
-`remote` overrides the remote derived from the VCS and supplies one when there is
-no VCS; with neither, the changelog omits its reference-link footer. A value that
-is set but is not a recognisable remote URL is an error, not a silent omission:
+`remote` overrides the remote derived from the VCS and supplies one when there is no VCS; with neither, the changelog omits its reference-link footer. A value that is set but is not a recognisable remote URL is an error, not a silent omission:
 
 ```console
 $ momo release
 error: reading /repo/momo.toml: invalid value `not a remote` for `remote`; expected a remote URL
 ```
 
-`rc_format` must contain exactly one `{n}` and form a valid pre-release once it is
-substituted, so a template that would never advance — `"-rc"` — is rejected
-rather than minting the same candidate for every number:
+`rc_format` must contain exactly one `{n}` and form a valid pre-release once it is substituted, so a template that would never advance — `"-rc"` — is rejected rather than minting the same candidate for every number:
 
 ```console
 $ MOMO_RC_FORMAT='-rc' momo candidate
 error: validating the configuration: invalid value `-rc` for `rc_format`: `-rc` must contain exactly one `{n}`
 ```
 
-`command_timeout` bounds every external command momo spawns (`git`, `jj` and
-`mise`). A child that outlives it is killed and the command fails with a timeout
-error, so a hung process — a held jj workspace lock, for instance — cannot stall
-an unattended release job. It is a whole number of seconds and must be positive;
-raise it for a very large repository where a read legitimately takes longer:
+`command_timeout` bounds every external command momo spawns (`git`, `jj` and `mise`). A child that outlives it is killed and the command fails with a timeout error, so a hung process — a held jj workspace lock, for instance — cannot stall an unattended release job. It is a whole number of seconds and must be positive; raise it for a very large repository where a read legitimately takes longer:
 
 ```toml
 command_timeout = 300
@@ -85,19 +65,9 @@ slug = "alpha"               # override the ref/path-safe slug
 manifest = "Cargo.toml"      # override the discovered manifest, relative to the package directory
 ```
 
-`manifest` is resolved **relative to the package's directory**, not the repo
-root. For a package rooted at `crates/momo`, `Cargo.toml` resolves to
-`crates/momo/Cargo.toml`; a repo-relative value like
-`crates/momo/Cargo.toml` would resolve to `crates/momo/crates/momo/Cargo.toml`
-and silently fail to find the manifest. Like the other path keys it must be
-relative and must not contain `..`.
+`manifest` is resolved **relative to the package's directory**, not the repo root. For a package rooted at `crates/momo`, `Cargo.toml` resolves to `crates/momo/Cargo.toml`; a repo-relative value like `crates/momo/Cargo.toml` would resolve to `crates/momo/crates/momo/Cargo.toml` and silently fail to find the manifest. Like the other path keys it must be relative and must not contain `..`.
 
-`slug` is derived from the identity unless set explicitly, and it namespaces
-the package's tags and Fragment store. An `identity` override with no `slug`
-recomputes the slug from the new identity, so renaming a package moves its tag
-namespace and Fragment store to the new name; pin `slug` explicitly to keep the
-old ones. Two packages that derive the same slug are an error — give one a
-distinct `slug`.
+`slug` is derived from the identity unless set explicitly, and it namespaces the package's tags and Fragment store. An `identity` override with no `slug` recomputes the slug from the new identity, so renaming a package moves its tag namespace and Fragment store to the new name; pin `slug` explicitly to keep the old ones. Two packages that derive the same slug are an error — give one a distinct `slug`.
 
 ## Precedence
 
@@ -105,16 +75,13 @@ Configuration is layered, lowest to highest:
 
 **`MOMO_*` environment variables > `momo.toml` > built-in defaults.**
 
-Each layer sets only the keys it actually sets, so a sparse file leaves
-everything else at its default.
+Each layer sets only the keys it actually sets, so a sparse file leaves everything else at its default.
 
 ## Environment variables
 
-`MOMO_RECORDING`, `MOMO_CHANGELOG`, `MOMO_CHANGES_DIR`, `MOMO_TAG_PREFIX`,
-`MOMO_REMOTE`, `MOMO_TASK_ENV`, `MOMO_RC_FORMAT`, `MOMO_COMMAND_TIMEOUT`.
+`MOMO_RECORDING`, `MOMO_CHANGELOG`, `MOMO_CHANGES_DIR`, `MOMO_TAG_PREFIX`, `MOMO_REMOTE`, `MOMO_TASK_ENV`, `MOMO_RC_FORMAT`, `MOMO_COMMAND_TIMEOUT`.
 
-An empty value is treated as unset, so `MOMO_CHANGES_DIR=` does not redirect the
-Fragment store. Unrelated `MOMO_*` variables are ignored.
+An empty value is treated as unset, so `MOMO_CHANGES_DIR=` does not redirect the Fragment store. Unrelated `MOMO_*` variables are ignored.
 
 ```console
 $ MOMO_TAG_PREFIX="rel-" momo status
