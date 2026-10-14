@@ -7,7 +7,8 @@
 #   sh install.sh --to /usr/local/bin
 #
 # Downloads the release archive for this machine, verifies it against the
-# published SHA256SUMS, and installs the `momo` binary. POSIX sh only.
+# published SHA256SUMS — and, when the GitHub CLI can, the build-provenance
+# attestation — and installs the `momo` binary. POSIX sh only.
 
 set -eu
 
@@ -126,6 +127,25 @@ Refusing to install a corrupt or tampered download."
   fi
 }
 
+# verify_attestation ARCHIVE — the checksum proves the download matches
+# SHA256SUMS; a build-provenance attestation additionally binds the archive to
+# the workflow that built it, with no key to hold. Verify it when `gh` is
+# present, new enough and authenticated — the same check mise's `github:`
+# backend runs. It stays additive rather than fatal because a release published
+# before attestations existed has nothing to verify against, and `gh` cannot
+# tell that case apart from a failed check, so failing here would break
+# installing an older version for no security gain.
+verify_attestation() {
+  command -v gh >/dev/null 2>&1 || return 0
+  gh attestation verify --help >/dev/null 2>&1 || return 0
+
+  if gh attestation verify "${tmp}/$1" --repo "$REPO" >/dev/null 2>&1; then
+    printf 'Verified the build provenance of %s\n' "$1"
+  else
+    printf 'note: could not verify the build provenance of %s; relying on the checksum\n' "$1" >&2
+  fi
+}
+
 requested_version=""
 install_dir=""
 
@@ -185,6 +205,7 @@ printf 'Installing momo %s (%s)\n' "$version" "$target"
 fetch "${base_url}/${archive}" "${tmp}/${archive}"
 fetch "${base_url}/SHA256SUMS" "${tmp}/SHA256SUMS"
 verify_checksum "$archive"
+verify_attestation "$archive"
 
 # The archive holds a `momo-<version>-<target>/` directory containing `momo`.
 tar -xzf "${tmp}/${archive}" -C "$tmp"
