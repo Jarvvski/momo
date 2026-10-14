@@ -11,8 +11,11 @@ use tempfile::TempDir;
 /// The version the built binary pins into its wrappers.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The verbs that get a `momo:*` task wrapper.
-const VERBS: [&str; 9] = [
+/// The verbs that get a `momo:*` task wrapper — momo's `INSTALLABLE_VERBS`.
+///
+/// The command surface is wider: `version` reports and writes nothing, so it
+/// must not appear here or in the task directory.
+const INSTALLABLE_VERBS: [&str; 9] = [
     "break",
     "add",
     "fix",
@@ -88,10 +91,30 @@ fn install_writes_one_wrapper_per_verb() {
 
     momo(&dir).arg("install").assert().success();
 
-    for verb in VERBS {
+    for verb in INSTALLABLE_VERBS {
         let path = dir.path().join("mise-tasks/momo").join(verb);
         assert!(path.is_file(), "no wrapper for `{verb}`");
     }
+
+    // Exactly the installable verbs: a reporting-only verb such as `version`
+    // must never become a `momo:*` task.
+    let mut wrappers: Vec<String> = fs::read_dir(dir.path().join("mise-tasks/momo"))
+        .expect("the task directory")
+        .map(|entry| {
+            entry
+                .expect("directory entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    wrappers.sort();
+    let mut expected = INSTALLABLE_VERBS;
+    expected.sort_unstable();
+    assert_eq!(
+        wrappers, expected,
+        "the installed wrappers drifted from the verb list"
+    );
 }
 
 #[test]

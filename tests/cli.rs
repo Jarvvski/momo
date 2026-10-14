@@ -7,8 +7,12 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-/// The canonical verbs on the command surface.
-const VERBS: [&str; 9] = [
+/// The canonical commands on the surface, in help order.
+///
+/// This is the whole surface: `version` sits here but not in momo's
+/// `INSTALLABLE_VERBS`, because it gets no `momo:*` task wrapper (see
+/// `tests/install.rs`).
+const COMMANDS: [&str; 10] = [
     "break",
     "add",
     "fix",
@@ -18,12 +22,14 @@ const VERBS: [&str; 9] = [
     "tag",
     "init",
     "install",
+    "version",
 ];
 
 /// The global flags on the command surface.
-const GLOBAL_FLAGS: [&str; 6] = [
+const GLOBAL_FLAGS: [&str; 7] = [
     "--dry-run",
     "--format",
+    "--json",
     "--version-only",
     "--output",
     "--package",
@@ -54,7 +60,7 @@ fn help_lists_every_verb_alias_and_global_flag() {
     let assert = momo(&dir).arg("--help").assert().success();
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
 
-    for verb in VERBS {
+    for verb in COMMANDS {
         assert!(
             stdout.contains(verb),
             "`momo --help` is missing the `{verb}` verb:\n{stdout}"
@@ -77,9 +83,34 @@ fn help_lists_every_verb_alias_and_global_flag() {
 }
 
 #[test]
+fn every_verb_help_has_usage_examples() {
+    let dir = TempDir::new().expect("temp dir");
+
+    let assert = momo(&dir).arg("--help").assert().success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    assert!(
+        stdout.contains("Examples:"),
+        "`momo --help` has no examples:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("momo add \"Add a shiny thing\""),
+        "`momo --help` is missing the quick-start block:\n{stdout}"
+    );
+
+    for verb in COMMANDS {
+        let assert = momo(&dir).args([verb, "--help"]).assert().success();
+        let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+        assert!(
+            stdout.contains("Examples:") && stdout.contains(&format!("momo {verb}")),
+            "`momo {verb} --help` has no examples:\n{stdout}"
+        );
+    }
+}
+
+#[test]
 fn each_verb_help_shows_the_global_flags() {
     let dir = TempDir::new().expect("temp dir");
-    for verb in VERBS {
+    for verb in COMMANDS {
         let assert = momo(&dir).args([verb, "--help"]).assert().success();
         let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
         for flag in GLOBAL_FLAGS {
@@ -329,8 +360,9 @@ fn init_dry_run_with_a_version_writes_nothing() {
 #[test]
 fn output_flags_are_rejected_on_verbs_without_a_report() {
     let dir = TempDir::new().expect("temp dir");
-    let cases: [(&[&str], &str, &str); 12] = [
+    let cases: [(&[&str], &str, &str); 17] = [
         (&["add", "a thing", "--format", "json"], "--format", "add"),
+        (&["add", "a thing", "--json"], "--json", "add"),
         (
             &["add", "a thing", "--version-only"],
             "--version-only",
@@ -346,6 +378,7 @@ fn output_flags_are_rejected_on_verbs_without_a_report() {
             "--format",
             "break",
         ),
+        (&["break", "a thing", "--json"], "--json", "break"),
         (
             &["fix", "a thing", "--version-only"],
             "--version-only",
@@ -356,10 +389,13 @@ fn output_flags_are_rejected_on_verbs_without_a_report() {
             "--output",
             "fix",
         ),
+        (&["fix", "a thing", "--json"], "--json", "fix"),
         (&["init", "--format", "json"], "--format", "init"),
+        (&["init", "--json"], "--json", "init"),
         (&["init", "--version-only"], "--version-only", "init"),
         (&["init", "--output", "out.txt"], "--output", "init"),
         (&["install", "--format", "json"], "--format", "install"),
+        (&["install", "--json"], "--json", "install"),
         (&["install", "--version-only"], "--version-only", "install"),
         (&["install", "--output", "out.txt"], "--output", "install"),
     ];
@@ -374,11 +410,22 @@ fn output_flags_are_rejected_on_verbs_without_a_report() {
 }
 
 #[test]
+fn the_json_shorthand_and_the_format_flag_conflict() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["status", "--json", "--format", "json"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--format").and(predicate::str::contains("--json")));
+}
+
+#[test]
 fn reporting_verbs_still_accept_the_output_flags() {
     let dir = TempDir::new().expect("temp dir");
 
     for args in [
         &["status", "--format", "json"][..],
+        &["status", "--json"][..],
         &["status", "--version-only"][..],
     ] {
         momo(&dir).args(args).assert().success();

@@ -4,7 +4,9 @@
 
 <p align="center"> <a href="https://github.com/Jarvvski/momo/blob/main/LICENSE-MIT"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue"></a> <a href="https://github.com/Jarvvski/momo/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Jarvvski/momo/actions/workflows/ci.yml/badge.svg"></a> </p>
 
-momo turns a project's accumulated changes into semver releases, a changelog and VCS tags. It is a small, standalone Rust CLI.
+**momo — the release half of your mise workflow.**
+
+momo is the release step for mise-first polyglot monorepos. Pair it with mise and it discovers your packages from `mise tasks graph`, installs its own `momo:*` tasks with `momo install`, and turns recorded changes into semver versions, a changelog and VCS tags — `mise use github:Jarvvski/momo`, then `momo add "…"` and `momo release`. It is VCS-optional (git, jj, or none) and CI-agnostic: it never reads `CI_*`/`GITHUB_*`, never commits, and never pushes — it reports, and your CI decides what to do about it.
 
 Record a change with one of three verbs — `break`, `add`, `fix` — and momo works out the version, writes the changelog, and tags the release.
 
@@ -16,6 +18,14 @@ Record a change with one of three verbs — `break`, `add`, `fix` — and momo w
 ## Install
 
 momo is Unix-only: it builds on Linux and macOS, and there is no Windows build.
+
+Let a task environment manage it:
+
+```bash
+mise use github:Jarvvski/momo
+```
+
+Or with the installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jarvvski/momo/main/install.sh | sh
@@ -35,12 +45,6 @@ Or from crates.io:
 
 ```bash
 cargo install momo-cli          # from crates.io; installs the `momo` binary
-```
-
-Or let a task environment manage it:
-
-```bash
-mise use github:Jarvvski/momo
 ```
 
 From a checkout:
@@ -110,6 +114,7 @@ Two deviations from convention are deliberate and owned out loud: a `fix` at `0.
 | `momo tag` | | Create the VCS tag for the current version |
 | `momo init` | | Scaffold `momo.toml`, optionally with a start version |
 | `momo install [env]` | | Install momo into a task environment |
+| `momo version` | | Print the momo version |
 
 Global flags:
 
@@ -117,6 +122,7 @@ Global flags:
 |---|---|
 | `--dry-run` | Show what would happen and change nothing |
 | `--format <human\|json>` | Output format for reporting commands |
+| `--json` | Shorthand for `--format json` |
 | `--version-only` | Print only the computed version |
 | `--output <PATH>` | Write output to a file instead of stdout |
 | `-p, --package <PKG>` | Target a package (default: the one containing the cwd) |
