@@ -515,25 +515,3 @@ fn tag_format_json_matches_the_documented_contract() {
     assert_eq!(package["tag"], "v0.1.0");
     assert_eq!(package["version"], "0.1.0");
 }
-
-#[test]
-fn notes_format_json_matches_the_documented_contract() {
-    let dir = TempDir::new().expect("temp dir");
-    let proj = project(&dir);
-    // The section body carries a newline, and the recorded text a quote and a
-    // backslash: all three must survive `escape_into` and parse back verbatim.
-    let text = r#"A "quoted" \backslash"#;
-    momo(&proj).args(["add", text]).assert().success();
-    momo(&proj).arg("release").assert().success();
-
-    let value = json(&stdout(&proj, &["notes", "--format", "json"]));
-
-    assert_keys(&value, &["packages"]);
-    let packages = value["packages"].as_array().expect("a `packages` array");
-    assert_eq!(packages.len(), 1, "{value}");
-    let package = &packages[0];
-    assert_keys(package, &["name", "version", "notes"]);
-    assert_eq!(package["name"], "proj");
-    assert_eq!(package["version"], "0.1.0");
-    assert_eq!(package["notes"], format!("### Added\n\n- {text}"));
-}

@@ -2,7 +2,7 @@
 
 momo is designed to be driven by a script. It never reads `CI_*` or `GITHUB_*` — it reports and exits, and CI decides what to do about it.
 
-The reporting verbs (`status`, `release`, `candidate`, `tag`, `notes`) honour the output flags below. `break`/`add`/`fix`, `init` and `install` reject them, because those verbs produce no structured report.
+The reporting verbs (`status`, `release`, `candidate`, `tag`) honour the output flags below. `break`/`add`/`fix`, `init` and `install` reject them, because those verbs produce no structured report.
 
 | Flag | Effect |
 |---|---|
@@ -104,34 +104,6 @@ Every reporting verb emits **one** JSON document per run, whatever the number of
 
 `tag` is the package's namespaced tag name, prefix included; `name` identifies which package it names.
 
-### `notes` (`--format json`)
-
-```json
-{
-  "packages": [
-    {
-      "name": "momo",
-      "version": "1.4.2",
-      "notes": "### Added\n\n- Add a shiny thing"
-    }
-  ]
-}
-```
-
-`notes` is the Changelog section for the described Version, **verbatim** — the same lines the changelog holds under `## [1.4.2]`, including content momo cannot interpret. There is no `dry_run`: `notes` reads only.
-
-The Version is `--version` when given, else the pending-release ledger, so `momo notes` straight after a `release` describes what was just minted without naming it twice.
-
-The human rendering is the section body alone when one Package is reported, and a `## <package> <version>` header per Package when several are — so a single-package `--output` is a release body ready to publish:
-
-```console
-$ momo notes --output notes.md
-$ cat notes.md
-### Added
-
-- Add a shiny thing
-```
-
 ## A release job
 
 The shape, independent of the CI system:
@@ -145,13 +117,12 @@ git add --all
 git commit -m "release $version"
 momo tag
 git push --follow-tags
-momo notes --output notes.md
-gh release create "v$version" --title "v$version" --notes-file notes.md
+gh release create "v$version" --title "v$version" --generate-notes
 ```
 
 momo writes the files and creates the tag; committing, pushing and publishing are the job's own steps. `release --version-only` mints and writes exactly as `release` does — it only narrows what is printed — so the version names the commit it is about to land on.
 
-`momo notes` prints the section `release` just wrote, so the release body and the changelog never drift.
+The release page is the forge's job: `--generate-notes` has GitHub list the merged pull requests. momo's changelog is the record that lives in the repo, written from the Changes you recorded — the two are generated from their own sources and neither is derived from the other.
 
 ## A GitHub Actions workflow
 
@@ -217,8 +188,7 @@ jobs:
           git push origin HEAD --follow-tags
 
           tag="$(jq -r '.packages[0].tag' tag.json)"
-          momo notes --output notes.md
-          gh release create "$tag" --title "$tag" --notes-file notes.md
+          gh release create "$tag" --title "$tag" --generate-notes
 ```
 
 ### What it has to get right

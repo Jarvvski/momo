@@ -23,10 +23,10 @@ use time::Date;
 
 use crate::domain::change::{Change, Kind};
 use crate::domain::config::Config;
-use crate::domain::version::{VersionSource, next_version};
+use crate::domain::version::next_version;
 
 use crate::cli::config::{self, CONFIG_FILE};
-use crate::cli::output::{self, NotesPackage, ReleasePackage, StatusPackage, TagPackage, Verb};
+use crate::cli::output::{self, ReleasePackage, StatusPackage, TagPackage, Verb};
 use crate::cli::recording;
 use crate::cli::release::{self, Outcome};
 use crate::cli::version::{self, FileVersionSource, VERSION_FILE};
@@ -34,7 +34,7 @@ use crate::cli::workspace;
 use crate::cli::{Cli, Command};
 
 /// The momo verbs exposed as `momo:*` tasks, in command-surface order.
-const VERBS: [&str; 10] = [
+const VERBS: [&str; 9] = [
     "break",
     "add",
     "fix",
@@ -42,7 +42,6 @@ const VERBS: [&str; 10] = [
     "release",
     "candidate",
     "tag",
-    "notes",
     "init",
     "install",
 ];
@@ -61,7 +60,6 @@ pub fn run(cli: &Cli) -> Result<()> {
         Command::Release => release(cli),
         Command::Candidate => candidate(cli),
         Command::Tag { rev } => tag(cli, rev.as_deref()),
-        Command::Notes { version } => notes(cli, version.as_ref()),
         Command::Init { version } => init(cli, version.as_ref()),
         Command::Install {
             env,
@@ -75,16 +73,12 @@ pub fn run(cli: &Cli) -> Result<()> {
 ///
 /// `--format`, `--version-only` and `--output` select how a report is rendered;
 /// on a verb with no report they mean nothing, so accepting them silently would
-/// mislead. The reporting verbs (`status`, `release`, `candidate`, `tag`,
-/// `notes`) keep them.
+/// mislead. The reporting verbs (`status`, `release`, `candidate`, `tag`) keep
+/// them.
 fn reject_output_flags(cli: &Cli) -> Result<()> {
     if matches!(
         cli.command,
-        Command::Status { .. }
-            | Command::Release
-            | Command::Candidate
-            | Command::Tag { .. }
-            | Command::Notes { .. }
+        Command::Status { .. } | Command::Release | Command::Candidate | Command::Tag { .. }
     ) {
         return Ok(());
     }
@@ -295,51 +289,6 @@ fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
     }
     if report.packages.is_empty() {
         bail!("nothing to tag: run `momo release` first");
-    }
-    output::emit(cli, &report)
-}
-
-/// Print the Changelog section for a released Version.
-///
-/// The Version is `--version` when given, else the pending-release ledger — the
-/// Version the last `release`/`candidate` minted — so the notes for a Release
-/// can be published without naming the Version twice. Read-only.
-fn notes(cli: &Cli, version: Option<&Version>) -> Result<()> {
-    let root = project_root()?;
-    let config = config::load(&root)?;
-    let discovery = workspace::load(&root, &config)?;
-    let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
-    let explicit = cli.package.is_some();
-
-    let mut report = output::Notes {
-        packages: Vec::new(),
-    };
-    for package in packages {
-        let version = match version {
-            Some(version) => Some(version.clone()),
-            None => FileVersionSource::new(&package.dir(&root)).current()?,
-        };
-        let Some(version) = version else {
-            if explicit {
-                bail!("nothing to describe: run `momo release` first, or pass `--version <X.Y.Z>`");
-            }
-            continue;
-        };
-        let changelog = release::read_changelog(&root, &config, package)?;
-        let Some(notes) = changelog.body_for(&version) else {
-            bail!(
-                "no changelog section for `{version}` in {}",
-                package.changelog(&root, &config).display()
-            );
-        };
-        report.packages.push(NotesPackage {
-            package: package.identity().to_owned(),
-            version,
-            notes,
-        });
-    }
-    if report.packages.is_empty() {
-        bail!("nothing to describe: run `momo release` first, or pass `--version <X.Y.Z>`");
     }
     output::emit(cli, &report)
 }
@@ -570,7 +519,6 @@ mod tests {
             Command::Release,
             Command::Candidate,
             Command::Tag { rev: None },
-            Command::Notes { version: None },
             Command::Init { version: None },
             Command::Install {
                 env: None,
@@ -585,6 +533,6 @@ mod tests {
                 "no task wrapper for `{verb}`"
             );
         }
-        assert_eq!(VERBS.len(), 10, "the verb list drifted from the surface");
+        assert_eq!(VERBS.len(), 9, "the verb list drifted from the surface");
     }
 }

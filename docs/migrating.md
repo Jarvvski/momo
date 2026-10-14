@@ -205,7 +205,7 @@ tagged v1.5.0
 
 ## 5. Release pages and CI
 
-momo creates the **tag**. It never creates a GitHub release and never reads one — your existing release pages are untouched, and keeping them going is your CI's job. The changelog section momo just wrote is the body:
+momo creates the **tag**. It never creates a GitHub release and never reads one — your existing release pages are untouched, and keeping them going is your CI's job. Let the forge write the page from the merged pull requests:
 
 ```bash
 version="$(momo release --version-only)"
@@ -213,11 +213,10 @@ git add --all
 git commit -m "release $version"
 momo tag
 git push --follow-tags
-momo notes --output notes.md
-gh release create "v$version" --title "v$version" --notes-file notes.md
+gh release create "v$version" --title "v$version" --generate-notes
 ```
 
-`momo notes` prints the section verbatim, so the release page and the changelog cannot drift.
+The release page and the changelog are independent: the page comes from the merged pull requests, the changelog from the Changes you recorded.
 
 For a complete, copy-pasteable GitHub Actions workflow — including the tags-shallow-clone trap, the inverted `status --check` gate, concurrency, and the token a protected branch needs — see **[CI](ci.md#a-github-actions-workflow)**.
 
@@ -287,7 +286,7 @@ A single root `CHANGELOG.md` shared by every package is not supported; split it,
 
 ### Targeting
 
-Recording verbs default to the package containing the current directory; aggregate verbs (`status`, `release`, `tag`, `notes`) default to every package. `-p` scopes to one and `--all` covers them all:
+Recording verbs default to the package containing the current directory; aggregate verbs (`status`, `release`, `tag`) default to every package. `-p` scopes to one and `--all` covers them all:
 
 ```console
 $ momo -p cargo:momo add "Add a thing"
@@ -331,11 +330,6 @@ wrote /repo/Cargo.toml
 $ git commit -am "release 1.5.0"
 $ momo tag
 tagged v1.5.0
-
-$ momo notes --output notes.md && cat notes.md
-### Added
-
-- A new thing
 ```
 
 The only unexpected diff is the footer, regenerated as described in [§3](#the-footer-is-regenerated-on-your-first-release). From here, `momo add`, `momo fix` and `momo break` drive the next version, and CI can gate on `momo status --check`.

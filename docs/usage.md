@@ -39,16 +39,6 @@ $ git commit -am "release 0.1.0"     # or: jj commit
 $ momo tag
 ```
 
-`momo notes` prints the Changelog section for a released Version — the body a release page should carry, verbatim. It reads the pending-release ledger by default, so it follows a `release` without naming the Version again; `--version <X.Y.Z>` describes an earlier release:
-
-```console
-$ momo release
-$ momo notes --output notes.md      # the section for the Version just minted
-$ momo notes --version 0.1.0        # the section for an earlier release
-```
-
-It is read-only. One Package prints its body alone; several are each introduced by a `## <package> <version>` header. A Version the changelog does not name is an error rather than an empty release body.
-
 ## Tagging
 
 - git → an **annotated** tag on `HEAD`, the committed release.
@@ -102,7 +92,7 @@ There is no cascading: releasing a package does not bump its dependents.
 
 ```console
 $ momo install
-installed momo 0.1.0: 10 task(s) in /repo/mise-tasks/momo
+installed momo 0.1.0: 9 task(s) in /repo/mise-tasks/momo
 
 $ mise tasks ls
 momo:add        Run momo add
@@ -111,7 +101,6 @@ momo:candidate  Run momo candidate
 momo:fix        Run momo fix
 momo:init       Run momo init
 momo:install    Run momo install
-momo:notes      Run momo notes
 momo:release    Run momo release
 momo:status     Run momo status
 momo:tag        Run momo tag
