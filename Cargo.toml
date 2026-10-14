@@ -57,6 +57,7 @@ tempfile = "3"
 
 [lints.rust]
 unsafe_code = "forbid"
+missing_docs = "warn"
 unused = { level = "warn", priority = -1 }
 
 [lints.clippy]
@@ -71,3 +72,11 @@ incremental = false
 [profile.test]
 debug = 0
 incremental = false
+
+# Release binaries are shipped as tarballs, so favour a small, fast artefact:
+# strip the symbols, thin-LTO across the crate, and one codegen unit for the
+# best cross-unit optimisation. The build-time cost is paid once per release.
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
