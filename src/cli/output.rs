@@ -3,8 +3,8 @@
 //! A reporting command builds a [`Report`] and hands it to [`emit`], which picks
 //! the rendering the global flags ask for (`--format`, `--version-only`) and
 //! sends it to stdout or, with `--output <path>`, to a file. The JSON shapes are
-//! a deliberate contract — the workspace carries no JSON dependency, so they are
-//! assembled by hand ([`Json`]) and pinned by tests.
+//! a deliberate contract: the report types derive [`Serialize`], and the shapes
+//! are pinned by tests.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use crate::domain::change::{Change, Kind};
 use anyhow::{Context, Result};
 use semver::Version;
+use serde::Serialize;
+use serde::ser::{SerializeSeq, SerializeStruct, Serializer};
 
 use crate::cli::{Cli, Format};
 
@@ -79,6 +81,24 @@ impl StatusPackage {
     }
 }
 
+impl Serialize for StatusPackage {
+    /// The documented shape: the Package's `name`, its `current` Version (or
+    /// `null`), the `next` Version a Release would mint, and the `changes` that
+    /// justify it. `next` is computed rather than the stored field, so the
+    /// envelope cannot be a derived impl.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("StatusPackage", 4)?;
+        state.serialize_field("name", &self.package)?;
+        state.serialize_field("current", &self.current)?;
+        state.serialize_field("next", &self.computed())?;
+        state.serialize_field("changes", &Changes(&self.changes))?;
+        state.end()
+    }
+}
+
 /// What `momo status` reports: the Unreleased Changes and the Version they
 /// imply, per Package.
 ///
@@ -115,6 +135,20 @@ impl Status {
     }
 }
 
+impl Serialize for Status {
+    /// The documented shape: the run-wide `unreleased` gate, then the packages.
+    /// The gate is computed, so the envelope cannot be a derived impl.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("Status", 2)?;
+        state.serialize_field("unreleased", &self.unreleased())?;
+        state.serialize_field("packages", &self.packages)?;
+        state.end()
+    }
+}
+
 impl Report for Status {
     fn human(&self) -> String {
         let mut out = String::from("Unreleased\n\n");
@@ -143,36 +177,7 @@ impl Report for Status {
     }
 
     fn json(&self) -> String {
-        let packages = self
-            .packages
-            .iter()
-            .map(|package| {
-                let changes = package
-                    .changes
-                    .iter()
-                    .map(|change| {
-                        Json::object(vec![
-                            ("kind", Json::from(change.kind.to_string())),
-                            ("text", Json::from(change.text.as_str())),
-                        ])
-                    })
-                    .collect();
-                Json::object(vec![
-                    ("name", Json::from(package.package.as_str())),
-                    (
-                        "current",
-                        package.current.as_ref().map_or(Json::Null, Json::from),
-                    ),
-                    ("next", Json::from(&package.computed())),
-                    ("changes", Json::Array(changes)),
-                ])
-            })
-            .collect();
-        Json::object(vec![
-            ("unreleased", Json::from(self.unreleased())),
-            ("packages", Json::Array(packages)),
-        ])
-        .to_document()
+        to_document(self)
     }
 
     fn version(&self) -> String {
@@ -212,19 +217,25 @@ impl Verb {
 }
 
 /// One Package's entry in a `release` / `candidate` report.
+#[derive(Serialize)]
 pub struct ReleasePackage {
-    /// The Package's identity, e.g. `cargo:momo`.
+    /// The Package's identity, e.g. `cargo:momo`, reported as `name`.
+    #[serde(rename = "name")]
     pub package: String,
     /// The Version minted.
     pub version: Version,
     /// The Changelog the run wrote.
+    #[serde(serialize_with = "serialize_path")]
     pub changelog: PathBuf,
     /// The version file the run wrote. Both `release` and `candidate` advance
     /// it, so it is always present and the run can be tagged.
+    #[serde(serialize_with = "serialize_path")]
     pub version_file: PathBuf,
     /// The ecosystem manifest the run synced, when it found one.
+    #[serde(serialize_with = "serialize_optional_path")]
     pub manifest: Option<PathBuf>,
     /// The Fragments the run consumed.
+    #[serde(serialize_with = "serialize_paths")]
     pub consumed: Vec<PathBuf>,
 }
 
@@ -254,8 +265,11 @@ pub struct ReleasePackage {
 /// `release` and `candidate` advance it, so the run can be tagged. `manifest` is
 /// the ecosystem manifest the run synced, or `null` when the Package has none.
 /// Under `--dry-run` the paths are what the run *would* have written.
+#[derive(Serialize)]
 pub struct Release {
-    /// Which verb minted the Version.
+    /// Which verb minted the Version. The two verbs share one document, so it
+    /// has no JSON rendering of its own.
+    #[serde(skip)]
     pub verb: Verb,
     /// Whether nothing was actually written.
     pub dry_run: bool,
@@ -293,31 +307,7 @@ impl Report for Release {
     }
 
     fn json(&self) -> String {
-        let packages = self
-            .packages
-            .iter()
-            .map(|package| {
-                let consumed = package
-                    .consumed
-                    .iter()
-                    .map(|path| Json::from(path.as_path()))
-                    .collect();
-                let manifest = package.manifest.as_deref().map_or(Json::Null, Json::from);
-                Json::object(vec![
-                    ("name", Json::from(package.package.as_str())),
-                    ("version", Json::from(&package.version)),
-                    ("changelog", Json::from(package.changelog.as_path())),
-                    ("version_file", Json::from(package.version_file.as_path())),
-                    ("manifest", manifest),
-                    ("consumed", Json::Array(consumed)),
-                ])
-            })
-            .collect();
-        Json::object(vec![
-            ("dry_run", Json::from(self.dry_run)),
-            ("packages", Json::Array(packages)),
-        ])
-        .to_document()
+        to_document(self)
     }
 
     fn version(&self) -> String {
@@ -330,10 +320,13 @@ impl Report for Release {
 }
 
 /// One Package's entry in a `tag` report.
+#[derive(Serialize)]
 pub struct TagPackage {
-    /// The Package's identity, e.g. `cargo:momo`.
+    /// The Package's identity, e.g. `cargo:momo`, reported as `name`.
+    #[serde(rename = "name")]
     pub package: String,
-    /// The tag name, prefix included.
+    /// The tag name, prefix included, reported as `tag`.
+    #[serde(rename = "tag")]
     pub name: String,
     /// The Version the tag names.
     pub version: Version,
@@ -354,6 +347,7 @@ pub struct TagPackage {
 ///
 /// Like [`Status`] and [`Release`], `packages` is always an array and `dry_run`
 /// is the run-wide flag.
+#[derive(Serialize)]
 pub struct Tag {
     /// Whether nothing was actually created.
     pub dry_run: bool,
@@ -372,22 +366,7 @@ impl Report for Tag {
     }
 
     fn json(&self) -> String {
-        let packages = self
-            .packages
-            .iter()
-            .map(|package| {
-                Json::object(vec![
-                    ("name", Json::from(package.package.as_str())),
-                    ("tag", Json::from(package.name.as_str())),
-                    ("version", Json::from(&package.version)),
-                ])
-            })
-            .collect();
-        Json::object(vec![
-            ("dry_run", Json::from(self.dry_run)),
-            ("packages", Json::Array(packages)),
-        ])
-        .to_document()
+        to_document(self)
     }
 
     fn version(&self) -> String {
@@ -400,8 +379,10 @@ impl Report for Tag {
 }
 
 /// One Package's entry in a `notes` report.
+#[derive(Serialize)]
 pub struct NotesPackage {
-    /// The Package's identity, e.g. `cargo:momo`.
+    /// The Package's identity, e.g. `cargo:momo`, reported as `name`.
+    #[serde(rename = "name")]
     pub package: String,
     /// The Version the section describes.
     pub version: Version,
@@ -428,6 +409,7 @@ pub struct NotesPackage {
 /// Like the other reporting verbs, `packages` is always an array, so a
 /// monorepo's run is one document and one `--output` file. There is no
 /// `dry_run`: `notes` reads only, so there is nothing for it to withhold.
+#[derive(Serialize)]
 pub struct Notes {
     /// The Packages, in discovery order.
     pub packages: Vec<NotesPackage>,
@@ -453,18 +435,7 @@ impl Report for Notes {
     }
 
     fn json(&self) -> String {
-        let packages = self
-            .packages
-            .iter()
-            .map(|package| {
-                Json::object(vec![
-                    ("name", Json::from(package.package.as_str())),
-                    ("version", Json::from(&package.version)),
-                    ("notes", Json::from(package.notes.as_str())),
-                ])
-            })
-            .collect();
-        Json::object(vec![("packages", Json::Array(packages))]).to_document()
+        to_document(self)
     }
 
     fn version(&self) -> String {
@@ -476,143 +447,76 @@ impl Report for Notes {
     }
 }
 
-/// A JSON value, rendered with a stable two-space indentation.
+/// One Unreleased Change as `status` reports it: its Kind and its text.
+#[derive(Serialize)]
+struct ChangeReport<'a> {
+    /// The Change's Kind, e.g. `add`.
+    kind: String,
+    /// The Change's text, verbatim.
+    text: &'a str,
+}
+
+/// The `changes` array of a `status` report, rendered from the domain's
+/// [`Change`]s — which carry no serialization of their own.
+struct Changes<'a>(&'a [Change]);
+
+impl Serialize for Changes<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for change in self.0 {
+            seq.serialize_element(&ChangeReport {
+                kind: change.kind.to_string(),
+                text: &change.text,
+            })?;
+        }
+        seq.end()
+    }
+}
+
+/// Render `report` as a pretty JSON document, newline-terminated.
 ///
-/// The workspace carries no JSON dependency and momo's reports are small, so the
-/// documents are assembled deliberately here rather than pulled in. Object key
-/// order is preserved, so the output is byte-stable.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Json {
-    /// A JSON boolean.
-    Bool(bool),
-    /// A JSON null.
-    Null,
-    /// A JSON string.
-    String(String),
-    /// A JSON array.
-    Array(Vec<Json>),
-    /// A JSON object; key order is preserved.
-    Object(Vec<(String, Json)>),
+/// The reports hold only owned data, so serialization cannot fail.
+fn to_document(report: &impl Serialize) -> String {
+    let mut json = serde_json::to_string_pretty(report)
+        .expect("a report holds only owned data, so it always serializes");
+    json.push('\n');
+    json
 }
 
-impl Json {
-    /// A JSON object with the given keys and values, in order.
-    fn object(entries: Vec<(&str, Json)>) -> Self {
-        Json::Object(
-            entries
-                .into_iter()
-                .map(|(key, value)| (key.to_owned(), value))
-                .collect(),
-        )
-    }
+/// Serialize a filesystem path the way the reports always have: through
+/// [`Path::display`], which renders a non-UTF-8 path lossily rather than failing
+/// the whole document.
+fn serialize_path<S>(path: &Path, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.collect_str(&path.display())
+}
 
-    /// Render this value as a pretty JSON document, newline-terminated.
-    fn to_document(&self) -> String {
-        let mut out = String::new();
-        self.render(0, &mut out);
-        out.push('\n');
-        out
-    }
-
-    /// Append this value to `out`, indenting nested values `depth` levels deep.
-    fn render(&self, depth: usize, out: &mut String) {
-        match self {
-            Json::Bool(value) => out.push_str(if *value { "true" } else { "false" }),
-            Json::Null => out.push_str("null"),
-            Json::String(text) => {
-                out.push('"');
-                escape_into(text, out);
-                out.push('"');
-            }
-            Json::Array(items) if items.is_empty() => out.push_str("[]"),
-            Json::Array(items) => {
-                out.push_str("[\n");
-                for (index, item) in items.iter().enumerate() {
-                    indent(depth + 1, out);
-                    item.render(depth + 1, out);
-                    comma(index, items.len(), out);
-                }
-                indent(depth, out);
-                out.push(']');
-            }
-            Json::Object(entries) if entries.is_empty() => out.push_str("{}"),
-            Json::Object(entries) => {
-                out.push_str("{\n");
-                for (index, (key, value)) in entries.iter().enumerate() {
-                    indent(depth + 1, out);
-                    out.push('"');
-                    escape_into(key, out);
-                    out.push_str("\": ");
-                    value.render(depth + 1, out);
-                    comma(index, entries.len(), out);
-                }
-                indent(depth, out);
-                out.push('}');
-            }
-        }
+/// [`serialize_path`] for an optional path: `null` when the Package has none.
+fn serialize_optional_path<S>(path: &Option<PathBuf>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match path {
+        Some(path) => serialize_path(path, serializer),
+        None => serializer.serialize_none(),
     }
 }
 
-impl From<&str> for Json {
-    fn from(value: &str) -> Self {
-        Json::String(value.to_owned())
-    }
-}
-
-impl From<String> for Json {
-    fn from(value: String) -> Self {
-        Json::String(value)
-    }
-}
-
-impl From<bool> for Json {
-    fn from(value: bool) -> Self {
-        Json::Bool(value)
-    }
-}
-
-impl From<&Version> for Json {
-    fn from(value: &Version) -> Self {
-        Json::String(value.to_string())
-    }
-}
-
-impl From<&Path> for Json {
-    fn from(value: &Path) -> Self {
-        Json::String(value.display().to_string())
-    }
-}
-
-/// Append a comma unless `index` is the last of `len` entries, then a newline.
-fn comma(index: usize, len: usize, out: &mut String) {
-    if index + 1 < len {
-        out.push(',');
-    }
-    out.push('\n');
-}
-
-/// Append two spaces per `depth` level of indentation.
-fn indent(depth: usize, out: &mut String) {
-    for _ in 0..depth {
-        out.push_str("  ");
-    }
-}
-
-/// Append `text` to `out`, escaped for a JSON string.
-fn escape_into(text: &str, out: &mut String) {
-    for ch in text.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{08}' => out.push_str("\\b"),
-            '\u{0c}' => out.push_str("\\f"),
-            control if control < '\u{20}' => out.push_str(&format!("\\u{:04x}", control as u32)),
-            other => out.push(other),
-        }
-    }
+/// [`serialize_path`] for a list of paths.
+fn serialize_paths<S>(paths: &[PathBuf], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .serialize(serializer)
 }
 
 #[cfg(test)]
@@ -737,6 +641,20 @@ mod tests {
         let json = status(&changes).json();
 
         assert!(json.contains(r#""text": "A \"quoted\"\tchange""#), "{json}");
+    }
+
+    #[test]
+    fn status_json_escapes_a_control_character_as_an_escape_sequence() {
+        // A control character below `0x20` has no short escape, so it must come
+        // out as `\u00XX` for the document to stay one line — and parse back
+        // verbatim.
+        let changes = [Change::new(Kind::Fix, "a\u{1}b")];
+        let json = status(&changes).json();
+
+        assert!(json.contains(r#""text": "a\u0001b""#), "{json}");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("the report is one JSON document");
+        assert_eq!(parsed["packages"][0]["changes"][0]["text"], "a\u{1}b");
     }
 
     #[test]
