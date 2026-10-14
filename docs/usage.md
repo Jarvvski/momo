@@ -44,9 +44,13 @@ In a monorepo the fragment store is namespaced by package slug.
 
 `release` **consumes** fragments (deletes them). `candidate` does **not** — a candidate shares them with the eventual release.
 
+In changelog mode the Unreleased body is the bump source, and momo reads `- ` bullets only under `### Breaking`, `### Added` and `### Fixed`. A bullet under one of Keep a Changelog's other categories — `### Changed`, `### Deprecated`, `### Removed`, `### Security` — is Unreleased content momo cannot version, so `release`/`candidate` **refuse** rather than silently under-version, naming the heading and its line. `status` does not error, but lists those sections under `Unversioned` (and in `unversioned` in JSON), so the condition is never silent. A released section's `### Changed` is history and never blocks a release.
+
+In fragments mode a `.md` file in the changes dir that is not a recognised fragment (`<kind>-<slug>.md`, `<kind>` one of `break`/`add`/`fix`) is an error naming the file, rather than being silently skipped; dotfiles and `README*` are ignored.
+
 ## Releases and release candidates
 
-- **`momo release`** mints the version from the unreleased changes, writes the changelog and `.momo/version`, syncs the package manifest's version scalar, and consumes fragments. It errors when there is nothing unreleased.
+- **`momo release`** mints the version from the unreleased changes, writes the changelog and `.momo/version`, syncs the package manifest's version scalar, and consumes fragments. It errors when there is nothing unreleased, and refuses when the Unreleased body holds bullets under a Keep-a-Changelog heading momo cannot read.
 - **`momo candidate`** (alias `rc`) bumps exactly as `release` would, then appends `-rc.N`. It writes the same files but leaves fragments in place, and it advances `.momo/version` so the candidate can be tagged. The counter is scoped to the target version and restarts at `1` when the target changes.
 - **`momo tag`** creates the VCS tag for the version `.momo/version` holds — the one the last `release` or `candidate` minted. It refuses a ledger older than the newest tag, because that version is behind the release already tagged.
 

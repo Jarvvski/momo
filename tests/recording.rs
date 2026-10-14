@@ -367,3 +367,41 @@ fn a_taken_fragment_name_gets_a_numeric_suffix() {
         "Add a thing\n"
     );
 }
+
+#[test]
+fn an_unrecognised_fragment_file_fails_naming_the_file() {
+    let dir = TempDir::new().expect("temp dir");
+    seed_recording(&dir, "fragments");
+    let changes = dir.path().join(".momo/changes");
+    fs::create_dir_all(&changes).expect("create the changes dir");
+    // `changed-` is not a Kind, so this file would be invisible to the bump
+    // and the report — momo refuses it instead of silently skipping it.
+    fs::write(changes.join("changed-reworked.md"), "Reworked\n").expect("seed a stray file");
+    fs::write(changes.join("add-a-thing.md"), "Add a thing\n").expect("seed a fragment");
+
+    momo(&dir).arg("status").assert().failure().stderr(
+        predicate::str::contains("changed-reworked.md")
+            .and(predicate::str::contains("break, add, fix")),
+    );
+}
+
+#[test]
+fn a_readme_and_a_dotfile_in_the_changes_dir_are_ignored() {
+    let dir = TempDir::new().expect("temp dir");
+    seed_recording(&dir, "fragments");
+    let changes = dir.path().join(".momo/changes");
+    fs::create_dir_all(&changes).expect("create the changes dir");
+    fs::write(
+        changes.join("README.md"),
+        "Write fragments as `<kind>-<slug>.md`.\n",
+    )
+    .expect("seed a readme");
+    fs::write(changes.join(".gitkeep"), "").expect("seed a dotfile");
+    fs::write(changes.join("add-a-thing.md"), "Add a thing\n").expect("seed a fragment");
+
+    momo(&dir)
+        .arg("status")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("- Add a thing"));
+}

@@ -182,6 +182,105 @@ fn has_unreleased_counts_content_momo_cannot_parse() {
 }
 
 #[test]
+fn an_unreadable_heading_with_a_bullet_is_reported_at_its_line() {
+    let text = "\
+# Changelog
+
+## [Unreleased]
+
+### Changed
+
+- Reworked the parser
+- And again
+
+### Added
+
+- a thing
+";
+    assert_eq!(
+        parse(text).unread_sections(),
+        vec![UnreadSection {
+            heading: "Changed".to_owned(),
+            line: 5,
+            entries: 2,
+        }]
+    );
+}
+
+#[test]
+fn an_unreadable_heading_without_a_bullet_does_not_fire() {
+    let text = "# Changelog\n\n## [Unreleased]\n\n### Changed\n\nSome prose, no bullets.\n";
+    let changelog = parse(text);
+    assert!(changelog.unread_sections().is_empty());
+    assert!(changelog.reject_unread().is_ok());
+}
+
+#[test]
+fn a_released_unreadable_heading_is_history_not_an_error() {
+    // Only the Unreleased body is the bump source; a historical `### Changed`
+    // must never fail a project adopting momo over an existing changelog.
+    let text = "\
+# Changelog
+
+## [1.0.0] - 2026-01-01
+
+### Changed
+
+- Reworked the parser
+";
+    let changelog = parse(text);
+    assert!(changelog.unread_sections().is_empty());
+    assert!(changelog.reject_unread().is_ok());
+}
+
+#[test]
+fn a_foreign_heading_is_preserved_not_unread() {
+    // `### Internal` is not a Keep-a-Changelog classification, so it stays
+    // foreign — the documented escape hatch — even with a bullet beneath it.
+    let text = "# Changelog\n\n## [Unreleased]\n\n### Internal\n\n- a note\n";
+    let changelog = parse(text);
+    assert!(changelog.unread_sections().is_empty());
+    assert!(changelog.reject_unread().is_ok());
+}
+
+#[test]
+fn reject_unread_names_the_first_offending_section() {
+    let text = "\
+# Changelog
+
+## [Unreleased]
+
+### Changed
+
+- one
+
+### Security
+
+- two
+";
+    let err = parse(text)
+        .reject_unread()
+        .expect_err("an unreadable section is refused");
+    assert_eq!(
+        err,
+        ChangelogError::UnreadSection {
+            heading: "Changed".to_owned(),
+            line: 5,
+            entries: 1,
+        }
+    );
+    let message = err.to_string();
+    assert!(
+        message.contains("momo.changelog.unversioned-section"),
+        "{message}"
+    );
+    assert!(message.contains("`### Changed`"), "{message}");
+    assert!(message.contains("1 entry"), "{message}");
+    assert!(message.contains("(line 5)"), "{message}");
+    assert!(message.contains("fix:"), "{message}");
+}
+
+#[test]
 fn parsing_a_document_without_unreleased_reports_none() {
     let changelog = parse("# Changelog\n");
     assert!(changelog.unreleased().is_empty());

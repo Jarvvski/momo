@@ -12,6 +12,8 @@ pub(super) fn release_section(version: &Version, date: Date, body: Vec<String>) 
     Section {
         heading: format!("## [{version}] - {date}"),
         body,
+        // Built, not parsed: it has no document line until it is rendered.
+        line: 0,
     }
 }
 

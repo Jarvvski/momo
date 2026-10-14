@@ -70,13 +70,14 @@ Every reporting verb emits **one** JSON document per run, whatever the number of
           "kind": "add",
           "text": "Add a shiny thing"
         }
-      ]
+      ],
+      "unversioned": []
     }
   ]
 }
 ```
 
-`unreleased` is `true` when at least one package has an unreleased change — the same gate as `--check`. `current` is the package's last release (or cut candidate), or `null` when it has never released. `next` is the version a release would mint, or the current version when nothing is unreleased (then `changes` is empty). `packages` is always an array, even for a single-package repo.
+`unreleased` is `true` when at least one package has an unreleased change — the same gate as `--check`. `current` is the package's last release (or cut candidate), or `null` when it has never released. `next` is the version a release would mint, or the current version when nothing is unreleased (then `changes` is empty). `unversioned` lists the Unreleased sections under a Keep-a-Changelog heading momo cannot read — the condition that makes a `release` refuse; it is empty in the common case. `packages` is always an array, even for a single-package repo.
 
 ### `release` and `candidate` (`--format json`)
 

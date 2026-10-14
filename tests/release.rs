@@ -178,20 +178,22 @@ fn release_preserves_a_hand_written_changelog_body_and_footer() {
     .expect("seed momo.toml");
     fs::create_dir_all(dir.path().join(".momo")).expect("create .momo");
     fs::write(dir.path().join(".momo/version"), "1.0.0\n").expect("seed the version");
+    // The `### Changed` sits in a *released* section: a historical heading is
+    // preserved and never parsed, so it must not block the release.
     let seeded = "\
 # Changelog
 
 ## [Unreleased]
-
-### Changed
-
-- Reworked the parser
 
 ### Added
 
 - a shiny thing
 
 ## [1.0.0] - 2026-01-01
+
+### Changed
+
+- Reworked the parser
 
 ### Added
 
@@ -211,7 +213,7 @@ fn release_preserves_a_hand_written_changelog_body_and_footer() {
     assert!(changelog.contains("## [1.1.0]"), "{changelog}");
     assert!(
         changelog.contains("### Changed\n\n- Reworked the parser"),
-        "the `### Changed` section was dropped:\n{changelog}"
+        "the released `### Changed` section was dropped:\n{changelog}"
     );
     assert!(changelog.contains("- a shiny thing"), "{changelog}");
     assert!(
@@ -259,6 +261,85 @@ fn release_errors_when_nothing_is_unreleased() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("nothing unreleased"));
+}
+
+#[test]
+fn release_refuses_an_unreleased_heading_momo_cannot_read() {
+    let dir = TempDir::new().expect("temp dir");
+    let seeded = "\
+# Changelog
+
+## [Unreleased]
+
+### Changed
+
+- Reworked the parser
+- And again
+
+### Added
+
+- a shiny thing
+";
+    fs::write(dir.path().join("CHANGELOG.md"), seeded).expect("seed the changelog");
+
+    momo(&dir).arg("release").assert().failure().stderr(
+        predicate::str::contains("momo.changelog.unversioned-section")
+            .and(predicate::str::contains("`### Changed`"))
+            .and(predicate::str::contains("2 entries"))
+            .and(predicate::str::contains("(line 5)")),
+    );
+
+    assert_eq!(
+        read(&dir, "CHANGELOG.md"),
+        seeded,
+        "a refused release rewrote the changelog"
+    );
+    assert!(
+        !dir.path().join(".momo/version").exists(),
+        "a refused release advanced the ledger"
+    );
+}
+
+#[test]
+fn candidate_refuses_an_unreleased_heading_momo_cannot_read() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("CHANGELOG.md"),
+        "# Changelog\n\n## [Unreleased]\n\n### Security\n\n- A fix\n\n### Fixed\n\n- a bug\n",
+    )
+    .expect("seed the changelog");
+
+    momo(&dir)
+        .arg("candidate")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "momo.changelog.unversioned-section",
+        ));
+}
+
+#[test]
+fn status_surfaces_an_unreleased_heading_momo_cannot_read() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("CHANGELOG.md"),
+        "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- Reworked the parser\n\n### Added\n\n- a thing\n",
+    )
+    .expect("seed the changelog");
+
+    momo(&dir)
+        .args(["status", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("\"unversioned\"")
+                .and(predicate::str::contains("\"heading\": \"Changed\""))
+                .and(predicate::str::contains("\"entries\": 1")),
+        );
+
+    momo(&dir).arg("status").assert().success().stdout(
+        predicate::str::contains("Unversioned").and(predicate::str::contains("`### Changed`")),
+    );
 }
 
 #[test]

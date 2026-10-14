@@ -90,7 +90,8 @@ fn status_format_json_emits_the_documented_shape() {
           "kind": "add",
           "text": "Add a shiny thing"
         }
-      ]
+      ],
+      "unversioned": []
     }
   ]
 }
@@ -138,6 +139,7 @@ fn status_format_json_reports_nothing_unreleased() {
     assert!(json.contains("\"unreleased\": false"), "{json}");
     assert!(json.contains("\"next\": \"0.0.0\""), "{json}");
     assert!(json.contains("\"changes\": []"), "{json}");
+    assert!(json.contains("\"unversioned\": []"), "{json}");
 }
 
 #[test]
@@ -404,7 +406,10 @@ fn status_format_json_matches_the_documented_contract() {
     let packages = value["packages"].as_array().expect("a `packages` array");
     assert_eq!(packages.len(), 1, "{value}");
     let package = &packages[0];
-    assert_keys(package, &["name", "current", "next", "changes"]);
+    assert_keys(
+        package,
+        &["name", "current", "next", "changes", "unversioned"],
+    );
     assert_eq!(package["name"], "proj");
     assert_eq!(package["current"], serde_json::Value::Null);
     assert_eq!(package["next"], "0.1.0");
@@ -413,6 +418,11 @@ fn status_format_json_matches_the_documented_contract() {
     assert_keys(&changes[0], &["kind", "text"]);
     assert_eq!(changes[0]["kind"], "add");
     assert_eq!(changes[0]["text"], text);
+    // `unversioned` is additive to the pinned shape; empty in the common case.
+    let unversioned = package["unversioned"]
+        .as_array()
+        .expect("an `unversioned` array");
+    assert!(unversioned.is_empty(), "{value}");
 }
 
 #[test]
