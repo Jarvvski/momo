@@ -200,8 +200,9 @@ fn lead_its_own_group(command: &mut Command) {
     command.process_group(0);
 }
 
-/// Off Unix there are no process groups to lead; the timeout still stops the
-/// direct child.
+/// Off Unix there are no process groups to lead. momo is Unix-only and fails
+/// to compile there (see the crate-root `compile_error!`); this stub only keeps
+/// the module well-formed.
 #[cfg(not(unix))]
 fn lead_its_own_group(_command: &mut Command) {}
 
@@ -229,7 +230,9 @@ fn kill_the_group(child: &Child) -> bool {
     rustix::process::kill_process_group(Pid::from_child(child), Signal::KILL).is_ok()
 }
 
-/// Off Unix there are no process groups to signal; the direct child is killed.
+/// Off Unix there are no process groups to signal. momo is Unix-only and fails
+/// to compile there (see the crate-root `compile_error!`); this stub only keeps
+/// the module well-formed, reporting that no group was signalled.
 #[cfg(not(unix))]
 fn kill_the_group(_child: &Child) -> bool {
     false

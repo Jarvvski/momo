@@ -15,6 +15,8 @@ Record a change with one of three verbs — `break`, `add`, `fix` — and momo w
 
 ## Install
 
+momo is Unix-only: it builds on Linux and macOS, and there is no Windows build.
+
 ```bash
 cargo install momo-cli          # from crates.io; installs the `momo` binary
 ```
