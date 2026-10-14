@@ -1,0 +1,37 @@
+name: Dependabot auto-merge
+
+# Dependabot opens a pull request per dependency bump. The owner wants those
+# merged once CI is green rather than clicked through by hand, so this enables
+# GitHub's *auto-merge* rather than merging directly: GitHub performs the merge
+# only after the required `check` job (fmt/lint/docs/build/test) passes, so a
+# red or missing check can never be merged past.
+on: pull_request
+
+# Dependabot-triggered runs get a restricted, read-only GITHUB_TOKEN, so these
+# grants are what upgrade it enough to enable auto-merge. A PAT is deliberately
+# not used: GITHUB_TOKEN is minted per run and expires with it, leaving no
+# long-lived credential to rotate or leak.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  dependabot:
+    name: Enable auto-merge
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge
+        # Every update type auto-merges by default; the required `check` job is
+        # the gate. To send semver-major bumps to a human instead, uncomment:
+        # if: steps.metadata.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
