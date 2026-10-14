@@ -1,11 +1,8 @@
 # CI
 
-momo is designed to be driven by a script. It never reads `CI_*` or `GITHUB_*` —
-it reports and exits, and CI decides what to do about it.
+momo is designed to be driven by a script. It never reads `CI_*` or `GITHUB_*` — it reports and exits, and CI decides what to do about it.
 
-The reporting verbs (`status`, `release`, `candidate`, `tag`, `notes`) honour the
-output flags below. `break`/`add`/`fix`, `init` and `install` reject them, because
-those verbs produce no structured report.
+The reporting verbs (`status`, `release`, `candidate`, `tag`, `notes`) honour the output flags below. `break`/`add`/`fix`, `init` and `install` reject them, because those verbs produce no structured report.
 
 | Flag | Effect |
 |---|---|
@@ -15,10 +12,7 @@ those verbs produce no structured report.
 
 ## The `status --check` exit-code contract
 
-`momo status --check` **exits non-zero when there is nothing unreleased**, and
-zero when there is. It still renders the requested report (human or JSON) to
-stdout; the error goes to stderr. Use it to skip the rest of a release job when
-there is nothing to mint:
+`momo status --check` **exits non-zero when there is nothing unreleased**, and zero when there is. It still renders the requested report (human or JSON) to stdout; the error goes to stderr. Use it to skip the rest of a release job when there is nothing to mint:
 
 ```console
 $ momo status --check
@@ -42,16 +36,11 @@ $ echo $?
 1
 ```
 
-Note the inverted sense: `--check` asks *"is there anything to do?"*, not *"is the
-tree clean?"*. `0` means there **is** something to release.
+Note the inverted sense: `--check` asks *"is there anything to do?"*, not *"is the tree clean?"*. `0` means there **is** something to release.
 
 ## JSON shapes
 
-Every reporting verb emits **one** JSON document per run, whatever the number
-of packages. The multi-package report is an envelope: a run-wide flag plus a
-top-level `packages` array, which is always present — even for a single-package
-repo. This means `--output <PATH>` writes the whole report once, rather than
-truncating to the last package.
+Every reporting verb emits **one** JSON document per run, whatever the number of packages. The multi-package report is an envelope: a run-wide flag plus a top-level `packages` array, which is always present — even for a single-package repo. This means `--output <PATH>` writes the whole report once, rather than truncating to the last package.
 
 ### `status --format json`
 
@@ -74,11 +63,7 @@ truncating to the last package.
 }
 ```
 
-`unreleased` is `true` when at least one package has an unreleased change — the
-same gate as `--check`. `current` is the package's last release (or cut
-candidate), or `null` when it has never released. `next` is the version a release
-would mint, or the current version when nothing is unreleased (then `changes` is
-empty). `packages` is always an array, even for a single-package repo.
+`unreleased` is `true` when at least one package has an unreleased change — the same gate as `--check`. `current` is the package's last release (or cut candidate), or `null` when it has never released. `next` is the version a release would mint, or the current version when nothing is unreleased (then `changes` is empty). `packages` is always an array, even for a single-package repo.
 
 ### `release` and `candidate` (`--format json`)
 
@@ -100,13 +85,7 @@ empty). `packages` is always an array, even for a single-package repo.
 }
 ```
 
-`dry_run` is the run-wide flag. Each entry in `packages` is one released package,
-named by its `name` (the same identity `status` reports). `version_file` is the
-version file the run wrote. `manifest` is the ecosystem manifest whose version
-scalar the run synced, or `null` when the package has none. `consumed` lists the
-fragments the run deleted (empty for `candidate`). Under `--dry-run` the paths
-are what the run *would* have written — including the manifest, which the dry run
-parses but does not write.
+`dry_run` is the run-wide flag. Each entry in `packages` is one released package, named by its `name` (the same identity `status` reports). `version_file` is the version file the run wrote. `manifest` is the ecosystem manifest whose version scalar the run synced, or `null` when the package has none. `consumed` lists the fragments the run deleted (empty for `candidate`). Under `--dry-run` the paths are what the run *would* have written — including the manifest, which the dry run parses but does not write.
 
 ### `tag` (`--format json`)
 
@@ -123,8 +102,7 @@ parses but does not write.
 }
 ```
 
-`tag` is the package's namespaced tag name, prefix included; `name` identifies
-which package it names.
+`tag` is the package's namespaced tag name, prefix included; `name` identifies which package it names.
 
 ### `notes` (`--format json`)
 
@@ -140,17 +118,11 @@ which package it names.
 }
 ```
 
-`notes` is the Changelog section for the described Version, **verbatim** — the
-same lines the changelog holds under `## [1.4.2]`, including content momo cannot
-interpret. There is no `dry_run`: `notes` reads only.
+`notes` is the Changelog section for the described Version, **verbatim** — the same lines the changelog holds under `## [1.4.2]`, including content momo cannot interpret. There is no `dry_run`: `notes` reads only.
 
-The Version is `--version` when given, else the pending-release ledger, so
-`momo notes` straight after a `release` describes what was just minted without
-naming it twice.
+The Version is `--version` when given, else the pending-release ledger, so `momo notes` straight after a `release` describes what was just minted without naming it twice.
 
-The human rendering is the section body alone when one Package is reported, and
-a `## <package> <version>` header per Package when several are — so a
-single-package `--output` is a release body ready to publish:
+The human rendering is the section body alone when one Package is reported, and a `## <package> <version>` header per Package when several are — so a single-package `--output` is a release body ready to publish:
 
 ```console
 $ momo notes --output notes.md
@@ -177,13 +149,9 @@ momo notes --output notes.md
 gh release create "v$version" --title "v$version" --notes-file notes.md
 ```
 
-momo writes the files and creates the tag; committing, pushing and publishing
-are the job's own steps. `release --version-only` mints and writes exactly as
-`release` does — it only narrows what is printed — so the version names the
-commit it is about to land on.
+momo writes the files and creates the tag; committing, pushing and publishing are the job's own steps. `release --version-only` mints and writes exactly as `release` does — it only narrows what is printed — so the version names the commit it is about to land on.
 
-`momo notes` prints the section `release` just wrote, so the release body and the
-changelog never drift.
+`momo notes` prints the section `release` just wrote, so the release body and the changelog never drift.
 
 ## A GitHub Actions workflow
 
@@ -255,35 +223,18 @@ jobs:
 
 ### What it has to get right
 
-- **`fetch-depth: 0`.** momo takes the current version from the tags. A shallow
-  clone has none, so every run looks like a first release and mints `0.1.0`.
-- **momo never pushes.** `momo tag` creates the tag locally, like `git tag`; the
-  job pushes it, and that push is what triggers a downstream tag-driven release
-  pipeline.
-- **The tag comes after the commit.** It anchors to `HEAD` (git) or `@-` (jj),
-  so it names the commit carrying the changelog, not the one before it.
-- **`git add --all`, not `-am`.** A first release creates files (`CHANGELOG.md`,
-  `.momo/version`) that are not yet tracked, and fragments mode deletes files;
-  only `--all` covers new, modified and removed together.
-- **`--check` is inverted.** It exits non-zero when there is *nothing* to
-  release. Read the other way round it skips every release.
-- **A protected branch needs a token that can bypass it.** `github.token` is
-  rejected when protection requires review or status checks; supply a PAT or
-  GitHub App token as `RELEASE_TOKEN`. If CI should not push at all, have the job
-  open a pull request with the release commit and tag after the merge instead —
-  the same commands, one step later.
-- **Concurrency.** Two runs seeing the same unreleased changes mint the same
-  version, and the second `momo tag` then fails on the existing tag. The
-  `concurrency` group serialises them.
-- **Monorepos.** Every package with unreleased changes is released in one run and
-  `momo tag --format json` reports one entry per package: loop over
-  `.packages[]` rather than taking `[0]`, and note that the tag prefix is
-  `<slug>-v` per package.
+- **`fetch-depth: 0`.** momo takes the current version from the tags. A shallow clone has none, so every run looks like a first release and mints `0.1.0`.
+- **momo never pushes.** `momo tag` creates the tag locally, like `git tag`; the job pushes it, and that push is what triggers a downstream tag-driven release pipeline.
+- **The tag comes after the commit.** It anchors to `HEAD` (git) or `@-` (jj), so it names the commit carrying the changelog, not the one before it.
+- **`git add --all`, not `-am`.** A first release creates files (`CHANGELOG.md`, `.momo/version`) that are not yet tracked, and fragments mode deletes files; only `--all` covers new, modified and removed together.
+- **`--check` is inverted.** It exits non-zero when there is *nothing* to release. Read the other way round it skips every release.
+- **A protected branch needs a token that can bypass it.** `github.token` is rejected when protection requires review or status checks; supply a PAT or GitHub App token as `RELEASE_TOKEN`. If CI should not push at all, have the job open a pull request with the release commit and tag after the merge instead — the same commands, one step later.
+- **Concurrency.** Two runs seeing the same unreleased changes mint the same version, and the second `momo tag` then fails on the existing tag. The `concurrency` group serialises them.
+- **Monorepos.** Every package with unreleased changes is released in one run and `momo tag --format json` reports one entry per package: loop over `.packages[]` rather than taking `[0]`, and note that the tag prefix is `<slug>-v` per package.
 
 ### Installing momo
 
-`jdx/mise-action` above installs whatever the repo pins, so a repo already using
-mise needs no extra step. Without mise, take the release binary:
+`jdx/mise-action` above installs whatever the repo pins, so a repo already using mise needs no extra step. Without mise, take the release binary:
 
 ```yaml
       - name: Install momo
@@ -292,6 +243,4 @@ mise needs no extra step. Without mise, take the release binary:
             | sudo tar xz -C /usr/local/bin --strip-components=1
 ```
 
-Release binaries are built for Linux and macOS only — `x86_64`/`aarch64` ×
-`unknown-linux-gnu`/`apple-darwin` — so there is no Windows asset. `cargo install
-momo-cli` works anywhere but compiles from source.
+Release binaries are built for Linux and macOS only — `x86_64`/`aarch64` × `unknown-linux-gnu`/`apple-darwin` — so there is no Windows asset. `cargo install momo-cli` works anywhere but compiles from source.
