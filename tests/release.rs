@@ -379,9 +379,10 @@ fn release_leaves_the_repository_untouched_but_tag_names_the_released_version() 
         "release did not leave the Changelog in the working copy"
     );
 
-    // `tag` creates the tag for the version momo just released...
+    // `tag` creates the tag for the version momo just released. The release is
+    // uncommitted, so it names `@` explicitly — the default anchor is `@-`.
     momo(&dir)
-        .arg("tag")
+        .args(["tag", "--rev", "@"])
         .assert()
         .success()
         .stdout(predicate::str::contains("v0.1.0"));
@@ -392,7 +393,7 @@ fn release_leaves_the_repository_untouched_but_tag_names_the_released_version() 
 
     // ...and refuses to overwrite it.
     momo(&dir)
-        .arg("tag")
+        .args(["tag", "--rev", "@"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("already exists"));
@@ -428,7 +429,7 @@ fn a_candidate_can_be_tagged_and_the_final_release_drops_the_suffix() {
         .success()
         .stdout(predicate::str::contains("cut 0.1.0-rc.1"));
     momo(&dir)
-        .arg("tag")
+        .args(["tag", "--rev", "@"])
         .assert()
         .success()
         .stdout(predicate::str::contains("v0.1.0-rc.1"));
@@ -459,7 +460,7 @@ fn init_version_then_tag_creates_the_initial_tag() {
         .success();
 
     momo(&dir)
-        .arg("tag")
+        .args(["tag", "--rev", "@"])
         .assert()
         .success()
         .stdout(predicate::str::contains("v1.2.3"));
@@ -467,6 +468,40 @@ fn init_version_then_tag_creates_the_initial_tag() {
         capture(dir.path(), "jj", &["tag", "list"]).starts_with("v1.2.3:"),
         "the initial tag was not created"
     );
+}
+
+#[test]
+fn tag_defaults_to_the_committed_release_at_parent() {
+    if !require_tool("jj") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    jj_repo(&dir);
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&dir).arg("release").assert().success();
+
+    // The documented flow: commit the release, then tag. `@` is now the empty
+    // working-copy commit and `@-` is the release.
+    capture(dir.path(), "jj", &["commit", "--message", "release 0.1.0"]);
+    // A stray file makes `@` dirty for a reason unrelated to the release.
+    fs::write(dir.path().join("stray.txt"), "unrelated\n").expect("seed a stray file");
+    let release = capture(
+        dir.path(),
+        "jj",
+        &["log", "-r", "@-", "--no-graph", "-T", "commit_id"],
+    );
+
+    momo(&dir).arg("tag").assert().success();
+
+    let tagged = capture(
+        dir.path(),
+        "jj",
+        &["log", "-r", "v0.1.0", "--no-graph", "-T", "commit_id"],
+    );
+    assert_eq!(tagged, release, "the tag must name the committed release");
 }
 
 #[test]

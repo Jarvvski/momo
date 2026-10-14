@@ -98,10 +98,14 @@ integrates into a task environment (`mise` in v0).
 
 - **git:** annotated (`git tag -a`, message = release title) at `HEAD`, the
   committed release.
-- **jj:** lightweight (`jj tag set`) — jj's only option. **Anchor:** `@` when the
-  working copy has changes, else its parent `@-`. jj defaults to `@`, which is
-  empty after `jj commit` or above `main` after a merge; tagging it would publish
-  a dangling commit.
+- **jj:** lightweight (`jj tag set`) — jj's only option. **Anchor:** `@-`, the
+  parent of the working-copy commit, because the flow is release → commit → tag
+  and the release is therefore the commit `@-` names. The anchor is never
+  inferred from the working copy's dirtiness; an uncommitted release is tagged
+  explicitly.
+- **`--rev <REV>`** overrides the anchor: a commit-ish for git, a revset that
+  must resolve to exactly one commit for jj. The default is `HEAD` for git and
+  `@-` for jj; an uncommitted release passes `--rev @`.
 - Detect **`.jj` first, else `.git`**.
 - Refuse to overwrite an existing tag.
 - **No VCS → `tag` errors clearly** ("no VCS detected — nothing to tag").

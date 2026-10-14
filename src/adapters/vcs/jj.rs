@@ -66,7 +66,13 @@ impl<R: CommandRunner> Vcs for JjVcs<R> {
         Ok(first)
     }
 
-    fn create_tag(&self, prefix: &str, version: &Version, _message: &str) -> Result<(), VcsError> {
+    fn create_tag(
+        &self,
+        rev: Option<&str>,
+        prefix: &str,
+        version: &Version,
+        _message: &str,
+    ) -> Result<(), VcsError> {
         let tag = checked_tag_name(prefix, version)?;
         let list = ["tag", "list"];
         let listed = require_success("jj", &list, self.jj(&list)?)?;
@@ -79,12 +85,12 @@ impl<R: CommandRunner> Vcs for JjVcs<R> {
             return Err(VcsError::TagAlreadyExists { tag });
         }
 
-        // jj defaults `-r` to `@`, the working-copy commit. That is right only
-        // when the working copy holds the release; after `jj commit`, or above
-        // `main` after a merge, `@` is an empty commit, so tagging it would
-        // publish a dangling commit. Anchor to the parent when the working copy
-        // has no changes of its own.
-        let revision = if self.is_dirty()? { "@" } else { "@-" };
+        // The documented flow is release → commit → tag, so the release is the
+        // parent of the empty working-copy commit: anchor to `@-` by default.
+        // `@` is only right for an uncommitted release, which the caller names
+        // explicitly with `--rev @`; inferring it from the working copy's
+        // dirtiness mis-anchored whenever an unrelated file made `@` dirty.
+        let revision = rev.unwrap_or("@-");
         let set = ["tag", "set", tag.as_str(), "-r", revision];
         require_success("jj", &set, self.jj(&set)?)?;
         Ok(())
@@ -131,29 +137,33 @@ mod tests {
     }
 
     #[test]
-    fn create_tag_anchors_to_a_dirty_working_copy() {
-        // When `@` holds the release, the tag must name `@` — a lightweight
-        // `jj tag set` (no message), which is all jj supports.
-        let runner = FakeRunner::new()
-            .ok("jj", &["tag", "list"], "")
-            .ok("jj", &["diff", "--summary"], "M CHANGELOG.md\n")
-            .ok("jj", &["tag", "set", "v0.1.0", "-r", "@"], "");
+    fn create_tag_defaults_to_the_parent_even_when_the_working_copy_is_dirty() {
+        // The documented flow is release → commit → tag, so the release sits at
+        // `@-`. An unrelated stray file makes `@` dirty — jj auto-tracks it —
+        // but the anchor must not follow: the tag names `@-`, not the empty
+        // working-copy commit. No `diff` probe is scripted, so the fake would
+        // panic if the adapter still consulted dirtiness.
+        let runner = FakeRunner::new().ok("jj", &["tag", "list"], "").ok(
+            "jj",
+            &["tag", "set", "v0.1.0", "-r", "@-"],
+            "",
+        );
         adapter(runner)
-            .create_tag("v", &Version::new(0, 1, 0), "Release 0.1.0")
+            .create_tag(None, "v", &Version::new(0, 1, 0), "Release 0.1.0")
             .unwrap();
     }
 
     #[test]
-    fn create_tag_anchors_to_the_parent_of_an_empty_working_copy() {
-        // After `jj commit` — or above `main` after a merge — `@` is an empty
-        // commit; the tag must name its parent instead, or it would publish a
-        // dangling commit.
-        let runner = FakeRunner::new()
-            .ok("jj", &["tag", "list"], "")
-            .ok("jj", &["diff", "--summary"], "")
-            .ok("jj", &["tag", "set", "v0.1.0", "-r", "@-"], "");
+    fn create_tag_honours_an_explicit_revision() {
+        // An uncommitted release names `@` explicitly; the tag then points at
+        // the working-copy commit.
+        let runner = FakeRunner::new().ok("jj", &["tag", "list"], "").ok(
+            "jj",
+            &["tag", "set", "v0.1.0", "-r", "@"],
+            "",
+        );
         adapter(runner)
-            .create_tag("v", &Version::new(0, 1, 0), "Release 0.1.0")
+            .create_tag(Some("@"), "v", &Version::new(0, 1, 0), "Release 0.1.0")
             .unwrap();
     }
 
@@ -161,7 +171,7 @@ mod tests {
     fn create_tag_refuses_to_overwrite_an_existing_tag() {
         let runner = FakeRunner::new().ok("jj", &["tag", "list"], "v0.1.0: abc123 first\n");
         let err = adapter(runner)
-            .create_tag("v", &Version::new(0, 1, 0), "Release 0.1.0")
+            .create_tag(None, "v", &Version::new(0, 1, 0), "Release 0.1.0")
             .unwrap_err();
         assert!(matches!(err, VcsError::TagAlreadyExists { ref tag } if tag == "v0.1.0"));
     }
@@ -171,7 +181,7 @@ mod tests {
         // An empty script panics on any command, proving validation runs first.
         let runner = FakeRunner::new();
         let err = adapter(runner)
-            .create_tag("v 1", &Version::new(2, 3, 0), "Release 2.3.0")
+            .create_tag(None, "v 1", &Version::new(2, 3, 0), "Release 2.3.0")
             .unwrap_err();
         assert!(matches!(err, VcsError::InvalidTagName { ref name } if name == "v 12.3.0"));
     }

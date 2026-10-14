@@ -286,7 +286,7 @@ fn tag_output_writes_the_tag_to_a_file() {
     let path = dir.path().join("tag.json");
 
     momo(&proj)
-        .args(["tag", "--format", "json", "--output"])
+        .args(["tag", "--rev", "@", "--format", "json", "--output"])
         .arg(&path)
         .assert()
         .success();

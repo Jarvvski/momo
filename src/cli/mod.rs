@@ -95,7 +95,11 @@ pub enum Command {
     Candidate,
 
     /// Create the VCS tag for the current version.
-    Tag,
+    Tag {
+        /// Tag this revision instead of the default anchor (jj: `@-`, git: `HEAD`).
+        #[arg(long, value_name = "REV")]
+        rev: Option<String>,
+    },
 
     /// Scaffold momo.toml.
     Init {
@@ -130,7 +134,7 @@ impl fmt::Display for Command {
             Self::Status { .. } => "status",
             Self::Release => "release",
             Self::Candidate => "candidate",
-            Self::Tag => "tag",
+            Self::Tag { .. } => "tag",
             Self::Init { .. } => "init",
             Self::Install { .. } => "install",
         })

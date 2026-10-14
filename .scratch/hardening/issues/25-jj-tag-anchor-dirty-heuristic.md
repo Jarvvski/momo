@@ -1,7 +1,7 @@
 # 25: jj tag anchor is inferred from generic dirtiness
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: adapters/vcs
 Verified: yes — read at the cited lines; behaviour reproduced by an agent in a scratch jj repo
@@ -104,3 +104,25 @@ this is a straightforward agent task.
 so the release sits at `@-`. Default there and drop the dirtiness heuristic; an
 uncommitted release passes `--rev @` explicitly. Thread the revision through
 rather than inferring it from the working copy.
+
+## Resolution
+
+Done as decided. `Vcs::create_tag` now takes `rev: Option<&str>`; each adapter
+applies its own default when it is `None` — git anchors at `HEAD`, jj at `@-` —
+and threads an explicit revision through otherwise. The jj adapter no longer
+calls `is_dirty`, so an unrelated stray file can no longer mis-anchor the tag
+onto the empty working-copy commit. `momo tag --rev <REV>` plumbs the override
+from the CLI through `release::tag` to the port; git accepts a commit-ish, jj a
+revset.
+
+The port signature change is the only one: `is_dirty` and `VcsError` are
+untouched (the separate error-vocabulary/timeout work is unaffected).
+
+Tests: two jj adapter unit tests via `FakeRunner` (default `@-` with no `diff`
+probe scripted, and `Some("@")` naming the working copy); a git adapter test
+pinning that `--rev` appends the commit-ish; and round-trip tests covering the
+stray-file default (`@-`) and the explicit `--rev @` anchor, plus an
+end-to-end `momo tag` after `jj commit` + a stray file. The integration tests
+that tagged an uncommitted release now pass `--rev @`, matching the documented
+release → commit → tag flow. Spec §8 and `docs/usage.md` state the new anchor
+rule and the override.
