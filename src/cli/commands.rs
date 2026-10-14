@@ -3,7 +3,8 @@
 //! Every verb on the command surface has a handler: the change verbs
 //! (`break`/`add`/`fix`) record a Change, `status` reports the Unreleased
 //! Changes and the Version they imply, `release`/`candidate` mint one, `tag`
-//! creates the VCS tag, and `init`/`install` scaffold config and task wrappers.
+//! creates the VCS tag, `init`/`install` scaffold config and task wrappers, and
+//! `version` prints the CLI version.
 //!
 //! Package-aware verbs resolve the Packages they act on through
 //! [`crate::workspace`]: `-p` scopes to one, `--all` covers every one, and the
@@ -37,7 +38,11 @@ use crate::cli::workspace;
 use crate::cli::{Cli, Command};
 
 /// The momo verbs exposed as `momo:*` tasks, in command-surface order.
-const VERBS: [&str; 9] = [
+///
+/// The command surface is wider than this list: `version` (and, later,
+/// `completions`) reports and writes nothing, so it must never become a task
+/// wrapper.
+const INSTALLABLE_VERBS: [&str; 9] = [
     "break",
     "add",
     "fix",
@@ -69,15 +74,16 @@ pub fn run(cli: &Cli) -> Result<()> {
             update,
             uninstall,
         } => install(cli, env.as_deref(), *update, *uninstall),
+        Command::Version => show_version(),
     }
 }
 
 /// Reject the output flags on the verbs that do not report structured output.
 ///
-/// `--format`, `--version-only` and `--output` select how a report is rendered;
-/// on a verb with no report they mean nothing, so accepting them silently would
-/// mislead. The reporting verbs (`status`, `release`, `candidate`, `tag`) keep
-/// them.
+/// `--format`, its `--json` shorthand, `--version-only` and `--output` select
+/// how a report is rendered; on a verb with no report they mean nothing, so
+/// accepting them silently would mislead. The reporting verbs (`status`,
+/// `release`, `candidate`, `tag`) keep them.
 fn reject_output_flags(cli: &Cli) -> Result<()> {
     if matches!(
         cli.command,
@@ -87,6 +93,7 @@ fn reject_output_flags(cli: &Cli) -> Result<()> {
     }
     for (present, flag) in [
         (cli.format.is_some(), "--format"),
+        (cli.json, "--json"),
         (cli.version_only, "--version-only"),
         (cli.output.is_some(), "--output"),
     ] {
@@ -94,6 +101,12 @@ fn reject_output_flags(cli: &Cli) -> Result<()> {
             bail!("`{flag}` is not supported by `momo {}`", cli.command);
         }
     }
+    Ok(())
+}
+
+/// Print the momo version, exactly as `--version` does.
+fn show_version() -> Result<()> {
+    println!("momo {VERSION}");
     Ok(())
 }
 
@@ -492,7 +505,7 @@ fn install(cli: &Cli, env: Option<&str>, update: bool, uninstall: bool) -> Resul
     } else {
         InstallMode::Install
     };
-    let plan = environment.plan(&version, &VERBS, mode)?;
+    let plan = environment.plan(&version, &INSTALLABLE_VERBS, mode)?;
 
     if cli.dry_run {
         report_plan(&plan, environment.as_ref(), &version, true);
@@ -578,7 +591,7 @@ mod tests {
     use crate::domain::manifest::{ManifestPlan, SkipReason};
 
     #[test]
-    fn every_command_has_an_installed_verb() {
+    fn every_installable_command_has_a_task_wrapper() {
         let commands = [
             Command::Break {
                 text: String::new(),
@@ -603,12 +616,12 @@ mod tests {
         for command in commands {
             let verb = command.to_string();
             assert!(
-                VERBS.contains(&verb.as_str()),
+                INSTALLABLE_VERBS.contains(&verb.as_str()),
                 "no task wrapper for `{verb}`"
             );
         }
         assert_eq!(
-            VERBS,
+            INSTALLABLE_VERBS,
             [
                 "break",
                 "add",

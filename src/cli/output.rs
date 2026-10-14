@@ -41,12 +41,13 @@ pub fn emit(cli: &Cli, report: &impl Report) -> Result<()> {
     }
 }
 
-/// The text the global flags select: `--version-only` wins, then `--format`.
+/// The text the global flags select: `--version-only` wins, then the format
+/// (`--format`, or its `--json` shorthand).
 fn render(cli: &Cli, report: &impl Report) -> String {
     if cli.version_only {
         return format!("{}\n", report.version());
     }
-    match cli.format.unwrap_or_default() {
+    match cli.output_format() {
         Format::Human => report.human(),
         Format::Json => report.json(),
     }

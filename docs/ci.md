@@ -7,8 +7,19 @@ The reporting verbs (`status`, `release`, `candidate`, `tag`) honour the output 
 | Flag | Effect |
 |---|---|
 | `--format <human\|json>` | Rendering (default `human`) |
+| `--json` | Shorthand for `--format json`; clap rejects it together with `--format` |
 | `--version-only` | Print only the computed version; wins over `--format` |
 | `--output <PATH>` | Write the same content to a file; stdout is left empty |
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | The verb did what was asked. |
+| `1` | Runtime failure: momo ran but could not do what was asked — nothing unreleased to release, no VCS to tag, an unreadable `momo.toml`, an output flag the verb does not support. The message goes to stderr. |
+| `2` | Usage error: the command line itself is wrong — an unknown verb or flag, or two flags that conflict. clap reports it; momo never exits `2` on its own. |
+
+`status --check` inverts the sense of `0` and `1` for the skip gate, which is the next section. A rejected output flag is a `1`, not a `2`: momo parsed the command line, then refused it.
 
 ## The `status --check` exit-code contract
 

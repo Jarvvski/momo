@@ -25,6 +25,8 @@ An escape hatch that is not a key is always preferred: an environment variable, 
 
 The recognised keys are a budget pinned **by name**, not by length, so a swap cannot sneak through. `KNOWN_KEYS` and `KNOWN_PACKAGE_KEYS` live in `src/domain/config/keys.rs`; the eight `MOMO_*` names live in `src/domain/config/env.rs`; and the tests pin the exact key set `momo init` renders and the verb names in `src/cli/commands.rs`.
 
+The command surface is pinned the same way. `INSTALLABLE_VERBS` in `src/cli/commands.rs` names the verbs `momo install` writes as `momo:*` task wrappers, and a test pins it by name; a verb that only reports, such as `version`, is deliberately outside it and gets no wrapper.
+
 Adding a key therefore means editing the constant, the name test, `docs/configuration.md` and this page in one deliberate pull request. The test failing is the point: it turns a quiet addition into a decision someone has to make on purpose.
 
 ## 4. Escape hatches are quiet

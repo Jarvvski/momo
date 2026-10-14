@@ -8,6 +8,7 @@ fn cli() -> Cli {
         command: crate::cli::Command::Status { check: false },
         dry_run: false,
         format: None,
+        json: false,
         version_only: false,
         output: None,
         package: None,
@@ -460,6 +461,14 @@ fn version_only_wins_over_the_format() {
 fn the_format_selects_the_rendering() {
     let mut cli = cli();
     cli.format = Some(Format::Json);
+
+    assert!(render(&cli, &status(&[])).starts_with("{\n"));
+}
+
+#[test]
+fn the_json_shorthand_selects_the_json_rendering() {
+    let mut cli = cli();
+    cli.json = true;
 
     assert!(render(&cli, &status(&[])).starts_with("{\n"));
 }

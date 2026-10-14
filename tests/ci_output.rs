@@ -1,5 +1,5 @@
-//! Integration tests for the CI-facing output surface: `--format json`,
-//! `--version-only`, `--output`, and `status --check`.
+//! Integration tests for the CI-facing output surface: `--format json` (and
+//! its `--json` shorthand), `--version-only`, `--output`, and `status --check`.
 //!
 //! These drive the real binary. A project is created in a directory named
 //! `proj` so the reported Package name is deterministic.
@@ -109,6 +109,21 @@ fn status_format_json_is_stable_across_runs() {
 
     assert_eq!(
         stdout(&proj, &["status", "--format", "json"]),
+        stdout(&proj, &["status", "--format", "json"])
+    );
+}
+
+#[test]
+fn the_json_shorthand_is_exactly_format_json() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    momo(&proj)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    assert_eq!(
+        stdout(&proj, &["status", "--json"]),
         stdout(&proj, &["status", "--format", "json"])
     );
 }
