@@ -8,7 +8,7 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 /// The canonical verbs on the command surface.
-const VERBS: [&str; 9] = [
+const VERBS: [&str; 10] = [
     "break",
     "add",
     "fix",
@@ -16,6 +16,7 @@ const VERBS: [&str; 9] = [
     "release",
     "candidate",
     "tag",
+    "notes",
     "init",
     "install",
 ];
@@ -404,4 +405,103 @@ fn reporting_verbs_still_accept_the_output_flags() {
         .args(["candidate", "--version-only"])
         .assert()
         .success();
+}
+
+#[test]
+fn notes_prints_the_section_for_the_pending_release() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&dir).arg("release").assert().success();
+
+    // No VCS: the pending-release ledger is the source, so the Version need not
+    // be named twice.
+    momo(&dir).arg("notes").assert().success().stdout(
+        predicate::str::contains("### Added").and(predicate::str::contains("- Add a shiny thing")),
+    );
+}
+
+#[test]
+fn notes_version_selects_an_earlier_release() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "Add the first thing"])
+        .assert()
+        .success();
+    momo(&dir).arg("release").assert().success();
+    momo(&dir)
+        .args(["add", "Add the second thing"])
+        .assert()
+        .success();
+    momo(&dir).arg("release").assert().success();
+
+    // The ledger holds 0.2.0, so the earlier section needs `--version`.
+    momo(&dir)
+        .args(["notes", "--version", "0.1.0"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("- Add the first thing")
+                .and(predicate::str::contains("- Add the second thing").not()),
+        );
+}
+
+#[test]
+fn notes_fails_when_there_is_nothing_to_describe() {
+    let dir = TempDir::new().expect("temp dir");
+
+    momo(&dir)
+        .arg("notes")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("nothing to describe"));
+}
+
+#[test]
+fn notes_fails_for_a_version_the_changelog_does_not_name() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&dir).arg("release").assert().success();
+
+    momo(&dir)
+        .args(["notes", "--version", "9.9.9"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no changelog section for `9.9.9`"));
+}
+
+#[test]
+fn notes_output_writes_the_body_and_leaves_stdout_empty() {
+    let dir = TempDir::new().expect("temp dir");
+    momo(&dir)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&dir).arg("release").assert().success();
+
+    momo(&dir)
+        .args(["notes", "--output", "notes.md"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    let written = fs::read_to_string(dir.path().join("notes.md")).expect("notes.md was written");
+    assert!(written.contains("- Add a shiny thing"), "{written}");
+}
+
+#[test]
+fn notes_reads_only_and_creates_no_config() {
+    let dir = TempDir::new().expect("temp dir");
+
+    // Nothing to describe, but a read-only verb must not scaffold `momo.toml`.
+    momo(&dir).arg("notes").assert().failure();
+    assert!(
+        !dir.path().join("momo.toml").exists(),
+        "a read-only command created momo.toml"
+    );
 }

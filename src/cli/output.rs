@@ -399,6 +399,83 @@ impl Report for Tag {
     }
 }
 
+/// One Package's entry in a `notes` report.
+pub struct NotesPackage {
+    /// The Package's identity, e.g. `cargo:momo`.
+    pub package: String,
+    /// The Version the section describes.
+    pub version: Version,
+    /// The section body, verbatim.
+    pub notes: String,
+}
+
+/// What `momo notes` reports: the Changelog section for a released Version.
+///
+/// The JSON shape is:
+///
+/// ```json
+/// {
+///   "packages": [
+///     {
+///       "name": "momo",
+///       "version": "1.4.2",
+///       "notes": "### Added\n\n- Add a shiny thing"
+///     }
+///   ]
+/// }
+/// ```
+///
+/// Like the other reporting verbs, `packages` is always an array, so a
+/// monorepo's run is one document and one `--output` file. There is no
+/// `dry_run`: `notes` reads only, so there is nothing for it to withhold.
+pub struct Notes {
+    /// The Packages, in discovery order.
+    pub packages: Vec<NotesPackage>,
+}
+
+impl Report for Notes {
+    /// A single Package's body alone: notes are published, not read, so a lone
+    /// Package needs no header. With several, each is introduced by its Package
+    /// and Version so the bodies can be told apart.
+    fn human(&self) -> String {
+        if let [package] = self.packages.as_slice() {
+            return format!("{}\n", package.notes);
+        }
+        let mut out = String::new();
+        for (index, package) in self.packages.iter().enumerate() {
+            if index > 0 {
+                out.push('\n');
+            }
+            out.push_str(&format!("## {} {}\n\n", package.package, package.version));
+            out.push_str(&format!("{}\n", package.notes));
+        }
+        out
+    }
+
+    fn json(&self) -> String {
+        let packages = self
+            .packages
+            .iter()
+            .map(|package| {
+                Json::object(vec![
+                    ("name", Json::from(package.package.as_str())),
+                    ("version", Json::from(&package.version)),
+                    ("notes", Json::from(package.notes.as_str())),
+                ])
+            })
+            .collect();
+        Json::object(vec![("packages", Json::Array(packages))]).to_document()
+    }
+
+    fn version(&self) -> String {
+        self.packages
+            .iter()
+            .map(|package| package.version.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 /// A JSON value, rendered with a stable two-space indentation.
 ///
 /// The workspace carries no JSON dependency and momo's reports are small, so the
@@ -922,6 +999,90 @@ mod tests {
             .human(),
             "would tag v0.1.0\n"
         );
+    }
+
+    /// One Package's entry in a `notes` report.
+    fn notes_entry(package: &str, text: &str, notes: &str) -> NotesPackage {
+        NotesPackage {
+            package: package.to_owned(),
+            version: version(text),
+            notes: notes.to_owned(),
+        }
+    }
+
+    #[test]
+    fn notes_json_has_the_documented_shape() {
+        let report = Notes {
+            packages: vec![notes_entry(
+                "momo",
+                "1.4.2",
+                "- Add a shiny thing\n- Fix a nasty bug",
+            )],
+        };
+
+        assert_eq!(
+            report.json(),
+            r#"{
+  "packages": [
+    {
+      "name": "momo",
+      "version": "1.4.2",
+      "notes": "- Add a shiny thing\n- Fix a nasty bug"
+    }
+  ]
+}
+"#
+        );
+    }
+
+    #[test]
+    fn notes_json_reports_every_package_in_one_document() {
+        let report = Notes {
+            packages: vec![
+                notes_entry("cargo:a", "0.1.0", "- a thing"),
+                notes_entry("cargo:b", "0.2.0", "- another thing"),
+            ],
+        };
+
+        let json = report.json();
+        assert!(json.contains("\"name\": \"cargo:a\""), "{json}");
+        assert!(json.contains("\"name\": \"cargo:b\""), "{json}");
+        assert_eq!(json.matches("\"packages\":").count(), 1, "{json}");
+    }
+
+    #[test]
+    fn notes_human_is_the_body_alone_for_one_package() {
+        // The notes are published rather than read, so a lone Package adds no
+        // header to the release body.
+        let report = Notes {
+            packages: vec![notes_entry("momo", "1.4.2", "### Added\n\n- Add a thing")],
+        };
+
+        assert_eq!(report.human(), "### Added\n\n- Add a thing\n");
+    }
+
+    #[test]
+    fn notes_human_names_each_package_when_there_are_several() {
+        let report = Notes {
+            packages: vec![
+                notes_entry("cargo:a", "0.1.0", "- a thing"),
+                notes_entry("cargo:b", "0.2.0", "- another thing"),
+            ],
+        };
+
+        assert_eq!(
+            report.human(),
+            "## cargo:a 0.1.0\n\n- a thing\n\n## cargo:b 0.2.0\n\n- another thing\n"
+        );
+    }
+
+    #[test]
+    fn notes_version_only_is_the_described_version() {
+        let report = Notes {
+            packages: vec![notes_entry("momo", "1.4.2", "- a thing")],
+        };
+
+        assert_eq!(report.version(), "1.4.2");
     }
 
     #[test]

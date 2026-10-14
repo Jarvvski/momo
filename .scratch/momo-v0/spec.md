@@ -28,6 +28,7 @@ integrates into a task environment (`mise` in v0).
 | `momo release` | Mint a version from the unreleased changes |
 | `momo candidate` | Cut / increment a release candidate (alias `rc`) |
 | `momo tag` | Create the VCS tag for the current version |
+| `momo notes [--version X.Y.Z]` | Print the changelog section for a released version |
 | `momo init` | Scaffold `momo.toml` |
 | `momo install [env]` | Install momo into a task environment |
 | `--dry-run` | Global: show what would happen, change nothing |
