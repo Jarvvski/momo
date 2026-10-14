@@ -1,7 +1,7 @@
 # 07: `0.0.0` is both the "never released" sentinel and a legal version
 
 Type: bug
-Status: ready-for-human
+Status: ready-for-agent
 Severity: low
 Area: domain/version
 Verified: yes — read at the cited lines
@@ -60,3 +60,7 @@ baseline (both use `0.0.0` as the bump base), so only the displayed `current` an
 "one source of truth" change.
 
 **Scope:** subsumed by 36 (with 06).
+
+## Decision (owner, 2026-10-14)
+
+**Subsumed by ticket 36** (pending-release ledger). Implement there.

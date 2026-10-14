@@ -1,7 +1,7 @@
 # 25: jj tag anchor is inferred from generic dirtiness
 
 Type: bug
-Status: ready-for-human
+Status: ready-for-agent
 Severity: high
 Area: adapters/vcs
 Verified: yes — read at the cited lines; behaviour reproduced by an agent in a scratch jj repo
@@ -97,3 +97,10 @@ silently skips without jj) and `.scratch/momo-v0/implementation/15-tag-anchor.md
 **Why `ready-for-human`:** the anchor rule and the `--rev` CLI/port surface are a
 product decision (explicit override vs inference). Once the owner picks a shape,
 this is a straightforward agent task.
+
+## Decision (owner, 2026-10-14)
+
+**Default to `@-`, add `--rev`.** The documented flow is release → commit → tag,
+so the release sits at `@-`. Default there and drop the dirtiness heuristic; an
+uncommitted release passes `--rev @` explicitly. Thread the revision through
+rather than inferring it from the working copy.

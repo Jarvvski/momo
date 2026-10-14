@@ -1,7 +1,7 @@
 # 15: Monorepo members with an inherited version are silently never synced
 
 Type: bug
-Status: ready-for-human
+Status: ready-for-agent
 Severity: high
 Area: adapters/manifest
 Verified: yes — read at the cited lines; the behaviour is pinned by an existing test
@@ -119,3 +119,14 @@ unresolvable version returns a distinct
 the owner prefers non-fatal). Tests: repoint
 `an_inherited_version_without_a_workspace_root_is_skipped` at the new signal; add
 a release-level test asserting the member is not silently reported as synced.
+
+## Decision (owner, 2026-10-14)
+
+**Support the shared version.** Resolve the workspace root from the member — walk
+up to the manifest declaring `[workspace]` — and rewrite
+`[workspace.package].version` there.
+
+Because that scalar is shared by every member, define the `--all` rule: a release
+may only write it when every affected member resolves to the same target;
+otherwise fail rather than let the last writer win. This is the 15b policy
+decision, now made.

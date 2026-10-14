@@ -1,7 +1,7 @@
 # 38: Stop modelling the changelog as a lossy parse → render round-trip
 
 Type: refactor
-Status: ready-for-human
+Status: ready-for-agent
 Severity: high
 Area: domain/changelog
 Verified: yes — the lossy paths are read at the cited lines
@@ -82,3 +82,16 @@ Unreleased content and CRLF are all the same lossy round-trip); **overlaps 11**
   loudly naming the line.
 - Update spec §6 (consider an ADR); add round-trip fidelity tests (footer,
   unmodelled body, CRLF, out-of-order).
+
+## Decision (owner, 2026-10-14)
+
+**Preserve the document.** Model the changelog as the original lines plus the
+spans momo owns — the Unreleased body, its own footer lines (`[Unreleased]`,
+`[x.y.z]`), and newly inserted release headings. Everything else passes through
+byte-for-byte: CRLF, `*` bullets, HTML comments, `### Changed`, and user-authored
+footer definitions. Recording appends to the Unreleased body; releasing moves the
+whole body into the new dated section. Where an edit cannot be applied without
+touching foreign content, fail loudly naming the line.
+
+Supersedes 09/10/13 and the duplicate/out-of-order half of 11. Update spec §6
+(consider an ADR) and add round-trip fidelity tests.

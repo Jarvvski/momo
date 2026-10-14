@@ -1,7 +1,7 @@
 # 48: Command timeout policy for spawned VCS and mise processes (30b)
 
 Type: hardening
-Status: ready-for-human
+Status: ready-for-agent
 Severity: medium
 Area: adapters
 Verified: yes — split out of ticket 30 during triage (batch 5)
@@ -48,3 +48,11 @@ just code:
 - 30 (parent; 30a is the agent-ready non-interactive env), 39 (port error
   vocabulary — the timeout error is one of the variants that must not carry
   process detail into the domain).
+
+## Decision (owner, 2026-10-14)
+
+**Add a timeout.** Bound every spawned command with a default (60s) and a config
+key to raise it, plus a distinct error variant for expiry.
+
+Pairs with ticket 39's reshaped error vocabulary — land them together so the
+timeout variant is part of the new shape rather than bolted onto the old one.

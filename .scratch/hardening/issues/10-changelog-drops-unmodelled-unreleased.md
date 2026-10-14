@@ -1,7 +1,7 @@
 # 10: The changelog drops any Unreleased content it cannot model
 
 Type: bug
-Status: ready-for-human
+Status: ready-for-agent
 Severity: high
 Area: domain/changelog
 Verified: yes — read at the cited lines
@@ -91,3 +91,7 @@ fight 38's model). The batch plan's `09 + 10 + 11` PR B should drop 10.
 **Implementation sketch:** none standalone; implement as part of 38 (preserve the
 raw Unreleased body; on `release`, promote the whole body, not just the parsed
 changes).
+
+## Decision (owner, 2026-10-14)
+
+**Subsumed by ticket 38** (preserve the document). Implement there.

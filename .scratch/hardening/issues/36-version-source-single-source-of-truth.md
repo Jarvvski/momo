@@ -1,7 +1,7 @@
 # 36: One source of truth for a package's version
 
 Type: refactor
-Status: ready-for-human
+Status: ready-for-agent
 Severity: medium
 Area: domain/version + cli
 Verified: yes — the divergence is read at the cited lines
@@ -76,3 +76,12 @@ last release is tracked.
   newest released changelog heading (needs a `Changelog` → `tag` seam).
 - either way: one function answers "what version is this package at?", and 06/07
   fall out of the same change.
+
+## Decision (owner, 2026-10-14)
+
+**Pending-release ledger.** `.momo/version` keeps being written on
+`release`/`candidate`, and its documented role becomes the record of the last
+minted release — not a version source. `status` and `release` read only the tag
+source; `tag` reads the ledger, because the version it must tag is by definition
+one no tag records yet. Document the split; tickets 06 and 07 fall out of the
+same change.
