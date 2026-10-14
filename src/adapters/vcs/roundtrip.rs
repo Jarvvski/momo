@@ -6,7 +6,9 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::adapters::vcs::{CommandRunner, SystemRunner, detect};
+use super::detect::detect;
+use super::process::CommandRunner;
+use crate::adapters::vcs::SystemRunner;
 use crate::domain::vcs::{VcsError, VcsKind};
 use semver::Version;
 use tempfile::TempDir;

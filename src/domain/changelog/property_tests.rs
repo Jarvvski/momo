@@ -8,8 +8,8 @@
 //! the invariants the model exists to keep. A failure here is a counterexample,
 //! not a flake: proptest shrinks it to a minimal document.
 
-use momo_cli::domain::change::{Change, Kind};
-use momo_cli::domain::changelog::{Changelog, ChangelogError, Links};
+use crate::domain::change::{Change, Kind};
+use crate::domain::changelog::{Changelog, ChangelogError, Links};
 use proptest::prelude::*;
 use semver::Version;
 use time::Date;

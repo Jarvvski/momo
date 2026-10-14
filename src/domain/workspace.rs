@@ -132,11 +132,6 @@ impl Workspace {
         Ok(())
     }
 
-    /// The repo root every Package is relative to.
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
     /// Every Package, in discovery order.
     pub fn packages(&self) -> &[Package] {
         &self.packages

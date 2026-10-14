@@ -21,7 +21,7 @@ Rust edition 2024. `Cargo.lock` is committed — this is an application, not a l
 
 ## Layout
 
-One crate: a library plus a thin binary. The library is the public surface; the CLI is private and reached through `momo_cli::run`.
+One crate: a library plus a thin binary. The library is an implementation detail of the binary, not a public API — only `momo_cli::run` is exported; see [ADR 0004](adr/0004-the-library-is-not-a-public-api.md).
 
 ```text
 src/
