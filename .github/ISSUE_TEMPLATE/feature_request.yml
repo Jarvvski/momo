@@ -1,0 +1,25 @@
+name: Feature request
+description: Something momo should do and does not.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and where does momo get in the way? Describe the situation, not the fix.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like momo to do
+      description: The behaviour you want, and the command or `momo.toml` key you would reach for.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches, and any workaround you use today.
+    validations:
+      required: false

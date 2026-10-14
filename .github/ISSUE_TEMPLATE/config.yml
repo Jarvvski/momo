@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage
+    url: https://github.com/Jarvvski/momo/blob/main/docs/usage.md
+    about: Recording changes, releasing, release candidates, tagging and monorepos.
+  - name: Configuration
+    url: https://github.com/Jarvvski/momo/blob/main/docs/configuration.md
+    about: Every momo.toml key, the precedence order, and the MOMO_* variables.

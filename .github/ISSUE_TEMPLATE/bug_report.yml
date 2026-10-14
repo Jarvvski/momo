@@ -1,0 +1,56 @@
+name: Bug report
+description: Something momo did that it should not have.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [usage](https://github.com/Jarvvski/momo/blob/main/docs/usage.md) and [configuration](https://github.com/Jarvvski/momo/blob/main/docs/configuration.md) docs first — a lot of surprises are documented behaviour.
+  - type: input
+    id: version
+    attributes:
+      label: momo version
+      description: The output of `momo --version`.
+      placeholder: momo 0.6.0
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS and architecture
+      description: momo is Unix-only.
+      placeholder: macOS 15 (arm64), or Ubuntu 24.04 (x86_64)
+    validations:
+      required: true
+  - type: dropdown
+    id: vcs
+    attributes:
+      label: VCS
+      description: Which VCS is the project using?
+      options:
+        - git
+        - jj
+        - none
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: momo.toml
+      description: The project's `momo.toml`, or the relevant `MOMO_*` variables, if it has any.
+      render: toml
+    validations:
+      required: false
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and output
+      description: The exact command you ran, what it printed, and what you expected it to print instead.
+      placeholder: |
+        $ momo status
+        <observed>
+
+        Expected:
+        <expected>
+    validations:
+      required: true
