@@ -21,6 +21,8 @@ The owner uses **Jujutsu exclusively** in a colocated repo. **Never invoke `git`
 
 Agents may push feature branches, open PRs, and merge green PRs. Agents must **never** push or force-push directly to `main`, and never merge past a failing or missing check. The owner handles releases and tags.
 
+**No AI reviewer.** This repo does not run a comment-triggered review bot. Any workflow that assumes one - the `ticket-batch` skill's "drain the review to zero" and "resolve the threads" steps in particular - does not apply here; skip them. The merge gate is the required checks alone: `gh pr checks <n>` green (the `check` job plus the release build matrix). Where a skill instructs you to drain a review or resolve review threads, treat it as already satisfied.
+
 ## Toolchain
 
 **mise** owns tasks and the Rust pin (see `mise.toml`, `rust-toolchain.toml`). Use the tasks, don't hand-roll cargo:
