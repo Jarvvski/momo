@@ -1,7 +1,7 @@
 //! Integration tests for manifest sync: `release` writes the minted Version into
-//! the Package's manifest (`Cargo.toml`, or `pyproject.toml` for a single-package
-//! Python repo), format-preserving, and warns about a stale `Cargo.lock` rather
-//! than rewriting it.
+//! the Package's manifest (`Cargo.toml`, `package.json`, or `pyproject.toml` for
+//! a single-package Python repo), format-preserving, and warns about a stale
+//! lockfile rather than rewriting it.
 //!
 //! These drive the real binary. A project is created in a directory named `proj`
 //! so the reported Package name is deterministic.
@@ -48,6 +48,30 @@ edition = \"2024\"
 [dependencies]
 # a dependency
 semver = \"1.0\"
+";
+
+/// A `package.json` with a toolchain pin and a nested dependency `version`.
+const PACKAGE_JSON: &str = "\
+{
+  \"name\": \"proj\",
+  \"version\": \"0.0.0\",
+  \"packageManager\": \"pnpm@9.0.0\",
+  \"dependencies\": {
+    \"version\": \"^3.0.0\"
+  }
+}
+";
+
+/// [`PACKAGE_JSON`] with the version bumped to `0.1.0`.
+const PACKAGE_JSON_RELEASED: &str = "\
+{
+  \"name\": \"proj\",
+  \"version\": \"0.1.0\",
+  \"packageManager\": \"pnpm@9.0.0\",
+  \"dependencies\": {
+    \"version\": \"^3.0.0\"
+  }
+}
 ";
 
 /// A `momo` command rooted at `cwd`, with every `MOMO_*` variable cleared.
@@ -301,4 +325,48 @@ fn a_dynamic_pyproject_version_is_skipped_with_a_warning() {
         .stderr(predicate::str::contains("dynamic version"));
 
     assert_eq!(read(&manifest), dynamic, "the manifest was rewritten");
+}
+
+#[test]
+fn a_single_package_node_repo_syncs_its_package_json() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    let manifest = proj.join("package.json");
+    fs::write(&manifest, PACKAGE_JSON).expect("seed the manifest");
+
+    momo(&proj)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&proj)
+        .arg("release")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("released 0.1.0"));
+
+    assert_eq!(read(&manifest), PACKAGE_JSON_RELEASED);
+}
+
+#[test]
+fn a_node_lockfile_is_warned_about_with_its_refresh_command() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    fs::write(proj.join("package.json"), PACKAGE_JSON).expect("seed the manifest");
+    let lockfile = proj.join("pnpm-lock.yaml");
+    let locked = "lockfileVersion: '9.0'\n";
+    fs::write(&lockfile, locked).expect("seed the lockfile");
+
+    momo(&proj)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&proj)
+        .arg("release")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("pnpm-lock.yaml"))
+        .stderr(predicate::str::contains("may be stale"))
+        .stderr(predicate::str::contains("pnpm install --lockfile-only"));
+
+    assert_eq!(read(&lockfile), locked, "the lockfile was rewritten");
 }

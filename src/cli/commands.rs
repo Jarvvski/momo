@@ -421,14 +421,31 @@ fn manifest_warnings<'a>(outcomes: impl Iterator<Item = &'a Outcome>) -> Vec<Str
         for lockfile in &plan.lockfiles {
             if reported.insert(lockfile.as_path()) {
                 lines.push(format!(
-                    "warning: {} may be stale after syncing a manifest; refresh it with your \
-                     package manager",
-                    lockfile.display()
+                    "warning: {} may be stale after syncing a manifest; {}",
+                    lockfile.display(),
+                    refresh_command(lockfile)
                 ));
             }
         }
     }
     lines
+}
+
+/// How to refresh `lockfile` after a manifest sync, as the warning tells it.
+///
+/// The command is a hint momo never runs — refreshing a lockfile is the package
+/// manager's job. A lockfile momo does not recognise falls back to naming the
+/// package manager generically.
+fn refresh_command(lockfile: &Path) -> String {
+    match lockfile.file_name().and_then(|name| name.to_str()) {
+        Some("package-lock.json") => "refresh it with `npm install --package-lock-only`".to_owned(),
+        Some("pnpm-lock.yaml") => "refresh it with `pnpm install --lockfile-only`".to_owned(),
+        Some("yarn.lock") => "refresh it with `yarn install --mode update-lockfile`".to_owned(),
+        Some("bun.lockb" | "bun.lock") => {
+            "refresh it with `bun install --lockfile-only`".to_owned()
+        }
+        _ => "refresh it with your package manager".to_owned(),
+    }
 }
 
 /// The repository backing `root`, when one exists.
@@ -691,6 +708,27 @@ mod tests {
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].contains("Cargo.lock"), "{lines:?}");
         assert!(lines[0].contains("may be stale"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_node_lockfile_warns_with_its_refresh_command() {
+        let a = outcome(Some(stale("/repo/pnpm-lock.yaml")));
+
+        let lines = manifest_warnings(std::iter::once(&a));
+
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].contains("pnpm install --lockfile-only"),
+            "{lines:?}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_lockfile_falls_back_to_a_generic_warning() {
+        assert_eq!(
+            refresh_command(Path::new("/repo/mystery.lock")),
+            "refresh it with your package manager"
+        );
     }
 
     #[test]
