@@ -44,7 +44,10 @@ clap = { version = "4.6", features = ["derive"] }
 # process group, and `unsafe` is forbidden crate-wide, so the group signal
 # cannot be issued through a raw libc call.
 rustix = { version = "1.1", features = ["process", "std"] }
-semver = "1.0"
+semver = { version = "1.0", features = ["serde"] }
+# The reporting shapes derive `Serialize`; `semver`'s `serde` feature above
+# renders a Version as its string form, as the JSON contract documents.
+serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
 time = "0.3"
