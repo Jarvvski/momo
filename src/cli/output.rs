@@ -216,6 +216,16 @@ impl Verb {
     }
 }
 
+/// One manifest a `release` / `candidate` run considered but did not write.
+#[derive(Serialize)]
+pub struct SkippedManifest {
+    /// The manifest that was left alone.
+    #[serde(serialize_with = "serialize_path")]
+    pub path: PathBuf,
+    /// Why, e.g. `no version momo owns` or `already current`.
+    pub reason: String,
+}
+
 /// One Package's entry in a `release` / `candidate` report.
 #[derive(Serialize)]
 pub struct ReleasePackage {
@@ -231,9 +241,14 @@ pub struct ReleasePackage {
     /// it, so it is always present and the run can be tagged.
     #[serde(serialize_with = "serialize_path")]
     pub version_file: PathBuf,
-    /// The ecosystem manifest the run synced, when it found one.
-    #[serde(serialize_with = "serialize_optional_path")]
-    pub manifest: Option<PathBuf>,
+    /// The ecosystem manifests the run synced, in the order it wrote them.
+    ///
+    /// A plan may write more than one, and an inherited version writes the
+    /// shared workspace root rather than the Package's own manifest.
+    #[serde(serialize_with = "serialize_paths")]
+    pub manifest: Vec<PathBuf>,
+    /// The manifests the run considered but did not write, each with why.
+    pub skipped: Vec<SkippedManifest>,
     /// The Fragments the run consumed.
     #[serde(serialize_with = "serialize_paths")]
     pub consumed: Vec<PathBuf>,
@@ -252,7 +267,8 @@ pub struct ReleasePackage {
 ///       "version": "0.1.0",
 ///       "changelog": "CHANGELOG.md",
 ///       "version_file": ".momo/version",
-///       "manifest": "Cargo.toml",
+///       "manifest": ["Cargo.toml"],
+///       "skipped": [],
 ///       "consumed": [".momo/changes/add-a-thing.md"]
 ///     }
 ///   ]
@@ -263,8 +279,10 @@ pub struct ReleasePackage {
 /// single-package repo, so a monorepo's run is one document and one `--output`
 /// file. `dry_run` is the run-wide flag. `version_file` is always present — both
 /// `release` and `candidate` advance it, so the run can be tagged. `manifest` is
-/// the ecosystem manifest the run synced, or `null` when the Package has none.
-/// Under `--dry-run` the paths are what the run *would* have written.
+/// the ecosystem manifests the run synced — `[]` when the Package has none —
+/// and `skipped` names the manifests it considered but left alone, so a skip is
+/// never silent. Under `--dry-run` the paths are what the run *would* have
+/// written.
 #[derive(Serialize)]
 pub struct Release {
     /// Which verb minted the Version. The two verbs share one document, so it
@@ -296,7 +314,7 @@ impl Report for Release {
             out.push_str(&format!("{verb} {}\n", package.version));
             out.push_str(&format!("{wrote} {}\n", package.changelog.display()));
             out.push_str(&format!("{wrote} {}\n", package.version_file.display()));
-            if let Some(manifest) = &package.manifest {
+            for manifest in &package.manifest {
                 out.push_str(&format!("{wrote} {}\n", manifest.display()));
             }
             for path in &package.consumed {
@@ -425,17 +443,6 @@ where
     S: Serializer,
 {
     serializer.collect_str(&path.display())
-}
-
-/// [`serialize_path`] for an optional path: `null` when the Package has none.
-fn serialize_optional_path<S>(path: &Option<PathBuf>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    match path {
-        Some(path) => serialize_path(path, serializer),
-        None => serializer.serialize_none(),
-    }
 }
 
 /// [`serialize_path`] for a list of paths.

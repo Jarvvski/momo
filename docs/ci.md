@@ -76,7 +76,8 @@ Every reporting verb emits **one** JSON document per run, whatever the number of
       "version": "0.1.0",
       "changelog": "/repo/CHANGELOG.md",
       "version_file": "/repo/.momo/version",
-      "manifest": "/repo/Cargo.toml",
+      "manifest": ["/repo/Cargo.toml"],
+      "skipped": [],
       "consumed": [
         "/repo/.momo/changes/add-a-shiny-thing.md"
       ]
@@ -85,7 +86,9 @@ Every reporting verb emits **one** JSON document per run, whatever the number of
 }
 ```
 
-`dry_run` is the run-wide flag. Each entry in `packages` is one released package, named by its `name` (the same identity `status` reports). `version_file` is the version file the run wrote. `manifest` is the ecosystem manifest whose version scalar the run synced, or `null` when the package has none. `consumed` lists the fragments the run deleted (empty for `candidate`). Under `--dry-run` the paths are what the run *would* have written — including the manifest, which the dry run parses but does not write.
+`dry_run` is the run-wide flag. Each entry in `packages` is one released package, named by its `name` (the same identity `status` reports). `version_file` is the version file the run wrote. `manifest` is the list of ecosystem manifests whose version scalar the run synced — empty when the package has none, and possibly more than one, since a member that inherits its version writes the shared workspace root rather than its own manifest. `skipped` names the manifests the run considered but did not write, each as `{"path": …, "reason": …}`: a reason is `no version momo owns`, `already current`, or `dynamic version (…)` for a version computed elsewhere (a `hatch-vcs` project). A skip is never silent — it is reported here and on stderr. `consumed` lists the fragments the run deleted (empty for `candidate`). Under `--dry-run` the paths are what the run *would* have written — including the manifest, which the dry run parses but does not write.
+
+A lockfile the package manager maintains (`Cargo.lock`, `pnpm-lock.yaml`) is never rewritten and never appears in the report; momo warns on stderr that it may be stale, naming a shared lockfile once however many packages resolve to it.
 
 ### `tag` (`--format json`)
 

@@ -427,6 +427,7 @@ fn release_format_json_matches_the_documented_contract() {
             "changelog",
             "version_file",
             "manifest",
+            "skipped",
             "consumed",
         ],
     );
@@ -438,8 +439,10 @@ fn release_format_json_matches_the_documented_contract() {
         .as_str()
         .expect("a `version_file` path");
     assert!(version_file.ends_with(".momo/version"), "{value}");
-    // This project carries no ecosystem manifest, so the run synced none.
-    assert_eq!(package["manifest"], serde_json::Value::Null);
+    // This project carries no ecosystem manifest, so the run synced none and
+    // skipped none.
+    assert_eq!(package["manifest"], serde_json::json!([]));
+    assert_eq!(package["skipped"], serde_json::json!([]));
     let consumed = package["consumed"].as_array().expect("a `consumed` array");
     assert_eq!(consumed.len(), 1, "{value}");
     assert!(
@@ -475,6 +478,7 @@ fn candidate_format_json_matches_the_documented_contract() {
             "changelog",
             "version_file",
             "manifest",
+            "skipped",
             "consumed",
         ],
     );

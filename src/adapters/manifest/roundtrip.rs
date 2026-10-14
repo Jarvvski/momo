@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::adapters::manifest::CargoManifest;
-use crate::domain::manifest::ManifestSync;
+use crate::domain::manifest::{ManifestSync, SkipReason};
 use semver::Version;
 use tempfile::TempDir;
 
@@ -48,13 +48,14 @@ fn writing_a_manifest_rewrites_only_the_version_scalar() {
     let path = dir.path().join("Cargo.toml");
     fs::write(&path, MANIFEST).expect("seed the manifest");
 
-    let update = CargoManifest
+    let plan = CargoManifest
         .write(&path, &version("0.2.0"))
-        .expect("write the manifest")
-        .expect("a manifest to sync");
+        .expect("write the manifest");
 
-    assert_eq!(update.manifest, path);
-    assert_eq!(update.stale_lockfile, None);
+    assert_eq!(plan.writes.len(), 1, "{plan:?}");
+    assert_eq!(plan.writes[0].path, path);
+    assert!(plan.lockfiles.is_empty(), "{plan:?}");
+    assert!(plan.skipped.is_empty(), "{plan:?}");
     assert_eq!(
         fs::read_to_string(&path).expect("read the manifest"),
         UPDATED
@@ -69,12 +70,11 @@ fn a_lockfile_beside_the_manifest_is_reported_and_left_alone() {
     fs::write(&path, MANIFEST).expect("seed the manifest");
     fs::write(&lockfile, LOCKFILE).expect("seed the lockfile");
 
-    let update = CargoManifest
+    let plan = CargoManifest
         .write(&path, &version("0.2.0"))
-        .expect("write the manifest")
-        .expect("a manifest to sync");
+        .expect("write the manifest");
 
-    assert_eq!(update.stale_lockfile.as_deref(), Some(lockfile.as_path()));
+    assert_eq!(plan.lockfiles, vec![lockfile.clone()]);
     assert_eq!(
         fs::read_to_string(&lockfile).expect("read the lockfile"),
         LOCKFILE,
@@ -88,14 +88,37 @@ fn an_already_current_version_writes_nothing() {
     let path = dir.path().join("Cargo.toml");
     fs::write(&path, MANIFEST).expect("seed the manifest");
 
-    let update = CargoManifest
+    let plan = CargoManifest
         .write(&path, &version("0.1.0"))
         .expect("write the manifest");
 
-    assert_eq!(update, None);
+    assert!(plan.writes.is_empty(), "{plan:?}");
+    assert_eq!(
+        plan.skipped,
+        vec![(path.clone(), SkipReason::AlreadyCurrent)],
+        "{plan:?}"
+    );
     assert_eq!(
         fs::read_to_string(&path).expect("read the manifest"),
         MANIFEST
+    );
+}
+
+#[test]
+fn a_manifest_without_a_version_is_reported_as_skipped() {
+    let dir = TempDir::new().expect("temp dir");
+    let path = dir.path().join("Cargo.toml");
+    fs::write(&path, "[package]\nname = \"momo\"\n").expect("seed the manifest");
+
+    let plan = CargoManifest
+        .write(&path, &version("0.2.0"))
+        .expect("write the manifest");
+
+    assert!(plan.writes.is_empty(), "{plan:?}");
+    assert_eq!(
+        plan.skipped,
+        vec![(path.clone(), SkipReason::NoVersion)],
+        "{plan:?}"
     );
 }
 
@@ -111,8 +134,7 @@ fn writing_a_crlf_manifest_preserves_its_line_endings() {
 
     CargoManifest
         .write(&path, &version("0.2.0"))
-        .expect("write the manifest")
-        .expect("a manifest to sync");
+        .expect("write the manifest");
 
     assert_eq!(
         fs::read_to_string(&path).expect("read the manifest"),
@@ -126,13 +148,13 @@ fn rendering_a_manifest_leaves_the_file_untouched() {
     let path = dir.path().join("Cargo.toml");
     fs::write(&path, MANIFEST).expect("seed the manifest");
 
-    let (rendered, update) = CargoManifest
+    let plan = CargoManifest
         .render(&path, &version("0.2.0"))
-        .expect("render the manifest")
-        .expect("a manifest to sync");
+        .expect("render the manifest");
 
-    assert_eq!(rendered, UPDATED);
-    assert_eq!(update.manifest, path);
+    assert_eq!(plan.writes.len(), 1, "{plan:?}");
+    assert_eq!(plan.writes[0].path, path);
+    assert_eq!(plan.writes[0].text, UPDATED);
     assert_eq!(
         fs::read_to_string(&path).expect("read the manifest"),
         MANIFEST,
@@ -153,12 +175,12 @@ fn writing_an_inherited_version_rewrites_the_workspace_root() {
     fs::write(&root, root_text).expect("seed the workspace root");
     fs::write(&member, member_text).expect("seed the member manifest");
 
-    let update = CargoManifest
+    let plan = CargoManifest
         .write(&member, &version("0.2.0"))
-        .expect("write the manifest")
-        .expect("a manifest to sync");
+        .expect("write the manifest");
 
-    assert_eq!(update.manifest, root, "the write targeted the member");
+    assert_eq!(plan.writes.len(), 1, "{plan:?}");
+    assert_eq!(plan.writes[0].path, root, "the write targeted the member");
     assert_eq!(
         fs::read_to_string(&root).expect("read the workspace root"),
         "[workspace]\nmembers = [\"crates/a\"]\n\n[workspace.package]\nversion = \"0.2.0\"\n"

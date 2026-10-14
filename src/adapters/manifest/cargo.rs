@@ -14,7 +14,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::domain::manifest::{ManifestError, ManifestSync, ManifestUpdate};
+use crate::domain::manifest::{
+    ManifestError, ManifestPlan, ManifestSync, ManifestWrite, SkipReason,
+};
 use semver::Version;
 use toml_edit::{DocumentMut, Item, Value};
 
@@ -36,39 +38,33 @@ impl ManifestSync for CargoManifest {
         path.is_file().then_some(path)
     }
 
-    fn render(
-        &self,
-        manifest: &Path,
-        version: &Version,
-    ) -> Result<Option<(String, ManifestUpdate)>, ManifestError> {
+    fn render(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError> {
         let text = read(manifest)?;
 
-        let Some((written, updated)) = set_version(&text, manifest, version)? else {
-            return Ok(None);
-        };
-        Ok(Some((
-            updated,
-            ManifestUpdate {
-                stale_lockfile: lockfile(&written),
-                manifest: written,
+        Ok(match set_version(&text, manifest, version)? {
+            Resolved::Write { path, text } => ManifestPlan {
+                lockfiles: lockfile(&path).into_iter().collect(),
+                writes: vec![ManifestWrite { path, text }],
+                skipped: Vec::new(),
             },
-        )))
+            Resolved::Skip { path, reason } => ManifestPlan {
+                writes: Vec::new(),
+                lockfiles: Vec::new(),
+                skipped: vec![(path, reason)],
+            },
+        })
     }
 
-    fn write(
-        &self,
-        manifest: &Path,
-        version: &Version,
-    ) -> Result<Option<ManifestUpdate>, ManifestError> {
-        let Some((updated, update)) = self.render(manifest, version)? else {
-            return Ok(None);
-        };
-        fs::write(&update.manifest, updated).map_err(|source| ManifestError::Write {
-            path: update.manifest.clone(),
-            source,
-        })?;
+    fn write(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError> {
+        let plan = self.render(manifest, version)?;
+        for write in &plan.writes {
+            fs::write(&write.path, &write.text).map_err(|source| ManifestError::Write {
+                path: write.path.clone(),
+                source,
+            })?;
+        }
 
-        Ok(Some(update))
+        Ok(plan)
     }
 }
 
@@ -86,26 +82,53 @@ fn lockfile(manifest: &Path) -> Option<PathBuf> {
     lockfile.is_file().then_some(lockfile)
 }
 
+/// The outcome of resolving one manifest against a Version.
+#[derive(Debug, PartialEq, Eq)]
+enum Resolved {
+    /// The manifest to write and its new text.
+    Write {
+        /// The manifest actually targeted, which an inherited version may place
+        /// at the workspace root rather than at the member.
+        path: PathBuf,
+        /// The manifest's new text.
+        text: String,
+    },
+    /// Nothing to write, and why.
+    Skip {
+        /// The manifest momo would have written.
+        path: PathBuf,
+        /// Why it was left alone.
+        reason: SkipReason,
+    },
+}
+
 /// Render `text` with the version scalar set to `version`.
 ///
-/// Returns the manifest actually written and its new text. Normally that is
-/// `manifest` itself, but a `version.workspace = true` member has no version of
-/// its own: the scalar lives in the workspace root's `[workspace.package]`, so
-/// the write targets the root and the returned path is the root's. `None` when
-/// the manifest holds no version momo owns, or already carries `version` — in
-/// both cases there is nothing to write.
-fn set_version(
-    text: &str,
-    manifest: &Path,
-    version: &Version,
-) -> Result<Option<(PathBuf, String)>, ManifestError> {
+/// Normally that is `manifest` itself, but a `version.workspace = true` member
+/// has no version of its own: the scalar lives in the workspace root's
+/// `[workspace.package]`, so the write targets the root and the resolved path is
+/// the root's. `Resolved::Skip` when the manifest holds no version momo owns, or
+/// already carries `version` — in both cases there is nothing to write, and the
+/// reason says which.
+fn set_version(text: &str, manifest: &Path, version: &Version) -> Result<Resolved, ManifestError> {
     let mut doc = parse(text, manifest)?;
     let Some(key) = version_key(&doc) else {
-        return Ok(None);
+        return Ok(Resolved::Skip {
+            path: manifest.to_path_buf(),
+            reason: SkipReason::NoVersion,
+        });
     };
     match key {
-        Key::Package | Key::Workspace => Ok(set_scalar(text, &mut doc, version, key)
-            .map(|rendered| (manifest.to_path_buf(), rendered))),
+        Key::Package | Key::Workspace => Ok(match set_scalar(text, &mut doc, version, key) {
+            Some(rendered) => Resolved::Write {
+                path: manifest.to_path_buf(),
+                text: rendered,
+            },
+            None => Resolved::Skip {
+                path: manifest.to_path_buf(),
+                reason: SkipReason::AlreadyCurrent,
+            },
+        }),
         Key::Inherited => {
             let Some((root, root_text)) = workspace_root(manifest) else {
                 return Err(ManifestError::InheritedVersion {
@@ -116,8 +139,16 @@ fn set_version(
             // `workspace_root` only returns a root that declares the shared
             // version, so the scalar is always there to rewrite.
             Ok(
-                set_scalar(&root_text, &mut root_doc, version, Key::Workspace)
-                    .map(|rendered| (root, rendered)),
+                match set_scalar(&root_text, &mut root_doc, version, Key::Workspace) {
+                    Some(rendered) => Resolved::Write {
+                        path: root,
+                        text: rendered,
+                    },
+                    None => Resolved::Skip {
+                        path: root,
+                        reason: SkipReason::AlreadyCurrent,
+                    },
+                },
             )
         }
     }
@@ -127,7 +158,7 @@ fn set_version(
 fn parse(text: &str, path: &Path) -> Result<DocumentMut, ManifestError> {
     text.parse().map_err(|source| ManifestError::Parse {
         path: path.to_path_buf(),
-        source,
+        source: Box::new(source),
     })
 }
 
@@ -277,12 +308,17 @@ mod tests {
         text.parse().expect("a valid version")
     }
 
+    /// The target and rendered text of a rewrite, panicking on a skip.
+    fn rewrite(text: &str, path: &Path, version: &Version) -> (PathBuf, String) {
+        match set_version(text, path, version).expect("valid TOML") {
+            Resolved::Write { path, text } => (path, text),
+            Resolved::Skip { reason, .. } => panic!("expected a write, got a skip: {reason}"),
+        }
+    }
+
     /// The rendered text of a rewrite, panicking when nothing is written.
     fn updated(text: &str, path: &Path, version: &Version) -> String {
-        set_version(text, path, version)
-            .expect("valid TOML")
-            .expect("a version to write")
-            .1
+        rewrite(text, path, version).1
     }
 
     /// Seed a workspace root and one inheriting member on disk.
@@ -389,9 +425,7 @@ version = \"0.2.0\"
             "[package]\nname = \"a\"\nversion.workspace = true\n",
         );
 
-        let (written, rendered) = set_version(&member_text, &member, &version("0.2.0"))
-            .expect("valid TOML")
-            .expect("a version to write");
+        let (written, rendered) = rewrite(&member_text, &member, &version("0.2.0"));
 
         assert_eq!(written, root, "the member's own manifest was targeted");
         assert_eq!(
@@ -449,9 +483,7 @@ members = [\"crates/a\"]
 version = \"0.1.0\"
 ";
 
-        let (written, updated) = set_version(original, manifest(), &version("0.2.0"))
-            .expect("valid TOML")
-            .expect("a version to write");
+        let (written, updated) = rewrite(original, manifest(), &version("0.2.0"));
 
         assert_eq!(written, manifest());
         assert_eq!(
@@ -479,9 +511,7 @@ version = \"0.1.0\"
             "[package]\nname = \"a\"\nversion.workspace = true\n",
         );
 
-        let (written, rendered) = set_version(&member_text, &member, &version("0.2.0"))
-            .expect("valid TOML")
-            .expect("a version to write");
+        let (written, rendered) = rewrite(&member_text, &member, &version("0.2.0"));
 
         assert_eq!(written, root);
         assert!(
@@ -499,7 +529,10 @@ version = \"0.1.0\"
         let original = "[package]\nname = \"momo\"\n";
         assert_eq!(
             set_version(original, manifest(), &version("1.0.0")).expect("valid TOML"),
-            None
+            Resolved::Skip {
+                path: manifest().to_path_buf(),
+                reason: SkipReason::NoVersion,
+            }
         );
     }
 
@@ -508,7 +541,10 @@ version = \"0.1.0\"
         let original = "[package]\nname = \"momo\"\nversion = \"1.2.3\"\n";
         assert_eq!(
             set_version(original, manifest(), &version("1.2.3")).expect("valid TOML"),
-            None
+            Resolved::Skip {
+                path: manifest().to_path_buf(),
+                reason: SkipReason::AlreadyCurrent,
+            }
         );
     }
 
@@ -543,9 +579,7 @@ version = \"0.1.0\"
             "[package]\r\nname = \"a\"\r\nversion.workspace = true\r\n",
         );
 
-        let (written, rendered) = set_version(&member_text, &member, &version("0.2.0"))
-            .expect("valid TOML")
-            .expect("a version to write");
+        let (written, rendered) = rewrite(&member_text, &member, &version("0.2.0"));
 
         assert_eq!(written, root);
         assert_eq!(

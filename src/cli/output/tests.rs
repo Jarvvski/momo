@@ -209,7 +209,8 @@ fn package_entry(name: &str, text: &str) -> ReleasePackage {
         version: version(text),
         changelog: PathBuf::from("/repo/CHANGELOG.md"),
         version_file: PathBuf::from("/repo/.momo/version"),
-        manifest: Some(PathBuf::from("/repo/Cargo.toml")),
+        manifest: vec![PathBuf::from("/repo/Cargo.toml")],
+        skipped: Vec::new(),
         consumed: vec![PathBuf::from("/repo/.momo/changes/add-a-thing.md")],
     }
 }
@@ -241,7 +242,10 @@ fn release_json_has_the_documented_shape() {
       "version": "0.1.0",
       "changelog": "/repo/CHANGELOG.md",
       "version_file": "/repo/.momo/version",
-      "manifest": "/repo/Cargo.toml",
+      "manifest": [
+        "/repo/Cargo.toml"
+      ],
+      "skipped": [],
       "consumed": [
         "/repo/.momo/changes/add-a-thing.md"
       ]
@@ -253,20 +257,47 @@ fn release_json_has_the_documented_shape() {
 }
 
 #[test]
-fn release_json_reports_a_missing_manifest_as_null() {
+fn release_json_reports_a_missing_manifest_as_an_empty_array() {
     let report = Release {
         verb: Verb::Release,
         dry_run: false,
         packages: vec![ReleasePackage {
-            manifest: None,
+            manifest: Vec::new(),
             ..package_entry("momo", "0.1.0")
         }],
     };
 
     assert!(
-        report.json().contains("\"manifest\": null"),
+        report.json().contains("\"manifest\": []"),
         "{}",
         report.json()
+    );
+}
+
+#[test]
+fn release_json_reports_a_skipped_manifest_with_its_reason() {
+    let report = Release {
+        verb: Verb::Release,
+        dry_run: false,
+        packages: vec![ReleasePackage {
+            manifest: Vec::new(),
+            skipped: vec![SkippedManifest {
+                path: PathBuf::from("/repo/pyproject.toml"),
+                reason: "dynamic version (hatch-vcs)".to_owned(),
+            }],
+            ..package_entry("momo", "0.1.0")
+        }],
+    };
+
+    let json = report.json();
+    assert!(json.contains("\"skipped\""), "{json}");
+    assert!(
+        json.contains("\"path\": \"/repo/pyproject.toml\""),
+        "{json}"
+    );
+    assert!(
+        json.contains("\"reason\": \"dynamic version (hatch-vcs)\""),
+        "{json}"
     );
 }
 
@@ -308,7 +339,7 @@ fn release_human_speaks_in_the_conditional_under_dry_run() {
         dry_run: true,
         packages: vec![ReleasePackage {
             version: version("0.1.0-rc.1"),
-            manifest: None,
+            manifest: Vec::new(),
             consumed: Vec::new(),
             ..package_entry("momo", "0.0.0")
         }],
