@@ -91,6 +91,12 @@ Every change has exactly one **Kind**, and the Kind of the unreleased changes de
 
 At MAJOR 0 a breaking change still bumps MINOR — momo is in the zero-aware pre-1.0 camp. The baseline is `0.0.0`, so the first release follows the same rules. To start elsewhere, run `momo init --version <x.y.z>`.
 
+## Opinions
+
+momo is opinionated where it matters and configurable where reality varies. The semver rules above are **asserted** — they are the product, tested and not configurable. Where a project's changelog lives, what its tags look like, and how changes are recorded are **defaulted**, with keys to override them.
+
+Two deviations from convention are deliberate and owned out loud: a `fix` at `0.0.x` bumps PATCH (Cargo treats every `0.0.z` as breaking), and the breaking-change section is `Breaking` where Keep a Changelog says `Changed`. See **[Opinions](https://github.com/Jarvvski/momo/blob/main/docs/opinions.md)** for the full asserted-versus-defaulted set, and [ADR 0005](https://github.com/Jarvvski/momo/blob/main/docs/adr/0005-zero-aware-bump-policy.md) for the zero-aware policy.
+
 ## Commands
 
 | Command | Alias | Purpose |
@@ -118,6 +124,7 @@ Global flags:
 
 ## Documentation
 
+- **[Opinions](https://github.com/Jarvvski/momo/blob/main/docs/opinions.md)** — what momo asserts, what it defaults, and the deviations it owns.
 - **[Usage](https://github.com/Jarvvski/momo/blob/main/docs/usage.md)** — recording models, releases and release candidates, tagging, monorepos, task-environment install.
 - **[Migrating](https://github.com/Jarvvski/momo/blob/main/docs/migrating.md)** — adopting momo on a project that already has tags, a changelog and releases.
 - **[Configuration](https://github.com/Jarvvski/momo/blob/main/docs/configuration.md)** — every `momo.toml` key, the precedence order, and the `MOMO_*` environment variables.

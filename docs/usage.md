@@ -36,10 +36,9 @@ Write commands create `momo.toml` lazily on first use; read-only commands never 
 
 ## Recording models
 
-Set `recording` in `momo.toml` (default `changelog`):
+The **changelog is the model**: changes accumulate under `## Unreleased` in the changelog, and that section is the source of unreleased changes. momo edits only the spans it owns — the Unreleased body, its own footer links and the release headings it inserts — so the rest of the document (comments, `*` bullets, `### Changed` sections, user footer definitions, CRLF) passes through untouched. This is the default (`recording = "changelog"`), and it is what most projects want: one hand-editable file that is the durable record of what shipped.
 
-- **`changelog`** — changes accumulate under `## Unreleased` in the changelog, and that section is the source of unreleased changes. momo edits only the spans it owns — the Unreleased body, its own footer links and the release headings it inserts — so the rest of the document (comments, `*` bullets, `### Changed` sections, user footer definitions, CRLF) passes through untouched.
-- **`fragments`** — each change is its own file, `.momo/changes/<kind>-<slug>.md`, holding just the entry text. Fragments are plain files, so they can be hand- or CI-authored. The changelog then holds only releases.
+**Fragments are an escape hatch, not a second model.** Set `recording = "fragments"` only when the changelog cannot be the coordination point — changes that arrive asynchronously, authored by CI or by many concurrent contributors, where a single shared file would be a merge-conflict magnet. Each change then becomes its own file, `.momo/changes/<kind>-<slug>.md`, holding just the entry text; fragments are plain files, so they can be hand- or CI-authored, and the changelog holds only releases.
 
 In a monorepo the fragment store is namespaced by package slug.
 

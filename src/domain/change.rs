@@ -164,6 +164,16 @@ mod tests {
     }
 
     #[test]
+    fn the_heading_strings_are_pinned() {
+        // The changelog shape is an asserted opinion, not config: `Breaking` is
+        // deliberate where Keep a Changelog says `Changed`. Pinned so a rename is
+        // a conscious, reviewed change (see docs/opinions.md).
+        assert_eq!(Kind::Break.heading(), "Breaking");
+        assert_eq!(Kind::Add.heading(), "Added");
+        assert_eq!(Kind::Fix.heading(), "Fixed");
+    }
+
+    #[test]
     fn fragment_file_name_encodes_kind_and_slug() {
         let change = Change::new(Kind::Add, "`momo status --format json` for CI");
         assert_eq!(
