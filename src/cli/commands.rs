@@ -26,7 +26,7 @@ use crate::domain::config::Config;
 use crate::domain::version::{VersionSource, release_version};
 
 use crate::cli::config::{self, CONFIG_FILE};
-use crate::cli::output::{self, StatusPackage, Verb};
+use crate::cli::output::{self, ReleasePackage, StatusPackage, TagPackage, Verb};
 use crate::cli::recording;
 use crate::cli::release::{self, Outcome};
 use crate::cli::version::{self, FileVersionSource, VERSION_FILE};
@@ -171,23 +171,31 @@ fn release(cli: &Cli) -> Result<()> {
     // Read the date once for the whole run: `today()` inside the loop could
     // straddle UTC midnight and stamp a multi-package release with two dates.
     let date = today();
-    let mut released = 0;
+    let mut report = output::Release {
+        verb: Verb::Release,
+        dry_run: cli.dry_run,
+        packages: Vec::new(),
+    };
     for package in packages {
         let outcome = release::release(&root, &config, package, vcs.as_deref(), date, cli.dry_run)?;
         match outcome {
             Some(outcome) => {
-                report_release(cli, &outcome, Verb::Release)?;
                 warn_stale_lockfile(&outcome);
-                released += 1;
+                report
+                    .packages
+                    .push(release_package(package.identity(), outcome));
             }
             None if explicit => bail!("nothing unreleased to release"),
             None => {}
         }
     }
-    if released == 0 {
+    if report.packages.is_empty() {
         bail!("nothing unreleased to release");
     }
-    Ok(())
+
+    // One report, one `emit`: emitting per Package would concatenate N JSON
+    // documents and truncate `--output` to the last Package.
+    output::emit(cli, &report)
 }
 
 /// Cut a Release Candidate from the Unreleased Changes.
@@ -205,24 +213,29 @@ fn candidate(cli: &Cli) -> Result<()> {
     // Read the date once for the whole run: `today()` inside the loop could
     // straddle UTC midnight and stamp a multi-package release with two dates.
     let date = today();
-    let mut cut = 0;
+    let mut report = output::Release {
+        verb: Verb::Candidate,
+        dry_run: cli.dry_run,
+        packages: Vec::new(),
+    };
     for package in packages {
         let outcome =
             release::candidate(&root, &config, package, vcs.as_deref(), date, cli.dry_run)?;
         match outcome {
             Some(outcome) => {
-                report_release(cli, &outcome, Verb::Candidate)?;
                 warn_stale_lockfile(&outcome);
-                cut += 1;
+                report
+                    .packages
+                    .push(release_package(package.identity(), outcome));
             }
             None if explicit => bail!("nothing unreleased to release"),
             None => {}
         }
     }
-    if cut == 0 {
+    if report.packages.is_empty() {
         bail!("nothing unreleased to release");
     }
-    Ok(())
+    output::emit(cli, &report)
 }
 
 /// Create the VCS tag for each selected Package's current Version.
@@ -239,7 +252,10 @@ fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
     };
     let explicit = cli.package.is_some();
 
-    let mut tagged = 0;
+    let mut report = output::Tag {
+        dry_run: cli.dry_run,
+        packages: Vec::new(),
+    };
     for package in packages {
         let Some(name) = release::tag(&root, &config, package, vcs.as_ref(), rev, cli.dry_run)?
         else {
@@ -249,39 +265,28 @@ fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
             continue;
         };
         let version = FileVersionSource::new(&package.dir(&root)).current()?;
-        output::emit(
-            cli,
-            &output::Tag {
-                name: &name,
-                version: &version,
-                dry_run: cli.dry_run,
-            },
-        )?;
-        tagged += 1;
+        report.packages.push(TagPackage {
+            package: package.identity().to_owned(),
+            name,
+            version,
+        });
     }
-    if tagged == 0 {
+    if report.packages.is_empty() {
         bail!("nothing to tag: run `momo release` first");
     }
-    Ok(())
+    output::emit(cli, &report)
 }
 
-/// Report what a `release` or `candidate` did, or would do under `--dry-run`.
-fn report_release(cli: &Cli, outcome: &Outcome, verb: Verb) -> Result<()> {
-    output::emit(
-        cli,
-        &output::Release {
-            version: &outcome.version,
-            changelog: &outcome.changelog,
-            version_file: &outcome.version_file,
-            manifest: outcome
-                .manifest
-                .as_ref()
-                .map(|update| update.manifest.as_path()),
-            consumed: &outcome.consumed,
-            verb,
-            dry_run: cli.dry_run,
-        },
-    )
+/// One Package's entry in a `release`/`candidate` report.
+fn release_package(package: &str, outcome: Outcome) -> ReleasePackage {
+    ReleasePackage {
+        package: package.to_owned(),
+        version: outcome.version,
+        changelog: outcome.changelog,
+        version_file: outcome.version_file,
+        manifest: outcome.manifest.map(|update| update.manifest),
+        consumed: outcome.consumed,
+    }
 }
 
 /// Warn that syncing a manifest left its ecosystem's lockfile stale.

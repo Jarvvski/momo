@@ -181,6 +181,83 @@ fn a_multi_package_release_stamps_one_date() {
 }
 
 #[test]
+fn a_multi_package_release_json_is_one_document() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    monorepo(&dir);
+    for package in ["cargo:a", "cargo:b"] {
+        momo(&dir)
+            .args(["-p", package, "add", "Add a thing"])
+            .assert()
+            .success();
+    }
+
+    let assert = momo(&dir)
+        .args(["--all", "release", "--format", "json"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    // `from_str` rejects trailing content, so this pins the regression: a
+    // per-Package emit printed one complete document per Package.
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("stdout is one JSON document");
+    assert_eq!(value["dry_run"], serde_json::Value::Bool(false), "{stdout}");
+
+    let packages = value["packages"].as_array().expect("a `packages` array");
+    let mut names: Vec<&str> = packages
+        .iter()
+        .filter_map(|package| package["name"].as_str())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, ["cargo:a", "cargo:b"], "{stdout}");
+    for package in packages {
+        assert_eq!(package["version"], "0.1.0", "{stdout}");
+    }
+}
+
+#[test]
+fn a_multi_package_release_output_file_holds_every_package() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    monorepo(&dir);
+    for package in ["cargo:a", "cargo:b"] {
+        momo(&dir)
+            .args(["-p", package, "add", "Add a thing"])
+            .assert()
+            .success();
+    }
+    let path = dir.path().join("release.json");
+
+    let assert = momo(&dir)
+        .args(["--all", "release", "--format", "json", "--output"])
+        .arg(&path)
+        .assert()
+        .success();
+    assert!(
+        assert.get_output().stdout.is_empty(),
+        "`--output` still wrote to stdout"
+    );
+
+    // The write happens once, so the file is the whole report — not the last
+    // Package's, which is what a per-Package `fs::write` left behind.
+    let written = fs::read_to_string(&path).expect("read the report file");
+    let value: serde_json::Value =
+        serde_json::from_str(&written).expect("the file is one JSON document");
+    let packages = value["packages"].as_array().expect("a `packages` array");
+    let mut names: Vec<&str> = packages
+        .iter()
+        .filter_map(|package| package["name"].as_str())
+        .collect();
+    names.sort_unstable();
+    assert_eq!(names, ["cargo:a", "cargo:b"], "{written}");
+}
+
+#[test]
 fn a_recording_verb_defaults_to_the_current_directory() {
     if !require_tool("mise") {
         return;

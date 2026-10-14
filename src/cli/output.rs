@@ -201,44 +201,59 @@ impl Verb {
     }
 }
 
+/// One Package's entry in a `release` / `candidate` report.
+pub struct ReleasePackage {
+    /// The Package's identity, e.g. `cargo:momo`.
+    pub package: String,
+    /// The Version minted.
+    pub version: Version,
+    /// The Changelog the run wrote.
+    pub changelog: PathBuf,
+    /// The version file the run wrote. Both `release` and `candidate` advance
+    /// it, so it is always present and the run can be tagged.
+    pub version_file: PathBuf,
+    /// The ecosystem manifest the run synced, when it found one.
+    pub manifest: Option<PathBuf>,
+    /// The Fragments the run consumed.
+    pub consumed: Vec<PathBuf>,
+}
+
 /// What `momo release` / `momo candidate` report.
 ///
 /// The JSON shape is:
 ///
 /// ```json
 /// {
-///   "version": "0.1.0",
-///   "changelog": "CHANGELOG.md",
-///   "version_file": ".momo/version",
-///   "manifest": "Cargo.toml",
-///   "consumed": [".momo/changes/add-a-thing.md"],
-///   "dry_run": false
+///   "dry_run": false,
+///   "packages": [
+///     {
+///       "name": "momo",
+///       "version": "0.1.0",
+///       "changelog": "CHANGELOG.md",
+///       "version_file": ".momo/version",
+///       "manifest": "Cargo.toml",
+///       "consumed": [".momo/changes/add-a-thing.md"]
+///     }
+///   ]
 /// }
 /// ```
 ///
-/// `version_file` is always present — both `release` and `candidate` advance it,
-/// so the run can be tagged. `manifest` is the ecosystem manifest the run synced,
-/// or `null` when the Package has none. Under `--dry-run` the paths are what the
-/// run *would* have written.
-pub struct Release<'a> {
-    /// The Version minted.
-    pub version: &'a Version,
-    /// The Changelog the run wrote.
-    pub changelog: &'a Path,
-    /// The version file the run wrote. Both `release` and `candidate` advance
-    /// it, so it is always present and the run can be tagged.
-    pub version_file: &'a Path,
-    /// The ecosystem manifest the run synced, when it found one.
-    pub manifest: Option<&'a Path>,
-    /// The Fragments the run consumed.
-    pub consumed: &'a [PathBuf],
+/// The envelope mirrors [`Status`]: `packages` is always an array, even for a
+/// single-package repo, so a monorepo's run is one document and one `--output`
+/// file. `dry_run` is the run-wide flag. `version_file` is always present — both
+/// `release` and `candidate` advance it, so the run can be tagged. `manifest` is
+/// the ecosystem manifest the run synced, or `null` when the Package has none.
+/// Under `--dry-run` the paths are what the run *would* have written.
+pub struct Release {
     /// Which verb minted the Version.
     pub verb: Verb,
     /// Whether nothing was actually written.
     pub dry_run: bool,
+    /// The Packages, in discovery order.
+    pub packages: Vec<ReleasePackage>,
 }
 
-impl Report for Release<'_> {
+impl Report for Release {
     fn human(&self) -> String {
         let verb = if self.dry_run {
             format!("would {}", self.verb.infinitive())
@@ -252,70 +267,125 @@ impl Report for Release<'_> {
             "removed"
         };
 
-        let mut out = format!("{verb} {}\n", self.version);
-        out.push_str(&format!("{wrote} {}\n", self.changelog.display()));
-        out.push_str(&format!("{wrote} {}\n", self.version_file.display()));
-        if let Some(manifest) = self.manifest {
-            out.push_str(&format!("{wrote} {}\n", manifest.display()));
-        }
-        for path in self.consumed {
-            out.push_str(&format!("{removed} {}\n", path.display()));
+        let mut out = String::new();
+        for package in &self.packages {
+            out.push_str(&format!("{verb} {}\n", package.version));
+            out.push_str(&format!("{wrote} {}\n", package.changelog.display()));
+            out.push_str(&format!("{wrote} {}\n", package.version_file.display()));
+            if let Some(manifest) = &package.manifest {
+                out.push_str(&format!("{wrote} {}\n", manifest.display()));
+            }
+            for path in &package.consumed {
+                out.push_str(&format!("{removed} {}\n", path.display()));
+            }
         }
         out
     }
 
     fn json(&self) -> String {
-        let consumed = self
-            .consumed
+        let packages = self
+            .packages
             .iter()
-            .map(|path| Json::from(path.as_path()))
+            .map(|package| {
+                let consumed = package
+                    .consumed
+                    .iter()
+                    .map(|path| Json::from(path.as_path()))
+                    .collect();
+                let manifest = package.manifest.as_deref().map_or(Json::Null, Json::from);
+                Json::object(vec![
+                    ("name", Json::from(package.package.as_str())),
+                    ("version", Json::from(&package.version)),
+                    ("changelog", Json::from(package.changelog.as_path())),
+                    ("version_file", Json::from(package.version_file.as_path())),
+                    ("manifest", manifest),
+                    ("consumed", Json::Array(consumed)),
+                ])
+            })
             .collect();
-        let manifest = self.manifest.map_or(Json::Null, Json::from);
         Json::object(vec![
-            ("version", Json::from(self.version)),
-            ("changelog", Json::from(self.changelog)),
-            ("version_file", Json::from(self.version_file)),
-            ("manifest", manifest),
-            ("consumed", Json::Array(consumed)),
             ("dry_run", Json::from(self.dry_run)),
+            ("packages", Json::Array(packages)),
         ])
         .to_document()
     }
 
     fn version(&self) -> String {
-        self.version.to_string()
+        self.packages
+            .iter()
+            .map(|package| package.version.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
+}
+
+/// One Package's entry in a `tag` report.
+pub struct TagPackage {
+    /// The Package's identity, e.g. `cargo:momo`.
+    pub package: String,
+    /// The tag name, prefix included.
+    pub name: String,
+    /// The Version the tag names.
+    pub version: Version,
 }
 
 /// What `momo tag` reports.
 ///
-/// The JSON shape is `{ "tag": "v0.1.0", "version": "0.1.0", "dry_run": false }`.
-pub struct Tag<'a> {
-    /// The tag name, prefix included.
-    pub name: &'a str,
-    /// The Version the tag names.
-    pub version: &'a Version,
+/// The JSON shape is:
+///
+/// ```json
+/// {
+///   "dry_run": false,
+///   "packages": [
+///     { "name": "momo", "tag": "v0.1.0", "version": "0.1.0" }
+///   ]
+/// }
+/// ```
+///
+/// Like [`Status`] and [`Release`], `packages` is always an array and `dry_run`
+/// is the run-wide flag.
+pub struct Tag {
     /// Whether nothing was actually created.
     pub dry_run: bool,
+    /// The Packages, in discovery order.
+    pub packages: Vec<TagPackage>,
 }
 
-impl Report for Tag<'_> {
+impl Report for Tag {
     fn human(&self) -> String {
         let verb = if self.dry_run { "would tag" } else { "tagged" };
-        format!("{verb} {}\n", self.name)
+        let mut out = String::new();
+        for package in &self.packages {
+            out.push_str(&format!("{verb} {}\n", package.name));
+        }
+        out
     }
 
     fn json(&self) -> String {
+        let packages = self
+            .packages
+            .iter()
+            .map(|package| {
+                Json::object(vec![
+                    ("name", Json::from(package.package.as_str())),
+                    ("tag", Json::from(package.name.as_str())),
+                    ("version", Json::from(&package.version)),
+                ])
+            })
+            .collect();
         Json::object(vec![
-            ("tag", Json::from(self.name)),
-            ("version", Json::from(self.version)),
             ("dry_run", Json::from(self.dry_run)),
+            ("packages", Json::Array(packages)),
         ])
         .to_document()
     }
 
     fn version(&self) -> String {
-        self.version.to_string()
+        self.packages
+            .iter()
+            .map(|package| package.version.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -462,7 +532,7 @@ fn escape_into(text: &str, out: &mut String) {
 mod tests {
     use super::*;
 
-    use std::path::Path;
+    use std::path::PathBuf;
 
     /// A `Cli` with every global flag at its default.
     fn cli() -> Cli {
@@ -630,30 +700,51 @@ mod tests {
         assert!(json.contains("\"name\": \"cargo:b\""), "{json}");
     }
 
+    /// One Package's entry in a `release` envelope, with the fixture paths.
+    fn package_entry(name: &str, text: &str) -> ReleasePackage {
+        ReleasePackage {
+            package: name.to_owned(),
+            version: version(text),
+            changelog: PathBuf::from("/repo/CHANGELOG.md"),
+            version_file: PathBuf::from("/repo/.momo/version"),
+            manifest: Some(PathBuf::from("/repo/Cargo.toml")),
+            consumed: vec![PathBuf::from("/repo/.momo/changes/add-a-thing.md")],
+        }
+    }
+
+    /// One Package's entry in a `tag` envelope.
+    fn tag_entry(package: &str, name: &str, text: &str) -> TagPackage {
+        TagPackage {
+            package: package.to_owned(),
+            name: name.to_owned(),
+            version: version(text),
+        }
+    }
+
     #[test]
     fn release_json_has_the_documented_shape() {
-        let version = version("0.1.0");
         let report = Release {
-            version: &version,
-            changelog: Path::new("/repo/CHANGELOG.md"),
-            version_file: Path::new("/repo/.momo/version"),
-            manifest: Some(Path::new("/repo/Cargo.toml")),
-            consumed: &[PathBuf::from("/repo/.momo/changes/add-a-thing.md")],
             verb: Verb::Release,
             dry_run: false,
+            packages: vec![package_entry("momo", "0.1.0")],
         };
 
         assert_eq!(
             report.json(),
             r#"{
-  "version": "0.1.0",
-  "changelog": "/repo/CHANGELOG.md",
-  "version_file": "/repo/.momo/version",
-  "manifest": "/repo/Cargo.toml",
-  "consumed": [
-    "/repo/.momo/changes/add-a-thing.md"
-  ],
-  "dry_run": false
+  "dry_run": false,
+  "packages": [
+    {
+      "name": "momo",
+      "version": "0.1.0",
+      "changelog": "/repo/CHANGELOG.md",
+      "version_file": "/repo/.momo/version",
+      "manifest": "/repo/Cargo.toml",
+      "consumed": [
+        "/repo/.momo/changes/add-a-thing.md"
+      ]
+    }
+  ]
 }
 "#
         );
@@ -661,15 +752,13 @@ mod tests {
 
     #[test]
     fn release_json_reports_a_missing_manifest_as_null() {
-        let version = version("0.1.0");
         let report = Release {
-            version: &version,
-            changelog: Path::new("/repo/CHANGELOG.md"),
-            version_file: Path::new("/repo/.momo/version"),
-            manifest: None,
-            consumed: &[],
             verb: Verb::Release,
             dry_run: false,
+            packages: vec![ReleasePackage {
+                manifest: None,
+                ..package_entry("momo", "0.1.0")
+            }],
         };
 
         assert!(
@@ -680,16 +769,28 @@ mod tests {
     }
 
     #[test]
-    fn release_human_names_the_verb_and_what_it_wrote() {
-        let version = version("0.1.0");
+    fn release_json_reports_every_package_in_one_document() {
         let report = Release {
-            version: &version,
-            changelog: Path::new("/repo/CHANGELOG.md"),
-            version_file: Path::new("/repo/.momo/version"),
-            manifest: Some(Path::new("/repo/Cargo.toml")),
-            consumed: &[PathBuf::from("/repo/.momo/changes/add-a-thing.md")],
             verb: Verb::Release,
             dry_run: false,
+            packages: vec![
+                package_entry("cargo:a", "0.1.0"),
+                package_entry("cargo:b", "0.2.0"),
+            ],
+        };
+
+        let json = report.json();
+        assert!(json.contains("\"name\": \"cargo:a\""), "{json}");
+        assert!(json.contains("\"name\": \"cargo:b\""), "{json}");
+        assert_eq!(json.matches("\"packages\":").count(), 1, "{json}");
+    }
+
+    #[test]
+    fn release_human_names_the_verb_and_what_it_wrote() {
+        let report = Release {
+            verb: Verb::Release,
+            dry_run: false,
+            packages: vec![package_entry("momo", "0.1.0")],
         };
 
         assert_eq!(
@@ -700,15 +801,15 @@ mod tests {
 
     #[test]
     fn release_human_speaks_in_the_conditional_under_dry_run() {
-        let version = version("0.1.0-rc.1");
         let report = Release {
-            version: &version,
-            changelog: Path::new("/repo/CHANGELOG.md"),
-            version_file: Path::new("/repo/.momo/version"),
-            manifest: None,
-            consumed: &[],
             verb: Verb::Candidate,
             dry_run: true,
+            packages: vec![ReleasePackage {
+                version: version("0.1.0-rc.1"),
+                manifest: None,
+                consumed: Vec::new(),
+                ..package_entry("momo", "0.0.0")
+            }],
         };
 
         assert_eq!(
@@ -719,43 +820,74 @@ mod tests {
 
     #[test]
     fn release_version_only_is_the_minted_version() {
-        let version = version("1.2.3");
         let report = Release {
-            version: &version,
-            changelog: Path::new("/repo/CHANGELOG.md"),
-            version_file: Path::new("/repo/.momo/version"),
-            manifest: None,
-            consumed: &[],
             verb: Verb::Release,
             dry_run: false,
+            packages: vec![package_entry("momo", "1.2.3")],
         };
 
         assert_eq!(report.version(), "1.2.3");
     }
 
     #[test]
-    fn tag_json_has_the_documented_shape() {
-        let version = version("0.1.0");
-        let report = Tag {
-            name: "v0.1.0",
-            version: &version,
+    fn release_version_only_joins_every_package() {
+        let report = Release {
+            verb: Verb::Release,
             dry_run: false,
+            packages: vec![
+                package_entry("cargo:a", "1.2.3"),
+                package_entry("cargo:b", "4.5.6"),
+            ],
+        };
+
+        assert_eq!(report.version(), "1.2.3\n4.5.6");
+    }
+
+    #[test]
+    fn tag_json_has_the_documented_shape() {
+        let report = Tag {
+            dry_run: false,
+            packages: vec![tag_entry("momo", "v0.1.0", "0.1.0")],
         };
 
         assert_eq!(
             report.json(),
-            "{\n  \"tag\": \"v0.1.0\",\n  \"version\": \"0.1.0\",\n  \"dry_run\": false\n}\n"
+            r#"{
+  "dry_run": false,
+  "packages": [
+    {
+      "name": "momo",
+      "tag": "v0.1.0",
+      "version": "0.1.0"
+    }
+  ]
+}
+"#
         );
     }
 
     #[test]
+    fn tag_json_reports_every_package_in_one_document() {
+        let report = Tag {
+            dry_run: false,
+            packages: vec![
+                tag_entry("cargo:a", "cargo-a-v0.1.0", "0.1.0"),
+                tag_entry("cargo:b", "cargo-b-v0.2.0", "0.2.0"),
+            ],
+        };
+
+        let json = report.json();
+        assert!(json.contains("\"tag\": \"cargo-a-v0.1.0\""), "{json}");
+        assert!(json.contains("\"tag\": \"cargo-b-v0.2.0\""), "{json}");
+        assert_eq!(json.matches("\"packages\":").count(), 1, "{json}");
+    }
+
+    #[test]
     fn tag_human_speaks_in_the_conditional_under_dry_run() {
-        let version = version("0.1.0");
         assert_eq!(
             Tag {
-                name: "v0.1.0",
-                version: &version,
                 dry_run: true,
+                packages: vec![tag_entry("momo", "v0.1.0", "0.1.0")],
             }
             .human(),
             "would tag v0.1.0\n"

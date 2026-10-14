@@ -47,6 +47,12 @@ tree clean?"*. `0` means there **is** something to release.
 
 ## JSON shapes
 
+Every reporting verb emits **one** JSON document per run, whatever the number
+of packages. The multi-package report is an envelope: a run-wide flag plus a
+top-level `packages` array, which is always present — even for a single-package
+repo. This means `--output <PATH>` writes the whole report once, rather than
+truncating to the last package.
+
 ### `status --format json`
 
 ```json
@@ -77,32 +83,47 @@ an array, even for a single-package repo.
 
 ```json
 {
-  "version": "0.1.0",
-  "changelog": "/repo/CHANGELOG.md",
-  "version_file": "/repo/.momo/version",
-  "manifest": "/repo/Cargo.toml",
-  "consumed": [
-    "/repo/.momo/changes/add-a-shiny-thing.md"
-  ],
-  "dry_run": false
+  "dry_run": false,
+  "packages": [
+    {
+      "name": "momo",
+      "version": "0.1.0",
+      "changelog": "/repo/CHANGELOG.md",
+      "version_file": "/repo/.momo/version",
+      "manifest": "/repo/Cargo.toml",
+      "consumed": [
+        "/repo/.momo/changes/add-a-shiny-thing.md"
+      ]
+    }
+  ]
 }
 ```
 
-`version_file` is the version file the run wrote. `manifest` is the ecosystem
-manifest whose version scalar the run synced, or `null` when the package has
-none. `consumed` lists the fragments the run deleted (empty for `candidate`).
-Under `--dry-run` the paths are what the run *would* have written — including the
-manifest, which the dry run parses but does not write.
+`dry_run` is the run-wide flag. Each entry in `packages` is one released package,
+named by its `name` (the same identity `status` reports). `version_file` is the
+version file the run wrote. `manifest` is the ecosystem manifest whose version
+scalar the run synced, or `null` when the package has none. `consumed` lists the
+fragments the run deleted (empty for `candidate`). Under `--dry-run` the paths
+are what the run *would* have written — including the manifest, which the dry run
+parses but does not write.
 
 ### `tag` (`--format json`)
 
 ```json
 {
-  "tag": "v0.1.0",
-  "version": "0.1.0",
-  "dry_run": false
+  "dry_run": false,
+  "packages": [
+    {
+      "name": "momo",
+      "tag": "v0.1.0",
+      "version": "0.1.0"
+    }
+  ]
 }
 ```
+
+`tag` is the package's namespaced tag name, prefix included; `name` identifies
+which package it names.
 
 ## A release job
 

@@ -1,7 +1,7 @@
 # 42: No test covers multi-package JSON or `--output`
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Blocked by: 03
 Severity: medium
 Area: tests
@@ -60,3 +60,21 @@ first (`docs/ci.md` is a contract).
   - `momo --all release --output out.json` → assert both packages present in the
     file.
 - Use the ticket-41 `require_tool("mise")` helper.
+
+## Resolution
+
+Resolved with ticket 03; the regression tests landed in the same change set.
+
+`tests/monorepo.rs` gained two mise-gated two-package cases over the shared
+`monorepo()` fixture:
+
+- `a_multi_package_release_json_is_one_document` — `--all release --format json`
+  parses via `serde_json::from_str`, which rejects trailing content, so N
+  concatenated documents fail; the single object's `packages` array names
+  `cargo:a` and `cargo:b`, both at `0.1.0`.
+- `a_multi_package_release_output_file_holds_every_package` — `--all release
+  --format json --output <file>` leaves stdout empty and writes one document
+  naming both packages.
+
+`src/cli/output.rs` additionally pins the multi-package envelope shape for
+`release` and `tag` at the unit level.

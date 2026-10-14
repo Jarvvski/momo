@@ -1,7 +1,7 @@
 # 03: Multi-package `--format json` and `--output` are broken
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: cli/output
 Verified: yes — read at the cited lines
@@ -103,3 +103,26 @@ every reporting verb shares one shape. `emit` is called once per run, so
 breaking change to the shape documented in `docs/ci.md`; update that too.
 
 Ticket 42 is this change's test and lands with it.
+
+## Resolution
+
+Resolved with ticket 42 in one change set.
+
+`release`, `candidate` and `tag` now fold their per-Package outcomes into a
+single aggregate `Report` and call `output::emit` exactly once, mirroring
+`status`. `--output <path>` therefore writes once by construction, and
+`--format json` is a single document.
+
+The chosen shape is the owner's `status`-style envelope:
+
+- `release` / `candidate`:
+  `{ "dry_run": bool, "packages": [ { "name", "version", "changelog", "version_file", "manifest", "consumed" } ] }`
+- `tag`:
+  `{ "dry_run": bool, "packages": [ { "name", "tag", "version" } ] }`
+
+`packages` is always an array, even for a single-package repo, and `dry_run` is
+the run-wide flag — matching how `status` carries `unreleased` alongside
+`packages`. The change is deliberately breaking and `docs/ci.md` was updated to
+the new shape. `tests/monorepo.rs` gained the two-package regression tests
+(ticket 42), and `src/cli/output.rs` unit tests pin the envelope for `release`
+and `tag`.
