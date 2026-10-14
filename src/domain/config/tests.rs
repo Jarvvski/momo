@@ -1,6 +1,26 @@
+use super::keys::{KNOWN_KEYS, KNOWN_PACKAGE_KEYS};
 use super::*;
 
 use std::path::Path;
+
+#[test]
+fn the_config_surface_is_frozen() {
+    assert_eq!(
+        KNOWN_KEYS,
+        [
+            "recording",
+            "changelog",
+            "changes_dir",
+            "tag_prefix",
+            "remote",
+            "task_env",
+            "rc_format",
+            "command_timeout",
+            "packages",
+        ]
+    );
+    assert_eq!(KNOWN_PACKAGE_KEYS, ["identity", "slug", "manifest"]);
+}
 
 #[test]
 fn defaults_match_the_spec() {
@@ -25,6 +45,20 @@ fn the_rendered_defaults_parse_back_as_overrides() {
     assert_eq!(
         Config::resolve(overrides, ConfigOverrides::default()),
         Config::default()
+    );
+}
+
+#[test]
+fn init_renders_exactly_the_frozen_default_keys() {
+    // `momo init` writes the default configuration; its key set is part of the
+    // frozen surface, so a new default key must be a deliberate edit here.
+    let text = Config::default().to_string();
+    let doc: toml_edit::DocumentMut = text.parse().expect("the rendered defaults are valid TOML");
+    let mut keys: Vec<&str> = doc.as_table().iter().map(|(key, _)| key).collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["changelog", "changes_dir", "recording", "tag_prefix"]
     );
 }
 
