@@ -43,6 +43,25 @@ impl Kind {
     }
 }
 
+/// The Keep-a-Changelog classification headings momo cannot read.
+///
+/// These are Keep-a-Changelog 1.1.0's categories minus the three momo reads
+/// (`Added` and `Fixed` map to [`Kind::Add`] and [`Kind::Fix`]; `Breaking` is
+/// momo's own heading, not a Keep-a-Changelog one). The categories describe
+/// *what kind* of change happened, not its severity — `Changed` can break or
+/// not — so momo has no honest Bump to derive from one. A bullet beneath one is
+/// still Unreleased content momo is failing to version.
+pub const UNREAD_HEADINGS: [&str; 4] = ["Changed", "Deprecated", "Removed", "Security"];
+
+/// Whether `heading` is a Keep-a-Changelog heading momo cannot read.
+///
+/// The set is closed: a heading outside it and outside [`Kind::from_heading`]
+/// (say `### Internal`) is not a Keep-a-Changelog classification, so it stays
+/// foreign — preserved and ignored, the documented escape hatch.
+pub fn unread_heading(heading: &str) -> bool {
+    UNREAD_HEADINGS.contains(&heading.trim())
+}
+
 impl fmt::Display for Kind {
     /// The verb that names this Kind.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -171,6 +190,19 @@ mod tests {
         assert_eq!(Kind::Break.heading(), "Breaking");
         assert_eq!(Kind::Add.heading(), "Added");
         assert_eq!(Kind::Fix.heading(), "Fixed");
+    }
+
+    #[test]
+    fn unread_heading_matches_only_the_keep_a_changelog_categories_momo_cannot_read() {
+        for heading in UNREAD_HEADINGS {
+            assert!(unread_heading(heading), "`{heading}` should be unread");
+        }
+        // Whitespace is trimmed, so a padded heading still matches.
+        assert!(unread_heading("  Changed "));
+        // The three momo reads, and anything outside the closed set, do not.
+        for heading in ["Breaking", "Added", "Fixed", "Internal", "changed"] {
+            assert!(!unread_heading(heading), "`{heading}` should not be unread");
+        }
     }
 
     #[test]

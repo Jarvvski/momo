@@ -108,9 +108,9 @@ Your existing `CHANGELOG.md` needs no preparation. Recording creates the `## [Un
 changelog = "CHANGES.md"
 ```
 
-### The bump only reads three headings
+### The bump reads three headings, and refuses the ones it cannot
 
-This is the first surprise. momo interprets `- ` bullets under **`### Breaking`**, **`### Added`** and **`### Fixed`** — and nothing else. Every other heading is preserved exactly and simply does not count toward the version:
+momo interprets `- ` bullets under **`### Breaking`**, **`### Added`** and **`### Fixed`**. The four remaining Keep a Changelog categories — **`### Changed`**, **`### Deprecated`**, **`### Removed`** and **`### Security`** — describe *what* changed, not how much, so momo has no honest version to derive from a bullet beneath one. Rather than guess, momo **refuses to mint** while the Unreleased body holds one, and `status` surfaces it:
 
 ```console
 $ cat CHANGELOG.md
@@ -138,17 +138,22 @@ Unreleased
       - Hand-written added thing
     Fixed
       - Hand-written fixed thing
+    Unversioned
+      - `### Changed` (line 9): 1 entry momo cannot version
     current: —
     → next: 0.1.0
-```
 
-Note what happened: the two recognised bullets **are** counted — your accumulated `### Added` and `### Fixed` entries drive the first release, so there is usually nothing to do. The `### Changed` bullet is still in the file, untouched, but it did not affect the version and is not listed.
+$ momo release
+error[momo.changelog.unversioned-section]: `### Changed` has 1 entry momo cannot version (line 9)
+  fix: move them under `### Breaking`/`### Added`/`### Fixed`, or — if they are not versioned changes — out of a Keep-a-Changelog heading momo reads
+```
 
 The practical consequences:
 
-- **Keep a Changelog users:** `### Added` and `### Fixed` map straight across. `### Changed`, `### Deprecated`, `### Removed` and `### Security` are preserved but ignored — a breaking change filed under `### Changed` will not bump MAJOR.
+- **Keep a Changelog users:** `### Added` and `### Fixed` map straight across. Before the first release, move any Unreleased bullet out of `### Changed`/`### Deprecated`/`### Removed`/`### Security`: re-record it as `momo break` / `momo add` / `momo fix` under a heading momo reads, or move it out of a Keep a Changelog heading entirely if it is not a versioned change.
+- **Only the Unreleased body is inspected.** A **released** `### Changed` section is history: it is preserved untouched and never blocks a release, so adopting momo over an existing changelog never fails on its released sections.
+- **A heading momo does not know at all** (`### Internal`, say) is not a Keep a Changelog category, so it stays foreign — preserved and ignored, with no refusal. It is the escape hatch for content that is not a versioned change.
 - **Do not double up.** If a hand-written `- Add a thing` already sits under `### Added` and you also run `momo add "Add a thing"`, you get two bullets. Either leave the hand-written entries alone (they count) or replace them.
-- **Back-filling is optional.** To make an ignored entry count, re-record it with `momo break` / `momo add` / `momo fix` and delete the hand-written original. Only worth doing if the first release's number matters to you; otherwise let the entries ride along and start recording with momo from now on.
 
 ### The footer is regenerated on your first release
 

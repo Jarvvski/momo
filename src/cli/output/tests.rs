@@ -26,6 +26,7 @@ fn status(changes: &[Change]) -> Status {
             current: None,
             next,
             changes: changes.to_vec(),
+            unversioned: Vec::new(),
         }],
     }
 }
@@ -53,7 +54,8 @@ fn status_json_has_the_documented_shape() {
           "kind": "add",
           "text": "Add a shiny thing"
         }
-      ]
+      ],
+      "unversioned": []
     }
   ]
 }
@@ -81,6 +83,7 @@ fn status_json_distinguishes_a_zero_release_from_never_released() {
             current: Some(Version::new(0, 0, 0)),
             next: None,
             changes: Vec::new(),
+            unversioned: Vec::new(),
         }],
     };
     assert!(
@@ -157,6 +160,7 @@ fn status_human_reports_the_current_version_once_released() {
             current: Some(version("1.2.3")),
             next: Some(version("1.3.0")),
             changes: vec![Change::new(Kind::Add, "Add a shiny thing")],
+            unversioned: Vec::new(),
         }],
     };
 
@@ -190,6 +194,70 @@ fn status_check_gate_tracks_the_unreleased_changes() {
     assert!(!status(&[]).unreleased());
 }
 
+/// A status report for one Package holding `unversioned` and no Changes.
+fn status_with_unversioned(unversioned: Vec<UnreadSection>) -> Status {
+    Status {
+        packages: vec![StatusPackage {
+            package: "momo".to_owned(),
+            current: None,
+            next: None,
+            changes: Vec::new(),
+            unversioned,
+        }],
+    }
+}
+
+#[test]
+fn status_json_reports_unversioned_sections() {
+    let report = status_with_unversioned(vec![UnreadSection {
+        heading: "Changed".to_owned(),
+        line: 41,
+        entries: 2,
+    }]);
+
+    let json = report.json();
+    assert!(json.contains("\"unversioned\": ["), "{json}");
+    assert!(json.contains("\"heading\": \"Changed\""), "{json}");
+    assert!(json.contains("\"line\": 41"), "{json}");
+    assert!(json.contains("\"entries\": 2"), "{json}");
+}
+
+#[test]
+fn status_json_reports_no_unversioned_sections_in_the_common_case() {
+    assert!(status(&[]).json().contains("\"unversioned\": []"));
+}
+
+#[test]
+fn status_human_surfaces_unversioned_sections_before_the_next_version() {
+    let report = status_with_unversioned(vec![UnreadSection {
+        heading: "Changed".to_owned(),
+        line: 41,
+        entries: 2,
+    }]);
+
+    assert_eq!(
+        report.human(),
+        "Unreleased\n\n  momo\n    Unversioned\n      - `### Changed` (line 41): 2 entries momo cannot version\n    current: —\n    → next: 0.0.0\n"
+    );
+}
+
+#[test]
+fn status_human_uses_the_singular_for_one_unversioned_entry() {
+    let report = status_with_unversioned(vec![UnreadSection {
+        heading: "Security".to_owned(),
+        line: 7,
+        entries: 1,
+    }]);
+
+    assert!(
+        report
+            .human()
+            .contains("`### Security` (line 7): 1 entry momo cannot version"),
+        "{}",
+        report.human()
+    );
+}
+
 #[test]
 fn status_reports_every_package() {
     let report = Status {
@@ -199,12 +267,14 @@ fn status_reports_every_package() {
                 current: None,
                 next: Some(Version::new(0, 1, 0)),
                 changes: vec![Change::new(Kind::Add, "Add a thing")],
+                unversioned: Vec::new(),
             },
             StatusPackage {
                 package: "cargo:b".to_owned(),
                 current: None,
                 next: None,
                 changes: Vec::new(),
+                unversioned: Vec::new(),
             },
         ],
     };

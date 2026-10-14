@@ -139,7 +139,10 @@ pub fn fragments(repo_root: &Path, config: &Config, package: &Package) -> Result
         return Ok(Vec::new());
     }
 
-    let mut paths = fragment_paths(&package.changes_dir(repo_root, config))?;
+    let mut paths: Vec<PathBuf> = fragment_paths(&package.changes_dir(repo_root, config))?
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect();
     paths.sort();
     Ok(paths)
 }
@@ -160,10 +163,7 @@ pub fn consume(paths: &[PathBuf]) -> Result<()> {
 /// stray blank file is a mistake, not a reason to fail the run.
 fn read_fragments(dir: &Path) -> Result<Vec<Change>> {
     let mut changes = Vec::new();
-    for path in fragment_paths(dir)? {
-        let Some(kind) = fragment_kind(&path) else {
-            continue;
-        };
+    for (path, kind) in fragment_paths(dir)? {
         let text =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         if let Ok(change) = Change::try_new(kind, &text) {
@@ -174,34 +174,64 @@ fn read_fragments(dir: &Path) -> Result<Vec<Change>> {
     Ok(changes)
 }
 
-/// Every Fragment file under `dir`, unordered.
-fn fragment_paths(dir: &Path) -> Result<Vec<PathBuf>> {
+/// Every Fragment file under `dir` and the Kind its name encodes, unordered.
+fn fragment_paths(dir: &Path) -> Result<Vec<(PathBuf, Kind)>> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
         Err(err) => return Err(err).with_context(|| format!("reading {}", dir.display())),
     };
 
-    let mut paths = Vec::new();
+    let mut fragments = Vec::new();
     for entry in entries {
         let path = entry
             .with_context(|| format!("reading {}", dir.display()))?
             .path();
-        if fragment_kind(&path).is_some() {
-            paths.push(path);
+        match fragment_entry(&path) {
+            FragmentEntry::Fragment(kind) => fragments.push((path, kind)),
+            FragmentEntry::Foreign => {}
+            FragmentEntry::Unrecognised(name) => bail!(
+                "{} is not a Fragment: expected `<kind>-<slug>.md` with `<kind>` one of: \
+                 break, add, fix",
+                dir.join(name).display(),
+            ),
         }
     }
-    Ok(paths)
+    Ok(fragments)
 }
 
-/// The Kind a Fragment file name encodes, if it is a Fragment at all.
-fn fragment_kind(path: &Path) -> Option<Kind> {
-    if path.extension()?.to_str()? != "md" {
-        return None;
+/// How a file under the changes dir relates to the Fragment model.
+enum FragmentEntry {
+    /// A recognised Fragment, carrying the Kind its name encodes.
+    Fragment(Kind),
+    /// A file momo deliberately ignores: not `.md`, a dotfile, or a `README`.
+    Foreign,
+    /// A `.md` file that is neither a recognised Fragment nor ignored.
+    Unrecognised(String),
+}
+
+/// Classify `path` under the changes dir.
+///
+/// A Fragment is `<kind>-<slug>.md` with `<kind>` one of `break`, `add`, `fix`.
+/// A non-`.md` file, a dotfile, and a `README*` are ignored — the changes dir is
+/// a normal directory and may hold them. Any other `.md` file is unrecognised:
+/// it would be invisible to both the bump and the report, so it is an error
+/// rather than a silent skip.
+fn fragment_entry(path: &Path) -> FragmentEntry {
+    let is_md = path.extension().and_then(|extension| extension.to_str()) == Some("md");
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return FragmentEntry::Foreign;
+    };
+    if !is_md || name.starts_with('.') || name.starts_with("README") {
+        return FragmentEntry::Foreign;
     }
-    let name = path.file_name()?.to_str()?;
-    let (prefix, _) = name.split_once('-')?;
-    prefix.parse::<Kind>().ok()
+    match name
+        .split_once('-')
+        .and_then(|(prefix, _)| prefix.parse::<Kind>().ok())
+    {
+        Some(kind) => FragmentEntry::Fragment(kind),
+        None => FragmentEntry::Unrecognised(name.to_owned()),
+    }
 }
 
 #[cfg(test)]
@@ -238,5 +268,52 @@ mod tests {
 
         assert_eq!(path, dir.path().join("add-add-a-thing-2.md"));
         assert!(!path.exists(), "the preview wrote a fragment");
+    }
+
+    #[test]
+    fn fragment_entry_classifies_a_name() {
+        assert!(matches!(
+            fragment_entry(Path::new("add-a-thing.md")),
+            FragmentEntry::Fragment(Kind::Add)
+        ));
+        // Dotfiles, non-`.md` files and a `README` are ignored.
+        for ignored in [".gitkeep", "notes.txt", "README.md", "README"] {
+            assert!(
+                matches!(fragment_entry(Path::new(ignored)), FragmentEntry::Foreign),
+                "`{ignored}` should be ignored"
+            );
+        }
+        // A `.md` file that is not `<kind>-<slug>.md` is unrecognised.
+        assert!(matches!(
+            fragment_entry(Path::new("changed-reworked.md")),
+            FragmentEntry::Unrecognised(name) if name == "changed-reworked.md"
+        ));
+        assert!(matches!(
+            fragment_entry(Path::new("addd-typo.md")),
+            FragmentEntry::Unrecognised(_)
+        ));
+    }
+
+    #[test]
+    fn an_unrecognised_fragment_fails_the_read_naming_the_file() {
+        let dir = TempDir::new().expect("temp dir");
+        fs::write(dir.path().join("changed-reworked.md"), "Reworked\n").expect("seed a stray file");
+
+        let err = read_fragments(dir.path()).expect_err("an unrecognised Fragment is refused");
+        let message = err.to_string();
+        assert!(message.contains("changed-reworked.md"), "{message}");
+        assert!(message.contains("break, add, fix"), "{message}");
+    }
+
+    #[test]
+    fn a_dotfile_and_a_readme_are_ignored_by_the_read() {
+        let dir = TempDir::new().expect("temp dir");
+        fs::write(dir.path().join(".gitkeep"), "").expect("seed a dotfile");
+        fs::write(dir.path().join("README.md"), "how to write fragments\n").expect("seed a readme");
+        fs::write(dir.path().join("add-a-thing.md"), "Add a thing\n").expect("seed a fragment");
+
+        let changes = read_fragments(dir.path()).expect("read the fragments");
+
+        assert_eq!(changes, vec![Change::new(Kind::Add, "Add a thing")]);
     }
 }

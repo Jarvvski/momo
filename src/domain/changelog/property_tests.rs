@@ -305,6 +305,9 @@ proptest! {
         match Changelog::parse(&text) {
             Ok(_) => {}
             Err(ChangelogError::DuplicateUnreleased { line }) => prop_assert!(line >= 1),
+            Err(ChangelogError::UnreadSection { .. }) => {
+                prop_assert!(false, "parse cannot produce an unread-section error")
+            }
         }
     }
 }

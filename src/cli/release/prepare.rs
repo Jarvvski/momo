@@ -126,6 +126,11 @@ fn prepare(
             config.changes_dir.display(),
         );
     }
+    // A bullet under `### Changed` (or a Keep-a-Changelog sibling momo cannot
+    // read) is Unreleased content momo is failing to version. A mint would
+    // silently drop it from the Bump and under-version the Release, so refuse
+    // rather than guess — before anything is written.
+    changelog.reject_unread()?;
     // A configured `remote` wins; otherwise link to the remote the VCS has.
     let derived = if config.remote.is_some() {
         None

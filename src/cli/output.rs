@@ -10,6 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::domain::change::{Change, Kind};
+use crate::domain::changelog::UnreadSection;
 use anyhow::{Context, Result};
 use semver::Version;
 use serde::Serialize;
@@ -64,6 +65,9 @@ pub struct StatusPackage {
     pub next: Option<Version>,
     /// The Unreleased Changes.
     pub changes: Vec<Change>,
+    /// The Unreleased sections under a Keep-a-Changelog heading momo cannot
+    /// read. Empty in the common case; non-empty means a mint would refuse.
+    pub unversioned: Vec<UnreadSection>,
 }
 
 impl StatusPackage {
@@ -84,18 +88,20 @@ impl StatusPackage {
 
 impl Serialize for StatusPackage {
     /// The documented shape: the Package's `name`, its `current` Version (or
-    /// `null`), the `next` Version a Release would mint, and the `changes` that
-    /// justify it. `next` is computed rather than the stored field, so the
-    /// envelope cannot be a derived impl.
+    /// `null`), the `next` Version a Release would mint, the `changes` that
+    /// justify it, and the `unversioned` sections a mint would refuse. `next` is
+    /// computed rather than the stored field, so the envelope cannot be a
+    /// derived impl.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("StatusPackage", 4)?;
+        let mut state = serializer.serialize_struct("StatusPackage", 5)?;
         state.serialize_field("name", &self.package)?;
         state.serialize_field("current", &self.current)?;
         state.serialize_field("next", &self.computed())?;
         state.serialize_field("changes", &Changes(&self.changes))?;
+        state.serialize_field("unversioned", &Unversioned(&self.unversioned))?;
         state.end()
     }
 }
@@ -113,7 +119,8 @@ impl Serialize for StatusPackage {
 ///       "name": "momo",
 ///       "current": null,
 ///       "next": "0.1.0",
-///       "changes": [{ "kind": "add", "text": "Add a shiny thing" }]
+///       "changes": [{ "kind": "add", "text": "Add a shiny thing" }],
+///       "unversioned": []
 ///     }
 ///   ]
 /// }
@@ -123,7 +130,9 @@ impl Serialize for StatusPackage {
 /// Unreleased. `current` is the Package's last Release (or cut Candidate), or
 /// `null` when it has never released; `next` is the Version a Release would
 /// mint, or the current Version when nothing is Unreleased; `changes` is empty
-/// in that case.
+/// in that case. `unversioned` lists the Unreleased sections under a
+/// Keep-a-Changelog heading momo cannot read — the condition that makes a mint
+/// refuse; it is empty in the common case.
 pub struct Status {
     /// The Packages, in discovery order.
     pub packages: Vec<StatusPackage>,
@@ -170,6 +179,20 @@ impl Report for Status {
                 out.push_str(&format!("    {}\n", kind.heading()));
                 for change in matching {
                     out.push_str(&format!("      - {}\n", change.text));
+                }
+            }
+            if !package.unversioned.is_empty() {
+                out.push_str("    Unversioned\n");
+                for unread in &package.unversioned {
+                    let noun = if unread.entries == 1 {
+                        "entry"
+                    } else {
+                        "entries"
+                    };
+                    out.push_str(&format!(
+                        "      - `### {}` (line {}): {} {noun} momo cannot version\n",
+                        unread.heading, unread.line, unread.entries,
+                    ));
                 }
             }
             let current = match &package.current {
@@ -425,6 +448,39 @@ impl Serialize for Changes<'_> {
             seq.serialize_element(&ChangeReport {
                 kind: change.kind.to_string(),
                 text: &change.text,
+            })?;
+        }
+        seq.end()
+    }
+}
+
+/// One Unreleased section under a heading momo cannot read, as `status` reports
+/// it: its heading, its line, and how many entries it holds.
+#[derive(Serialize)]
+struct UnreadSectionReport<'a> {
+    /// The heading, e.g. `Changed`, without the `### ` prefix.
+    heading: &'a str,
+    /// The 1-based document line of the heading.
+    line: usize,
+    /// The number of `- ` bullets beneath it.
+    entries: usize,
+}
+
+/// The `unversioned` array of a `status` report, rendered from the domain's
+/// [`UnreadSection`]s.
+struct Unversioned<'a>(&'a [UnreadSection]);
+
+impl Serialize for Unversioned<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for section in self.0 {
+            seq.serialize_element(&UnreadSectionReport {
+                heading: &section.heading,
+                line: section.line,
+                entries: section.entries,
             })?;
         }
         seq.end()

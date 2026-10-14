@@ -24,7 +24,7 @@ use semver::Version;
 use time::Date;
 
 use crate::domain::change::{Change, Kind};
-use crate::domain::config::Config;
+use crate::domain::config::{Config, Recording};
 use crate::domain::package::Package;
 use crate::domain::tag;
 use crate::domain::version::next_version;
@@ -154,6 +154,13 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
         let changes = recording::unreleased(&root, &config, package)?;
         let prefix = tag::prefix(package, &config.tag_prefix);
         let changelog = release::read_changelog(&root, &config, package)?;
+        // Only changelog mode reads the Unreleased body for the bump, so only
+        // there can a heading momo cannot read hide Unreleased Changes. In
+        // fragments mode the changelog's Unreleased is a separate error.
+        let unversioned = match config.recording {
+            Recording::Changelog => changelog.unread_sections(),
+            Recording::Fragments => Vec::new(),
+        };
         let source = version::source(&package.dir(&root), &prefix, vcs.as_deref());
         let base = version::release_base(source.as_ref(), &changelog)?;
         let current = source.current()?;
@@ -163,6 +170,7 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
             current,
             next,
             changes,
+            unversioned,
         });
     }
 

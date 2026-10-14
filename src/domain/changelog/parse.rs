@@ -2,9 +2,9 @@
 
 use semver::Version;
 
-use crate::domain::change::{Change, Kind};
+use crate::domain::change::{Change, Kind, unread_heading};
 
-use super::{Ending, Section};
+use super::{Ending, Section, UnreadSection};
 
 /// Whether `line` is a level-2 (`## `) heading.
 pub(super) fn is_section(line: &str) -> bool {
@@ -63,6 +63,37 @@ pub(super) fn entries(body: &[String]) -> Vec<Change> {
         }
     }
     changes
+}
+
+/// The Unreleased sections under a heading momo cannot read, with their bullets.
+///
+/// A section fires only when it holds at least one `- ` bullet: a bare heading
+/// or a prose-only section is not a Change momo is failing to version. The
+/// heading's document line is the section heading's line plus its offset in the
+/// body.
+pub(super) fn unread_sections(section: &Section) -> Vec<UnreadSection> {
+    let mut found: Vec<UnreadSection> = Vec::new();
+    let mut current: Option<usize> = None;
+    for (offset, line) in section.body.iter().enumerate() {
+        if let Some(heading) = line.strip_prefix("### ") {
+            current = if unread_heading(heading) {
+                found.push(UnreadSection {
+                    heading: heading.trim().to_owned(),
+                    line: section.line + offset + 1,
+                    entries: 0,
+                });
+                Some(found.len() - 1)
+            } else {
+                None
+            };
+        } else if line.starts_with("- ")
+            && let Some(index) = current
+        {
+            found[index].entries += 1;
+        }
+    }
+    found.retain(|unread| unread.entries > 0);
+    found
 }
 
 /// Whether `line` is the `### Kind` heading for `kind`.

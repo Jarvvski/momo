@@ -58,6 +58,27 @@ pub enum ChangelogError {
         /// The 1-based line of the second Unreleased heading.
         line: usize,
     },
+    /// The Unreleased body holds bullets under a Keep-a-Changelog heading momo
+    /// cannot read, so a mint would silently under-version them.
+    #[error(
+        "error[momo.changelog.unversioned-section]: `### {heading}` has {entries} {noun} momo cannot \
+         version (line {line})\n  fix: move them under `### Breaking`/`### Added`/`### Fixed`, or \
+         — if they are not versioned changes — out of a Keep-a-Changelog heading momo reads",
+        noun = plural(*entries)
+    )]
+    UnreadSection {
+        /// The heading, e.g. `Changed`, without the `### ` prefix.
+        heading: String,
+        /// The 1-based line of the heading.
+        line: usize,
+        /// The number of `- ` bullets beneath it.
+        entries: usize,
+    },
+}
+
+/// "entry" for one, "entries" otherwise — the count in an error message.
+fn plural(count: usize) -> &'static str {
+    if count == 1 { "entry" } else { "entries" }
 }
 
 /// The line ending a changelog uses, reapplied to every line momo writes.
@@ -89,6 +110,26 @@ struct Section {
     heading: String,
     /// The lines beneath the heading, without terminators.
     body: Vec<String>,
+    /// The 1-based document line of the heading; `0` for a section momo builds
+    /// rather than parses (it has no document line until it is rendered).
+    line: usize,
+}
+
+/// A Keep-a-Changelog heading momo cannot read, and the Unreleased bullets
+/// beneath it.
+///
+/// The heading names a Keep-a-Changelog classification ([`Kind::from_heading`]
+/// does not read) that momo has no honest Bump for. Its bullets are Unreleased
+/// Changes momo is failing to version, so a mint refuses them rather than
+/// under-versioning the Release; `status` reports them instead of erroring.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnreadSection {
+    /// The heading, e.g. `Changed`, without the `### ` prefix.
+    pub heading: String,
+    /// The 1-based document line of the heading.
+    pub line: usize,
+    /// The number of `- ` bullets beneath it.
+    pub entries: usize,
 }
 
 /// A preserved `CHANGELOG.md`.
@@ -146,6 +187,7 @@ impl Changelog {
                 current = Some(Section {
                     heading: (*line).to_owned(),
                     body: Vec::new(),
+                    line: index + 1,
                 });
             } else if let Some(section) = current.as_mut() {
                 section.body.push((*line).to_owned());
@@ -187,6 +229,7 @@ impl Changelog {
                 let mut section = Section {
                     heading: UNRELEASED_HEADING.to_owned(),
                     body: Vec::new(),
+                    line: 0,
                 };
                 append_change(&mut section, change);
                 self.sections.insert(0, section);
@@ -203,6 +246,36 @@ impl Changelog {
         self.unreleased_index()
             .map(|index| entries(&self.sections[index].body))
             .unwrap_or_default()
+    }
+
+    /// The Unreleased sections under a heading momo cannot read.
+    ///
+    /// The Unreleased body is the Bump source, so a bullet under `### Changed`
+    /// or its Keep-a-Changelog siblings is an Unreleased Change momo is failing
+    /// to version. Only the Unreleased section is inspected: a released
+    /// section's `### Changed` is history, never parsed for entries, and must
+    /// not fail a project adopting momo over an existing Keep-a-Changelog file.
+    pub fn unread_sections(&self) -> Vec<UnreadSection> {
+        self.unreleased_index()
+            .map(|index| parse::unread_sections(&self.sections[index]))
+            .unwrap_or_default()
+    }
+
+    /// Refuse the changelog when the Unreleased body holds entries momo cannot
+    /// read.
+    ///
+    /// A mint would silently drop them from the Bump and under-version the
+    /// Release. The first offending section is named, with its line and a
+    /// one-line fix.
+    pub fn reject_unread(&self) -> Result<(), ChangelogError> {
+        match self.unread_sections().into_iter().next() {
+            Some(section) => Err(ChangelogError::UnreadSection {
+                heading: section.heading,
+                line: section.line,
+                entries: section.entries,
+            }),
+            None => Ok(()),
+        }
     }
 
     /// Whether the document has a non-empty Unreleased section.
