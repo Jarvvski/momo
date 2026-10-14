@@ -9,7 +9,8 @@ use std::path::Path;
 
 use crate::domain::vcs::VcsError;
 
-use super::process::{CommandRunner, ProcessOutput};
+use super::process::CommandRunner;
+use crate::adapters::spawn::ProcessOutput;
 
 struct Reply {
     program: String,

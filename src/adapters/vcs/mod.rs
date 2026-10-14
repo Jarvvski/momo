@@ -19,4 +19,7 @@ mod test_support;
 pub use detect::{detect, detect_with};
 pub use git::GitVcs;
 pub use jj::JjVcs;
-pub use process::{CommandRunner, ProcessOutput, SystemRunner};
+pub use process::{CommandRunner, SystemRunner};
+// The process vocabulary lives in `spawn` (shared with the taskenv adapter);
+// re-exported here so the vcs public surface keeps naming its runner's output.
+pub use crate::adapters::spawn::{ProcessError, ProcessOutput};

@@ -30,8 +30,10 @@ tag_prefix = "v"
 | `remote` | *(unset)* | Override the changelog footer's remote; supplies one with no VCS |
 | `task_env` | *(unset)* | Recorded by `momo install` |
 | `rc_format` | `"-rc.{n}"` | Release-candidate suffix template; `{n}` is the number |
+| `command_timeout` | `60` | Seconds a spawned `git`/`jj`/`mise` command may run before it is killed |
 
-`task_env` is written by `momo install`. `remote` and `rc_format` are optional.
+`task_env` is written by `momo install`. `remote`, `rc_format` and
+`command_timeout` are optional.
 
 `changelog`, `changes_dir` and a package's `manifest` are **paths**. They must be
 relative and must not escape upward with `..`: an absolute path would discard the
@@ -60,6 +62,16 @@ rather than minting the same candidate for every number:
 ```console
 $ MOMO_RC_FORMAT='-rc' momo candidate
 error: validating the configuration: invalid value `-rc` for `rc_format`: `-rc` must contain exactly one `{n}`
+```
+
+`command_timeout` bounds every external command momo spawns (`git`, `jj` and
+`mise`). A child that outlives it is killed and the command fails with a timeout
+error, so a hung process — a held jj workspace lock, for instance — cannot stall
+an unattended release job. It is a whole number of seconds and must be positive;
+raise it for a very large repository where a read legitimately takes longer:
+
+```toml
+command_timeout = 300
 ```
 
 ## Per-package overrides
@@ -99,7 +111,7 @@ everything else at its default.
 ## Environment variables
 
 `MOMO_RECORDING`, `MOMO_CHANGELOG`, `MOMO_CHANGES_DIR`, `MOMO_TAG_PREFIX`,
-`MOMO_REMOTE`, `MOMO_TASK_ENV`, `MOMO_RC_FORMAT`.
+`MOMO_REMOTE`, `MOMO_TASK_ENV`, `MOMO_RC_FORMAT`, `MOMO_COMMAND_TIMEOUT`.
 
 An empty value is treated as unset, so `MOMO_CHANGES_DIR=` does not redirect the
 Fragment store. Unrelated `MOMO_*` variables are ignored.

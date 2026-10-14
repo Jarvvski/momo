@@ -4,7 +4,9 @@
 //! caller injects whichever adapter fits — a real one in production, a fake in
 //! tests — so the domain logic stays free of processes.
 
+use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use semver::Version;
 
@@ -75,12 +77,15 @@ pub trait Vcs {
         version: &Version,
         message: &str,
     ) -> Result<(), VcsError>;
-
-    /// Whether the working copy has changes that are not committed.
-    fn is_dirty(&self) -> Result<bool, VcsError>;
 }
 
 /// The domain errors a caller must be able to match on.
+///
+/// The variants are domain-meaningful: a caller can tell "no repository" from
+/// "the tag exists" from "the operation failed" without parsing a message. The
+/// process vocabulary a shelled-out adapter produces — the binary, its
+/// arguments, its stderr — is *not* here; [`VcsError::Operation`] carries it
+/// opaquely, and the adapter formats it at the CLI boundary.
 #[derive(Debug, thiserror::Error)]
 pub enum VcsError {
     /// No `.jj` or `.git` entry was found at or above the starting path.
@@ -104,24 +109,27 @@ pub enum VcsError {
         name: String,
     },
 
-    /// The VCS binary could not be started.
-    #[error("failed to run `{program}`")]
-    Spawn {
-        /// The program that could not be started.
-        program: String,
-        /// Why the process could not be spawned.
+    /// A VCS command could not be completed.
+    ///
+    /// The source is opaque to the domain: the adapter owns the process detail
+    /// (the program, its arguments, its stderr) and formats it at the CLI
+    /// boundary. A non-process adapter can report its own failure here without
+    /// fabricating a binary name.
+    #[error("the VCS command failed")]
+    Operation {
+        /// Why the command failed, owned by the adapter.
         #[source]
-        source: std::io::Error,
+        source: Box<dyn Error + Send + Sync>,
     },
 
-    /// The VCS binary ran but exited non-zero.
-    #[error("`{program} {args}` failed: {stderr}")]
-    CommandFailed {
-        /// The program that failed.
-        program: String,
-        /// The arguments it was given, space-separated.
-        args: String,
-        /// The trimmed standard error it produced.
-        stderr: String,
+    /// A VCS command did not finish within the configured timeout.
+    ///
+    /// Distinct from [`VcsError::Operation`] so a caller can react to a hang
+    /// (raise the timeout, report lock contention) rather than treat it as a
+    /// generic failure.
+    #[error("the VCS command did not finish within {timeout:?}")]
+    Timeout {
+        /// The timeout that elapsed.
+        timeout: Duration,
     },
 }

@@ -5,6 +5,6 @@
 //! scripted runner.
 
 pub mod manifest;
-pub(crate) mod spawn;
+pub mod spawn;
 pub mod taskenv;
 pub mod vcs;

@@ -556,10 +556,6 @@ mod tests {
         ) -> Result<(), VcsError> {
             Ok(())
         }
-
-        fn is_dirty(&self) -> Result<bool, VcsError> {
-            Ok(false)
-        }
     }
 
     /// The single Package every test releases.

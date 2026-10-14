@@ -13,11 +13,18 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Component, PathBuf};
 use std::str::FromStr;
+use std::time::Duration;
 
 use toml_edit::{DocumentMut, Item, Table, value};
 
 use crate::domain::remote::Remote;
 use crate::domain::version::RcFormatError;
+
+/// The default bound on any command momo spawns.
+///
+/// A hung child — jj workspace-lock contention is the realistic case — must fail
+/// rather than stall an unattended release job forever.
+pub const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The header comment written above a generated `momo.toml`.
 const HEADER: &str = "\
@@ -26,7 +33,7 @@ const HEADER: &str = "\
 ";
 
 /// The top-level keys a `momo.toml` may set.
-const KNOWN_KEYS: [&str; 8] = [
+const KNOWN_KEYS: [&str; 9] = [
     "recording",
     "changelog",
     "changes_dir",
@@ -34,6 +41,7 @@ const KNOWN_KEYS: [&str; 8] = [
     "remote",
     "task_env",
     "rc_format",
+    "command_timeout",
     "packages",
 ];
 
@@ -133,6 +141,8 @@ pub struct Config {
     pub task_env: Option<String>,
     /// Template for a Release Candidate version suffix, when customised.
     pub rc_format: Option<String>,
+    /// How long any command momo spawns may run before it is killed.
+    pub command_timeout: Duration,
     /// Per-package overrides keyed by ecosystem identity.
     pub packages: BTreeMap<String, PackageConfig>,
 }
@@ -147,6 +157,7 @@ impl Default for Config {
             remote: None,
             task_env: None,
             rc_format: None,
+            command_timeout: DEFAULT_COMMAND_TIMEOUT,
             packages: BTreeMap::new(),
         }
     }
@@ -185,6 +196,9 @@ impl Config {
         }
         if let Some(rc_format) = overrides.rc_format {
             self.rc_format = Some(rc_format);
+        }
+        if let Some(command_timeout) = overrides.command_timeout {
+            self.command_timeout = command_timeout;
         }
         for (identity, package) in overrides.packages {
             self.packages.entry(identity).or_default().overlay(package);
@@ -231,6 +245,9 @@ impl fmt::Display for Config {
         if let Some(rc_format) = &self.rc_format {
             table["rc_format"] = value(rc_format.as_str());
         }
+        if self.command_timeout != DEFAULT_COMMAND_TIMEOUT {
+            table["command_timeout"] = value(self.command_timeout.as_secs() as i64);
+        }
         if !self.packages.is_empty() {
             let mut packages = Table::new();
             for (identity, package) in &self.packages {
@@ -270,6 +287,8 @@ pub struct ConfigOverrides {
     pub task_env: Option<String>,
     /// Override for [`Config::rc_format`].
     pub rc_format: Option<String>,
+    /// Override for [`Config::command_timeout`].
+    pub command_timeout: Option<Duration>,
     /// Overrides for [`Config::packages`].
     pub packages: BTreeMap<String, PackageConfig>,
 }
@@ -311,6 +330,9 @@ impl ConfigOverrides {
                 }
                 "MOMO_TASK_ENV" => overrides.task_env = Some(value.to_owned()),
                 "MOMO_RC_FORMAT" => overrides.rc_format = Some(value.to_owned()),
+                "MOMO_COMMAND_TIMEOUT" => {
+                    overrides.command_timeout = Some(parse_seconds(name, value)?);
+                }
                 _ => {}
             }
         }
@@ -333,6 +355,7 @@ impl FromStr for ConfigOverrides {
             remote: parse_remote(&doc, "remote")?,
             task_env: parse_string(&doc, "task_env")?,
             rc_format: parse_string(&doc, "rc_format")?,
+            command_timeout: parse_seconds_key(&doc, "command_timeout")?,
             packages: parse_packages(&doc)?,
         })
     }
@@ -414,6 +437,14 @@ pub enum ConfigError {
         /// Why the template is unusable.
         #[source]
         source: RcFormatError,
+    },
+    /// A duration-valued key is not a positive whole number of seconds.
+    #[error("`{key}` must be a positive whole number of seconds, got `{value}`")]
+    InvalidSeconds {
+        /// The offending key.
+        key: String,
+        /// The value that could not be used.
+        value: String,
     },
 }
 
@@ -568,6 +599,41 @@ fn parse_value<T: FromStr<Err = UnknownValue>>(key: &str, value: &str) -> Result
     })
 }
 
+/// Parse a duration-valued key (whole seconds) from the document.
+fn parse_seconds_key(doc: &DocumentMut, key: &str) -> Result<Option<Duration>, ConfigError> {
+    let Some(item) = doc.as_table().get(key) else {
+        return Ok(None);
+    };
+    let seconds = item.as_integer().ok_or_else(|| ConfigError::WrongType {
+        key: key.to_owned(),
+        expected: "positive integer",
+    })?;
+    positive_seconds(key, seconds).map(Some)
+}
+
+/// Parse a duration-valued `MOMO_*` variable (whole seconds).
+fn parse_seconds(key: &str, value: &str) -> Result<Duration, ConfigError> {
+    value
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| ConfigError::InvalidSeconds {
+            key: key.to_owned(),
+            value: value.to_owned(),
+        })
+        .and_then(|seconds| positive_seconds(key, seconds))
+}
+
+/// Reject a non-positive number of seconds, reporting `key`.
+fn positive_seconds(key: &str, seconds: i64) -> Result<Duration, ConfigError> {
+    if seconds <= 0 {
+        return Err(ConfigError::InvalidSeconds {
+            key: key.to_owned(),
+            value: seconds.to_string(),
+        });
+    }
+    Ok(Duration::from_secs(seconds as u64))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -584,6 +650,7 @@ mod tests {
         assert_eq!(config.remote, None);
         assert_eq!(config.task_env, None);
         assert_eq!(config.rc_format, None);
+        assert_eq!(config.command_timeout, Duration::from_secs(60));
         assert!(config.packages.is_empty());
     }
 
@@ -680,6 +747,60 @@ mod tests {
             ..Config::default()
         };
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn a_command_timeout_is_parsed_from_the_file() {
+        let file: ConfigOverrides = "command_timeout = 5\n".parse().expect("valid TOML");
+        let config = Config::resolve(file, ConfigOverrides::default());
+        assert_eq!(config.command_timeout, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_command_timeout_is_parsed_from_the_environment() {
+        let env =
+            ConfigOverrides::from_env([("MOMO_COMMAND_TIMEOUT", "5")]).expect("a valid timeout");
+        let config = Config::resolve(ConfigOverrides::default(), env);
+        assert_eq!(config.command_timeout, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_non_positive_command_timeout_is_rejected() {
+        let file = "command_timeout = 0\n"
+            .parse::<ConfigOverrides>()
+            .expect_err("zero seconds is not a timeout");
+        assert!(file.to_string().contains("command_timeout"), "{file}");
+
+        let env = ConfigOverrides::from_env([("MOMO_COMMAND_TIMEOUT", "-1")])
+            .expect_err("a negative timeout is rejected");
+        assert!(env.to_string().contains("MOMO_COMMAND_TIMEOUT"), "{env}");
+    }
+
+    #[test]
+    fn a_non_integer_command_timeout_is_rejected() {
+        let err = "command_timeout = \"soon\"\n"
+            .parse::<ConfigOverrides>()
+            .expect_err("a string is not a number of seconds");
+        assert!(err.to_string().contains("command_timeout"), "{err}");
+    }
+
+    #[test]
+    fn a_non_default_command_timeout_is_rendered_and_round_trips() {
+        assert!(
+            !Config::default().to_string().contains("command_timeout"),
+            "the default timeout is not written"
+        );
+
+        let config = Config {
+            command_timeout: Duration::from_secs(5),
+            ..Config::default()
+        };
+        let rendered = config.to_string();
+        assert!(rendered.contains("command_timeout = 5"), "{rendered}");
+
+        let parsed: ConfigOverrides = rendered.parse().expect("generated config is valid TOML");
+        let resolved = Config::resolve(parsed, ConfigOverrides::default());
+        assert_eq!(resolved.command_timeout, Duration::from_secs(5));
     }
 
     #[test]

@@ -52,10 +52,20 @@ fn have(program: &str) -> bool {
 fn a_missing_binary_is_reported_as_a_spawn_error() {
     let dir = TempDir::new().unwrap();
 
-    let err = SystemRunner
+    let err = SystemRunner::default()
         .run("momo-definitely-not-a-real-binary", &[], dir.path())
         .unwrap_err();
-    assert!(matches!(err, VcsError::Spawn { .. }));
+    assert!(matches!(err, VcsError::Operation { .. }));
+}
+
+/// Whether `git` reports uncommitted changes in `cwd`.
+fn git_dirty(cwd: &Path) -> bool {
+    !capture(cwd, "git", &["status", "--porcelain"]).is_empty()
+}
+
+/// Whether `jj` reports a non-empty working-copy diff in `cwd`.
+fn jj_dirty(cwd: &Path) -> bool {
+    !capture(cwd, "jj", &["diff", "--summary"]).is_empty()
 }
 
 #[test]
@@ -79,7 +89,7 @@ fn git_round_trip() {
     let vcs = detect(dir.path()).unwrap();
     assert_eq!(vcs.kind(), VcsKind::Git);
     assert_eq!(vcs.latest_tag("v").unwrap(), None);
-    assert!(!vcs.is_dirty().unwrap());
+    assert!(!git_dirty(dir.path()));
 
     let version = Version::new(0, 1, 0);
     vcs.create_tag(None, "v", &version, "Release 0.1.0")
@@ -113,7 +123,7 @@ fn git_round_trip() {
     assert_eq!(err.to_string(), "tag `v0.1.0` already exists");
 
     std::fs::write(dir.path().join("a.txt"), "changed\n").unwrap();
-    assert!(vcs.is_dirty().unwrap());
+    assert!(git_dirty(dir.path()));
 }
 
 #[test]
@@ -171,7 +181,7 @@ fn jj_round_trip() {
 
     // jj snapshots the working copy on every command, so the edit is visible.
     std::fs::write(dir.path().join("a.txt"), "changed\n").unwrap();
-    assert!(vcs.is_dirty().unwrap());
+    assert!(jj_dirty(dir.path()));
 }
 
 /// The commit id `rev` resolves to, as a full 40-char hex string.
@@ -210,10 +220,7 @@ fn jj_tag_anchors_to_the_commit_holding_the_release() {
     run(dir.path(), "jj", &["commit", "--message", "release 0.1.0"]);
 
     let vcs = detect(dir.path()).unwrap();
-    assert!(
-        !vcs.is_dirty().unwrap(),
-        "`@` should be empty after jj commit"
-    );
+    assert!(!jj_dirty(dir.path()), "`@` should be empty after jj commit");
 
     let version = Version::new(0, 1, 0);
     vcs.create_tag(None, "v", &version, "Release 0.1.0")
@@ -275,7 +282,7 @@ fn jj_tag_honours_an_explicit_revision() {
     std::fs::write(dir.path().join("CHANGELOG.md"), "# Changelog\n\n## 0.1.0\n").unwrap();
 
     let vcs = detect(dir.path()).unwrap();
-    assert!(vcs.is_dirty().unwrap());
+    assert!(jj_dirty(dir.path()));
 
     // Capture `@` before tagging: jj advances the working copy once the tag
     // makes the tagged commit immutable, so `@` afterwards is a new commit.
@@ -324,7 +331,7 @@ fn jj_tag_defaults_to_the_parent_even_when_a_stray_file_makes_at_dirty() {
     // ignore it and stay on the committed release at `@-`.
     std::fs::write(dir.path().join("stray.txt"), "unrelated\n").unwrap();
     let vcs = detect(dir.path()).unwrap();
-    assert!(vcs.is_dirty().unwrap(), "the stray file should dirty `@`");
+    assert!(jj_dirty(dir.path()), "the stray file should dirty `@`");
     let release = commit_id(dir.path(), "@-");
 
     let version = Version::new(0, 1, 0);

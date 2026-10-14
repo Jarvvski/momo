@@ -8,10 +8,11 @@
 
 use std::collections::HashMap;
 use std::path::{Component, Path};
+use std::time::Duration;
 
-use crate::adapters::spawn::command;
+use crate::adapters::spawn::{self, ProcessError};
 use crate::domain::package::Package;
-use crate::domain::taskenv::TaskEnvError;
+use crate::domain::taskenv::{GraphError, TaskEnvError};
 use serde_json::Value;
 
 /// The mise invocation that prints the project graph as JSON.
@@ -20,27 +21,25 @@ const ARGS: [&str; 3] = ["tasks", "graph", "--json"];
 /// Discover the Packages of the monorepo rooted at `root`.
 ///
 /// Errors when mise is absent, the repo does not set `monorepo_root = true`, or
-/// the graph cannot be parsed.
-pub fn discover(root: &Path) -> Result<Vec<Package>, TaskEnvError> {
-    let output = command("mise", &ARGS, root)
-        .output()
-        .map_err(|source| TaskEnvError::Spawn {
-            program: "mise".to_owned(),
-            source,
-        })?;
+/// the graph cannot be parsed. The mise command is bounded by `timeout`.
+pub fn discover(root: &Path, timeout: Duration) -> Result<Vec<Package>, TaskEnvError> {
+    let output = spawn::run("mise", &ARGS, root, timeout).map_err(TaskEnvError::from)?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(TaskEnvError::Command {
+    if !output.success {
+        return Err(TaskEnvError::from(ProcessError::Failed {
             program: "mise".to_owned(),
             args: ARGS.join(" "),
-            stderr: stderr.lines().next().unwrap_or_default().trim().to_owned(),
-        });
+            stderr: output
+                .stderr
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_owned(),
+        }));
     }
 
-    let stdout = String::from_utf8(output.stdout).map_err(|err| {
-        TaskEnvError::Graph(format!("`mise tasks graph` did not print UTF-8: {err}"))
-    })?;
+    let stdout = output.stdout;
     parse_projects(&stdout)
 }
 
@@ -51,15 +50,14 @@ pub fn discover(root: &Path) -> Result<Vec<Package>, TaskEnvError> {
 /// reaches a Package: an absolute or `..`-escaping root would otherwise write
 /// outside the repo.
 fn parse_projects(json: &str) -> Result<Vec<Package>, TaskEnvError> {
-    let document: Value = serde_json::from_str(json).map_err(|err| {
-        TaskEnvError::Graph(format!("invalid JSON from `mise tasks graph`: {err}"))
+    let document: Value = serde_json::from_str(json).map_err(|source| TaskEnvError::Graph {
+        source: GraphError::Malformed { source },
     })?;
     let projects = document
         .get("projects")
         .and_then(Value::as_array)
-        .ok_or_else(|| {
-            TaskEnvError::Graph("`mise tasks graph` printed no `projects` array".to_owned())
-        })?;
+        .ok_or(GraphError::MissingProjects)
+        .map_err(|source| TaskEnvError::Graph { source })?;
 
     let mut packages = Vec::new();
     let mut roots: HashMap<String, String> = HashMap::new();
@@ -67,19 +65,25 @@ fn parse_projects(json: &str) -> Result<Vec<Package>, TaskEnvError> {
         let id = project
             .get("id")
             .and_then(Value::as_str)
-            .ok_or_else(|| TaskEnvError::Graph("a project has no string `id`".to_owned()))?;
+            .ok_or(GraphError::MissingId)
+            .map_err(|source| TaskEnvError::Graph { source })?;
         let root = project
             .get("root")
             .and_then(Value::as_str)
-            .ok_or_else(|| TaskEnvError::Graph(format!("project `{id}` has no string `root`")))?;
+            .ok_or_else(|| GraphError::MissingRoot { id: id.to_owned() })
+            .map_err(|source| TaskEnvError::Graph { source })?;
         validate_root(id, root)?;
 
         match roots.get(id) {
             Some(seen) if seen == root => continue,
             Some(seen) => {
-                return Err(TaskEnvError::Graph(format!(
-                    "project `{id}` is listed twice with different roots: `{seen}` and `{root}`"
-                )));
+                return Err(TaskEnvError::Graph {
+                    source: GraphError::Duplicate {
+                        id: id.to_owned(),
+                        first: seen.clone(),
+                        second: root.to_owned(),
+                    },
+                });
             }
             None => {
                 roots.insert(id.to_owned(), root.to_owned());
@@ -94,24 +98,49 @@ fn parse_projects(json: &str) -> Result<Vec<Package>, TaskEnvError> {
 fn validate_root(id: &str, root: &str) -> Result<(), TaskEnvError> {
     let path = Path::new(root);
     if path.is_absolute() {
-        return Err(TaskEnvError::Graph(format!(
-            "project `{id}` has an absolute `root` `{root}`"
-        )));
+        return Err(TaskEnvError::Graph {
+            source: GraphError::AbsoluteRoot {
+                id: id.to_owned(),
+                root: root.to_owned(),
+            },
+        });
     }
     if path
         .components()
         .any(|component| component == Component::ParentDir)
     {
-        return Err(TaskEnvError::Graph(format!(
-            "project `{id}` has a `root` escaping the repo: `{root}`"
-        )));
+        return Err(TaskEnvError::Graph {
+            source: GraphError::EscapingRoot {
+                id: id.to_owned(),
+                root: root.to_owned(),
+            },
+        });
     }
     Ok(())
+}
+
+impl From<ProcessError> for TaskEnvError {
+    fn from(err: ProcessError) -> Self {
+        match err.timeout() {
+            Some(timeout) => Self::Timeout { timeout },
+            None => Self::Operation {
+                source: Box::new(err),
+            },
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The structured reason behind a graph failure.
+    fn graph_error(err: TaskEnvError) -> GraphError {
+        match err {
+            TaskEnvError::Graph { source } => source,
+            other => panic!("expected a graph error, got {other:?}"),
+        }
+    }
 
     #[test]
     fn parses_the_project_ids_and_roots() {
@@ -158,20 +187,30 @@ mod tests {
     #[test]
     fn a_missing_projects_array_is_rejected() {
         let err = parse_projects(r#"{ "other": true }"#).expect_err("no projects array");
-        assert!(err.to_string().contains("projects"), "{err}");
+        assert!(matches!(graph_error(err), GraphError::MissingProjects));
     }
 
     #[test]
     fn invalid_json_is_rejected() {
         let err = parse_projects("not json").expect_err("invalid JSON");
-        assert!(err.to_string().contains("invalid JSON"), "{err}");
+        assert!(matches!(graph_error(err), GraphError::Malformed { .. }));
     }
 
     #[test]
     fn a_project_without_an_id_is_rejected() {
         let err =
             parse_projects(r#"{ "projects": [ { "root": "crates/a" } ] }"#).expect_err("no id");
-        assert!(err.to_string().contains("`id`"), "{err}");
+        assert!(matches!(graph_error(err), GraphError::MissingId));
+    }
+
+    #[test]
+    fn a_project_without_a_root_is_rejected() {
+        let err =
+            parse_projects(r#"{ "projects": [ { "id": "cargo:a" } ] }"#).expect_err("no root");
+        assert!(matches!(
+            graph_error(err),
+            GraphError::MissingRoot { ref id } if id == "cargo:a"
+        ));
     }
 
     #[test]
@@ -198,21 +237,30 @@ mod tests {
         }"#;
 
         let err = parse_projects(json).expect_err("a conflicting duplicate");
-        assert!(err.to_string().contains("cargo:a"), "{err}");
-        assert!(err.to_string().contains("different roots"), "{err}");
+        assert!(matches!(
+            graph_error(err),
+            GraphError::Duplicate { ref id, ref first, ref second }
+                if id == "cargo:a" && first == "crates/a" && second == "crates/elsewhere"
+        ));
     }
 
     #[test]
     fn an_absolute_root_is_rejected() {
         let json = r#"{ "projects": [ { "id": "cargo:a", "root": "/tmp/elsewhere" } ] }"#;
         let err = parse_projects(json).expect_err("an absolute root");
-        assert!(err.to_string().contains("absolute"), "{err}");
+        assert!(matches!(
+            graph_error(err),
+            GraphError::AbsoluteRoot { ref id, .. } if id == "cargo:a"
+        ));
     }
 
     #[test]
     fn a_parent_escaping_root_is_rejected() {
         let json = r#"{ "projects": [ { "id": "cargo:a", "root": "../elsewhere" } ] }"#;
         let err = parse_projects(json).expect_err("a root escaping the repo");
-        assert!(err.to_string().contains("escaping the repo"), "{err}");
+        assert!(matches!(
+            graph_error(err),
+            GraphError::EscapingRoot { ref id, .. } if id == "cargo:a"
+        ));
     }
 }

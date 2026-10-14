@@ -10,7 +10,9 @@
 //! mutating anything and keeps idempotency (unchanged files are never written)
 //! testable at the seam.
 
+use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use semver::Version;
 
@@ -85,6 +87,10 @@ pub trait TaskEnvironment {
 }
 
 /// The domain errors a caller must be able to match on.
+///
+/// Like [`crate::domain::vcs::VcsError`], the variants are domain-meaningful and
+/// carry no process vocabulary: [`TaskEnvError::Operation`] wraps the adapter's
+/// detail opaquely, and the adapter formats it at the CLI boundary.
 #[derive(Debug, thiserror::Error)]
 pub enum TaskEnvError {
     /// The requested environment name is not one momo supports.
@@ -124,30 +130,94 @@ pub enum TaskEnvError {
         source: std::io::Error,
     },
 
-    /// The task-environment binary could not be started.
-    #[error("failed to run `{program}`")]
-    Spawn {
-        /// The program that could not be started.
-        program: String,
-        /// Why the process could not be spawned.
+    /// A task-environment command could not be completed.
+    ///
+    /// The source is opaque: the adapter owns the process detail (the program,
+    /// its arguments, its stderr).
+    #[error("the task-environment command failed")]
+    Operation {
+        /// Why the command failed, owned by the adapter.
         #[source]
-        source: std::io::Error,
+        source: Box<dyn Error + Send + Sync>,
     },
 
-    /// The task-environment binary ran but exited non-zero.
-    #[error("`{program} {args}` failed: {stderr}")]
-    Command {
-        /// The program that failed.
-        program: String,
-        /// The arguments it was given, space-separated.
-        args: String,
-        /// The trimmed standard error it produced.
-        stderr: String,
+    /// A task-environment command did not finish within the configured timeout.
+    #[error("the task-environment command did not finish within {timeout:?}")]
+    Timeout {
+        /// The timeout that elapsed.
+        timeout: Duration,
     },
 
     /// The project graph could not be read.
-    #[error("reading the project graph: {0}")]
-    Graph(String),
+    #[error("reading the project graph: {source}")]
+    Graph {
+        /// Why the graph could not be read.
+        #[source]
+        source: GraphError,
+    },
+}
+
+/// Why the project graph could not be read.
+///
+/// Structured so a caller can react — degrade silently, warn, or fail — without
+/// matching on the message text.
+#[derive(Debug, thiserror::Error)]
+pub enum GraphError {
+    /// `mise tasks graph` did not print valid JSON.
+    #[error("invalid JSON from `mise tasks graph`")]
+    Malformed {
+        /// The parse failure.
+        #[source]
+        source: serde_json::Error,
+    },
+
+    /// The graph document had no `projects` array.
+    #[error("`mise tasks graph` printed no `projects` array")]
+    MissingProjects,
+
+    /// A project had no string `id`.
+    #[error("a project has no string `id`")]
+    MissingId,
+
+    /// A project had no string `root`.
+    #[error("project `{id}` has no string `root`")]
+    MissingRoot {
+        /// The project's id.
+        id: String,
+    },
+
+    /// A project was listed twice with different roots.
+    #[error("project `{id}` is listed twice with different roots: `{first}` and `{second}`")]
+    Duplicate {
+        /// The duplicated project id.
+        id: String,
+        /// The root seen first.
+        first: String,
+        /// The conflicting root seen second.
+        second: String,
+    },
+
+    /// A project's `root` was absolute.
+    #[error("project `{id}` has an absolute `root` `{root}`")]
+    AbsoluteRoot {
+        /// The project's id.
+        id: String,
+        /// The offending root.
+        root: String,
+    },
+
+    /// A project's `root` escaped the repository with `..`.
+    #[error("project `{id}` has a `root` escaping the repo: `{root}`")]
+    EscapingRoot {
+        /// The project's id.
+        id: String,
+        /// The offending root.
+        root: String,
+    },
+
+    /// The graph listed no projects at all.
+    #[error("`mise tasks graph` listed no projects")]
+    Empty,
 }
 
 #[cfg(test)]

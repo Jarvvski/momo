@@ -721,10 +721,6 @@ mod tests {
         ) -> Result<(), VcsError> {
             Ok(())
         }
-
-        fn is_dirty(&self) -> Result<bool, VcsError> {
-            Ok(false)
-        }
     }
 
     #[test]

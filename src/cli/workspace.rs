@@ -68,7 +68,7 @@ pub fn load(root: &Path, config: &Config) -> Result<Discovery> {
         return Ok(Discovery::resolved(single()));
     }
 
-    match crate::adapters::taskenv::discover(root) {
+    match crate::adapters::taskenv::discover(root, config.command_timeout) {
         Ok(packages) if !packages.is_empty() => {
             let workspace = Workspace::new(root, packages, config)?;
             Ok(Discovery::resolved(workspace))
@@ -104,7 +104,9 @@ pub fn select<'a>(
 
 /// The error for a monorepo whose graph listed no projects.
 fn empty_graph() -> TaskEnvError {
-    TaskEnvError::Graph("`mise tasks graph` listed no projects".to_owned())
+    TaskEnvError::Graph {
+        source: crate::domain::taskenv::GraphError::Empty,
+    }
 }
 
 /// The name of the project root directory, or `package` when it has none.
