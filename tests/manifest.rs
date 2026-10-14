@@ -1,6 +1,7 @@
 //! Integration tests for manifest sync: `release` writes the minted Version into
-//! the Package's `Cargo.toml`, format-preserving, and warns about a stale
-//! `Cargo.lock` rather than rewriting it.
+//! the Package's manifest (`Cargo.toml`, or `pyproject.toml` for a single-package
+//! Python repo), format-preserving, and warns about a stale `Cargo.lock` rather
+//! than rewriting it.
 //!
 //! These drive the real binary. A project is created in a directory named `proj`
 //! so the reported Package name is deterministic.
@@ -215,4 +216,89 @@ fn a_configured_manifest_override_is_synced() {
         MANIFEST,
         "discovery ignored the override"
     );
+}
+
+/// A `pyproject.toml` with comments, unusual spacing, and a second table.
+const PYPROJECT: &str = "\
+# The project manifest.
+[project]
+name = \"proj\"   # the project name
+version = \"0.0.0\" # bumped by momo
+requires-python = \">=3.11\"
+
+[tool.ruff]
+# a tool table
+line-length = 88
+";
+
+/// [`PYPROJECT`] with the version bumped to `0.1.0`.
+const PYPROJECT_RELEASED: &str = "\
+# The project manifest.
+[project]
+name = \"proj\"   # the project name
+version = \"0.1.0\" # bumped by momo
+requires-python = \">=3.11\"
+
+[tool.ruff]
+# a tool table
+line-length = 88
+";
+
+#[test]
+fn release_rewrites_a_single_package_pythons_pyproject() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    let manifest = proj.join("pyproject.toml");
+    fs::write(&manifest, PYPROJECT).expect("seed the manifest");
+
+    momo(&proj)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&proj)
+        .arg("release")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("released 0.1.0"));
+
+    assert_eq!(read(&manifest), PYPROJECT_RELEASED);
+}
+
+#[test]
+fn a_candidate_writes_the_pyproject_version_in_pep_440_form() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    let manifest = proj.join("pyproject.toml");
+    fs::write(&manifest, PYPROJECT).expect("seed the manifest");
+
+    momo(&proj)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&proj).arg("candidate").assert().success();
+
+    let updated = read(&manifest);
+    assert!(updated.contains("version = \"0.1.0rc1\""), "{updated}");
+}
+
+#[test]
+fn a_dynamic_pyproject_version_is_skipped_with_a_warning() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    let manifest = proj.join("pyproject.toml");
+    let dynamic = "[project]\nname = \"proj\"\ndynamic = [\"version\"]\n";
+    fs::write(&manifest, dynamic).expect("seed the manifest");
+
+    momo(&proj)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&proj)
+        .arg("release")
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("skipped"))
+        .stderr(predicate::str::contains("dynamic version"));
+
+    assert_eq!(read(&manifest), dynamic, "the manifest was rewritten");
 }

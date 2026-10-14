@@ -1,15 +1,9 @@
 //! The Cargo manifest adapter: `Cargo.toml`, edited in place with `toml_edit`.
 //!
-//! The edit is format-preserving by construction: the document is parsed into
-//! `toml_edit`'s concrete syntax tree, one scalar is replaced, and the tree is
-//! rendered back. Comments, key order, and whitespace survive byte-for-byte —
-//! only the version value's own representation is rewritten. The source's
-//! newline style (LF or CRLF) and whether it ended in a newline are reapplied
-//! after rendering, because `toml_edit` normalises both.
-//!
-//! The lockfile is *not* touched. `Cargo.lock` embeds each workspace package's
-//! version and is maintained by Cargo, so momo reports it as possibly stale and
-//! leaves refreshing it to the package manager.
+//! The format-preserving edit itself is [`super::toml`]; this adapter owns only
+//! which key holds the version. The lockfile is *not* touched: `Cargo.lock`
+//! embeds each workspace package's version and is maintained by Cargo, so momo
+//! reports it as possibly stale and leaves refreshing it to the package manager.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,7 +12,9 @@ use crate::domain::manifest::{
     ManifestError, ManifestPlan, ManifestSync, ManifestWrite, SkipReason,
 };
 use semver::Version;
-use toml_edit::{DocumentMut, Item, Value};
+use toml_edit::{DocumentMut, Item};
+
+use super::toml;
 
 /// The conventional Cargo manifest name.
 const MANIFEST: &str = "Cargo.toml";
@@ -39,7 +35,7 @@ impl ManifestSync for CargoManifest {
     }
 
     fn render(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError> {
-        let text = read(manifest)?;
+        let text = toml::read(manifest)?;
 
         Ok(match set_version(&text, manifest, version)? {
             Resolved::Write { path, text } => ManifestPlan {
@@ -66,14 +62,6 @@ impl ManifestSync for CargoManifest {
 
         Ok(plan)
     }
-}
-
-/// Read `manifest`, attributing a failure to its path.
-fn read(manifest: &Path) -> Result<String, ManifestError> {
-    fs::read_to_string(manifest).map_err(|source| ManifestError::Read {
-        path: manifest.to_path_buf(),
-        source,
-    })
 }
 
 /// The lockfile Cargo keeps beside `manifest`, when there is one.
@@ -111,7 +99,7 @@ enum Resolved {
 /// already carries `version` — in both cases there is nothing to write, and the
 /// reason says which.
 fn set_version(text: &str, manifest: &Path, version: &Version) -> Result<Resolved, ManifestError> {
-    let mut doc = parse(text, manifest)?;
+    let mut doc = toml::parse(text, manifest)?;
     let Some(key) = version_key(&doc) else {
         return Ok(Resolved::Skip {
             path: manifest.to_path_buf(),
@@ -135,7 +123,7 @@ fn set_version(text: &str, manifest: &Path, version: &Version) -> Result<Resolve
                     manifest: manifest.to_path_buf(),
                 });
             };
-            let mut root_doc = parse(&root_text, &root)?;
+            let mut root_doc = toml::parse(&root_text, &root)?;
             // `workspace_root` only returns a root that declares the shared
             // version, so the scalar is always there to rewrite.
             Ok(
@@ -154,34 +142,19 @@ fn set_version(text: &str, manifest: &Path, version: &Version) -> Result<Resolve
     }
 }
 
-/// Parse `text` as TOML, attributing a failure to `path`.
-fn parse(text: &str, path: &Path) -> Result<DocumentMut, ManifestError> {
-    text.parse().map_err(|source| ManifestError::Parse {
-        path: path.to_path_buf(),
-        source: Box::new(source),
-    })
-}
-
 /// Render `text` with the `key` scalar set to `version`.
 ///
 /// `None` when `key` names nothing, or already holds `version`. `doc` is `text`
 /// parsed; the original `text` is kept so the file's newline style and
-/// final-newline state survive ([`preserve_line_endings`]).
+/// final-newline state survive ([`toml::preserve_line_endings`]).
 fn set_scalar(text: &str, doc: &mut DocumentMut, version: &Version, key: Key) -> Option<String> {
     let target = version.to_string();
     let item = item_mut(doc, key)?;
-    if item.as_str() == Some(target.as_str()) {
+    if !toml::set_string(item, &target) {
         return None;
     }
 
-    // Replacing the value drops its decor — the whitespace around it and any
-    // trailing comment — so put it back around the new scalar.
-    let current = item.as_value_mut()?;
-    let decor = current.decor().clone();
-    *current = Value::from(target);
-    *current.decor_mut() = decor;
-
-    Some(preserve_line_endings(text, doc.to_string()))
+    Some(toml::preserve_line_endings(text, doc.to_string()))
 }
 
 /// The workspace root manifest `member` inherits its version from, and its text.
@@ -206,29 +179,6 @@ fn workspace_root(member: &Path) -> Option<(PathBuf, String)> {
         }
     }
     None
-}
-
-/// Reapply `source`'s newline style and final-newline state to `rendered`.
-///
-/// `toml_edit` always renders LF and always terminates the document, so a CRLF
-/// manifest or one without a trailing newline would otherwise be rewritten
-/// wholesale. `rendered` is the untouched render of the parsed document.
-fn preserve_line_endings(source: &str, rendered: String) -> String {
-    let mut rendered = rendered;
-    if !source.ends_with('\n') && rendered.ends_with('\n') {
-        rendered.pop();
-    }
-    if uses_crlf(source) {
-        rendered = rendered.replace('\n', "\r\n");
-    }
-    rendered
-}
-
-/// Whether `source` uses CRLF line endings throughout.
-///
-/// A file with any bare `\n`, or no `\r\n` at all, is treated as LF.
-fn uses_crlf(source: &str) -> bool {
-    source.contains("\r\n") && !source.replace("\r\n", "").contains('\n')
 }
 
 /// The key holding a Cargo manifest's authoritative version.
