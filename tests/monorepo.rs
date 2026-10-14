@@ -76,6 +76,36 @@ fn monorepo(dir: &TempDir) {
     }
 }
 
+/// A two-crate Cargo workspace whose members inherit the shared version.
+///
+/// The root carries `[workspace.package].version`; each member's
+/// `version.workspace = true` resolves to that one scalar.
+fn inherited_workspace(dir: &TempDir) {
+    fs::write(
+        dir.path().join("mise.toml"),
+        "monorepo_root = true\n\n[monorepo]\nconfig_roots = [\"crates/*\"]\n",
+    )
+    .expect("seed mise.toml");
+    fs::write(dir.path().join("momo.toml"), "").expect("seed momo.toml");
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crates/*\"]\nresolver = \"2\"\n\n\
+         [workspace.package]\nversion = \"0.0.0\"\n",
+    )
+    .expect("seed the workspace manifest");
+
+    for name in ["a", "b"] {
+        let package = dir.path().join("crates").join(name);
+        fs::create_dir_all(package.join("src")).expect("create the crate dir");
+        fs::write(
+            package.join("Cargo.toml"),
+            format!("[package]\nname = \"{name}\"\nversion.workspace = true\nedition = \"2021\"\n"),
+        )
+        .expect("seed the crate manifest");
+        fs::write(package.join("src/lib.rs"), "pub fn f() {}\n").expect("seed the crate source");
+    }
+}
+
 /// A colocated jj repository with a local identity.
 fn jj_repo(dir: &TempDir) {
     capture(dir.path(), "jj", &["git", "init", "--colocate"]);
@@ -255,6 +285,79 @@ fn a_multi_package_release_output_file_holds_every_package() {
         .collect();
     names.sort_unstable();
     assert_eq!(names, ["cargo:a", "cargo:b"], "{written}");
+}
+
+#[test]
+fn a_member_with_an_inherited_version_syncs_the_shared_workspace_version() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    inherited_workspace(&dir);
+
+    momo(&dir)
+        .args(["-p", "cargo:a", "add", "Add a thing"])
+        .assert()
+        .success();
+    momo(&dir)
+        .args(["-p", "cargo:a", "release"])
+        .assert()
+        .success();
+
+    let root = fs::read_to_string(dir.path().join("Cargo.toml")).expect("workspace manifest");
+    assert!(
+        root.contains("[workspace.package]\nversion = \"0.1.0\""),
+        "the shared workspace version was not rewritten:\n{root}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("crates/a/Cargo.toml")).expect("member manifest"),
+        "[package]\nname = \"a\"\nversion.workspace = true\nedition = \"2021\"\n",
+        "the member's own manifest was rewritten"
+    );
+}
+
+#[test]
+fn a_shared_workspace_version_with_different_targets_fails_the_run() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    inherited_workspace(&dir);
+    // `add` targets 0.1.0 and `fix` targets 0.0.1: one shared scalar, two targets.
+    momo(&dir)
+        .args(["-p", "cargo:a", "add", "Add a thing"])
+        .assert()
+        .success();
+    momo(&dir)
+        .args(["-p", "cargo:b", "fix", "Fix a thing"])
+        .assert()
+        .success();
+
+    momo(&dir)
+        .args(["--all", "release"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("workspace version is shared"))
+        .stderr(predicate::str::contains("cargo:a"))
+        .stderr(predicate::str::contains("cargo:b"));
+
+    // The refusal is a whole-run pre-flight: nothing was released.
+    let root = fs::read_to_string(dir.path().join("Cargo.toml")).expect("workspace manifest");
+    assert!(root.contains("version = \"0.0.0\""), "{root}");
+    for name in ["a", "b"] {
+        let changelog = fs::read_to_string(dir.path().join(format!("crates/{name}/CHANGELOG.md")))
+            .expect("the recorded changelog");
+        assert!(
+            !changelog.contains("## [0.1.0]"),
+            "cargo:{name} was released anyway:\n{changelog}"
+        );
+        assert!(
+            !dir.path()
+                .join(format!("crates/{name}/.momo/version"))
+                .exists(),
+            "cargo:{name}'s version file was advanced"
+        );
+    }
 }
 
 #[test]

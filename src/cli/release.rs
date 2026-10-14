@@ -53,54 +53,6 @@ enum Mode {
     Candidate,
 }
 
-/// Mint a Release for `package` from its Unreleased Changes.
-///
-/// Promotes the Changelog's Unreleased section into `## [x.y.z] - date`,
-/// consumes the Fragments, and writes the Package's version file. It never
-/// commits and never tags. Returns `None` when there is nothing Unreleased.
-pub fn release(
-    repo_root: &Path,
-    config: &Config,
-    package: &Package,
-    vcs: Option<&dyn Vcs>,
-    date: Date,
-    dry_run: bool,
-) -> Result<Option<Outcome>> {
-    run(
-        repo_root,
-        config,
-        package,
-        vcs,
-        date,
-        Mode::Release,
-        dry_run,
-    )
-}
-
-/// Cut a Release Candidate for `package` from its Unreleased Changes.
-///
-/// Bumps exactly as a Release would, then appends `-rc.N`. The same files are
-/// written, but the Fragments are left in place: a Candidate shares them with
-/// the eventual Release. Returns `None` when there is nothing Unreleased.
-pub fn candidate(
-    repo_root: &Path,
-    config: &Config,
-    package: &Package,
-    vcs: Option<&dyn Vcs>,
-    date: Date,
-    dry_run: bool,
-) -> Result<Option<Outcome>> {
-    run(
-        repo_root,
-        config,
-        package,
-        vcs,
-        date,
-        Mode::Candidate,
-        dry_run,
-    )
-}
-
 /// A tag [`tag`] created, or would create.
 #[derive(Debug)]
 pub struct Tagged {
@@ -154,16 +106,138 @@ pub fn tag(
     }))
 }
 
-/// The shared body of [`release`] and [`candidate`].
-fn run(
+/// Resolve a Release for `package` without writing anything.
+///
+/// The read-only half of a Release: the Changelog is read, the Version minted,
+/// and every artefact — the manifest included — rendered. Because nothing is
+/// written, a caller can resolve every Package in a run and validate the whole
+/// set before the first byte lands. `None` when there is nothing Unreleased.
+pub fn prepare_release(
+    repo_root: &Path,
+    config: &Config,
+    package: &Package,
+    vcs: Option<&dyn Vcs>,
+    date: Date,
+) -> Result<Option<Prepared>> {
+    prepare(repo_root, config, package, vcs, date, Mode::Release)
+}
+
+/// Resolve a Release Candidate for `package` without writing anything.
+pub fn prepare_candidate(
+    repo_root: &Path,
+    config: &Config,
+    package: &Package,
+    vcs: Option<&dyn Vcs>,
+    date: Date,
+) -> Result<Option<Prepared>> {
+    prepare(repo_root, config, package, vcs, date, Mode::Candidate)
+}
+
+/// Write a [`Prepared`] Release's artefacts, atomically.
+///
+/// Every artefact is staged beside its own target and renamed into place
+/// together, so a failure leaves the tree exactly as it was. `dry_run` stages
+/// and discards, validating the run without writing it.
+pub fn commit(prepared: Prepared, dry_run: bool) -> Result<Option<Outcome>> {
+    let Prepared { outcome, writes } = prepared;
+
+    let mut staged = Staged::default();
+    for (target, contents) in &writes {
+        if let Err(err) = staged.add(target, contents) {
+            staged.discard();
+            return Err(err);
+        }
+    }
+
+    if dry_run {
+        staged.discard();
+        return Ok(Some(outcome));
+    }
+
+    // Commit: rename every staged file over its target, then delete the
+    // Fragments last, so a retry can still see them if anything goes wrong.
+    staged.commit()?;
+    recording::consume(&outcome.consumed)?;
+
+    Ok(Some(outcome))
+}
+
+/// A Release resolved but not yet written.
+///
+/// Everything a Release would change, rendered and ready to stage. Resolving
+/// without writing lets a `--all` run validate every Package together — in
+/// particular, that no two Packages would write one shared manifest to
+/// different versions — before anything is mutated.
+pub struct Prepared {
+    /// What the run would report.
+    outcome: Outcome,
+    /// Each artefact: the path it targets and its rendered contents.
+    writes: Vec<(PathBuf, String)>,
+}
+
+impl Prepared {
+    /// The Version the run would mint.
+    fn version(&self) -> &Version {
+        &self.outcome.version
+    }
+
+    /// The manifest this run would sync, and the text it would hold.
+    fn manifest_write(&self) -> Option<(&Path, &str)> {
+        let manifest = self.outcome.manifest.as_ref()?.manifest.as_path();
+        self.writes
+            .iter()
+            .find(|(path, _)| path == manifest)
+            .map(|(path, text)| (path.as_path(), text.as_str()))
+    }
+}
+
+/// Refuse a run whose Packages would write one manifest to different versions.
+///
+/// A Cargo workspace member inherits its version from the root's
+/// `[workspace.package].version`, a single scalar shared by every member, so a
+/// release may only write it when every Package resolving to that manifest
+/// agrees on the target. Otherwise the last writer would win and the earlier
+/// ones would be silently wrong, so the whole run fails before anything is
+/// written.
+pub fn reject_shared_manifest_conflicts(plans: &[(&Package, Prepared)]) -> Result<()> {
+    let mut written: Vec<(&Path, &Version, &str, &Package)> = Vec::new();
+    for (package, prepared) in plans {
+        let Some((path, text)) = prepared.manifest_write() else {
+            continue;
+        };
+        let Some((_, version, seen, other)) = written.iter().find(|(seen, ..)| *seen == path)
+        else {
+            written.push((path, prepared.version(), text, package));
+            continue;
+        };
+        if **version == *prepared.version() && *seen == text {
+            continue;
+        }
+        let detail = if **version == *prepared.version() {
+            format!("the same version {version} but different contents")
+        } else {
+            format!("different versions ({version} and {})", prepared.version())
+        };
+        bail!(
+            "`{}` and `{}` both sync `{}` with {detail}; a workspace version is shared, \
+             so release them in separate runs",
+            other.identity(),
+            package.identity(),
+            path.display(),
+        );
+    }
+    Ok(())
+}
+
+/// The shared body of [`prepare_release`] and [`prepare_candidate`].
+fn prepare(
     repo_root: &Path,
     config: &Config,
     package: &Package,
     vcs: Option<&dyn Vcs>,
     date: Date,
     mode: Mode,
-    dry_run: bool,
-) -> Result<Option<Outcome>> {
+) -> Result<Option<Prepared>> {
     let changes = recording::unreleased(repo_root, config, package)?;
     let prefix = package.tag_prefix(&config.tag_prefix);
     let package_dir = package.dir(repo_root);
@@ -222,9 +296,9 @@ fn run(
     let changelog_path = package.changelog(repo_root, config);
     let version_file = package.version_file(repo_root);
 
-    // Validate before mutating. Rendering the manifest parses it — the step
-    // that can fail on a malformed manifest — so it runs here, before a single
-    // target is touched. The Fragments are collected, not deleted.
+    // Rendering the manifest parses it — the step that can fail on a malformed
+    // manifest — so it runs here, before a single target is touched. The
+    // Fragments are collected, not deleted.
     let manifest = render_manifest(&package_dir, package, &version)?;
     let consumed = match mode {
         Mode::Release => recording::fragments(repo_root, config, package)?,
@@ -240,35 +314,19 @@ fn run(
     };
     let version_text = format!("{}\n", outcome.version);
 
-    // Stage every artefact beside its own target. Any failure here — a
-    // read-only directory, a full disk — leaves the tree exactly as it was.
-    let mut writes: Vec<(&Path, String)> = vec![
-        (changelog_path.as_path(), changelog.render()),
-        (version_file.as_path(), version_text),
+    // Every artefact, rendered: the Changelog, the version file, and — when the
+    // Package has one — the manifest. An inherited version's manifest is the
+    // shared workspace root, outside this Package's directory, but it stages
+    // and commits in the same transaction as the rest.
+    let mut writes: Vec<(PathBuf, String)> = vec![
+        (changelog_path, changelog.render()),
+        (version_file, version_text),
     ];
     if let Some((text, update)) = &manifest {
-        writes.push((update.manifest.as_path(), text.clone()));
+        writes.push((update.manifest.clone(), text.clone()));
     }
 
-    let mut staged = Staged::default();
-    for (target, contents) in &writes {
-        if let Err(err) = staged.add(target, contents) {
-            staged.discard();
-            return Err(err);
-        }
-    }
-
-    if dry_run {
-        staged.discard();
-        return Ok(Some(outcome));
-    }
-
-    // Commit: rename every staged file over its target, then delete the
-    // Fragments last, so a retry can still see them if anything goes wrong.
-    staged.commit()?;
-    recording::consume(&outcome.consumed)?;
-
-    Ok(Some(outcome))
+    Ok(Some(Prepared { outcome, writes }))
 }
 
 /// A Release's rendered artefacts, staged as temporary files until every one is
@@ -401,6 +459,36 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::cli::version::VERSION_FILE;
+
+    /// Resolve and write a Release in one step, as a single-Package caller does.
+    fn release(
+        repo_root: &Path,
+        config: &Config,
+        package: &Package,
+        vcs: Option<&dyn Vcs>,
+        date: Date,
+        dry_run: bool,
+    ) -> Result<Option<Outcome>> {
+        let Some(prepared) = prepare_release(repo_root, config, package, vcs, date)? else {
+            return Ok(None);
+        };
+        commit(prepared, dry_run)
+    }
+
+    /// Resolve and write a Release Candidate in one step.
+    fn candidate(
+        repo_root: &Path,
+        config: &Config,
+        package: &Package,
+        vcs: Option<&dyn Vcs>,
+        date: Date,
+        dry_run: bool,
+    ) -> Result<Option<Outcome>> {
+        let Some(prepared) = prepare_candidate(repo_root, config, package, vcs, date)? else {
+            return Ok(None);
+        };
+        commit(prepared, dry_run)
+    }
 
     /// A [`Vcs`] that reports fixed state and never touches a repository.
     struct FakeVcs {
@@ -1180,6 +1268,124 @@ mod tests {
             read(root, "crates/a/Cargo.toml"),
             "[package]\nname = \"momo\"\nversion = \"0.1.0\"\n"
         );
+    }
+
+    /// Seed one member of the workspace rooted at `root`.
+    fn member(root: &Path, name: &str, fragment: &str, text: &str) {
+        let package = root.join("crates").join(name);
+        fs::create_dir_all(&package).expect("package dir");
+        fs::write(
+            package.join("Cargo.toml"),
+            format!("[package]\nname = \"{name}\"\nversion.workspace = true\n"),
+        )
+        .expect("seed the member manifest");
+        let changes = root.join(".momo/changes").join(format!("cargo-{name}"));
+        fs::create_dir_all(&changes).expect("package changes dir");
+        fs::write(changes.join(fragment), format!("{text}\n")).expect("write a fragment");
+    }
+
+    /// A workspace root whose members inherit `[workspace.package].version`.
+    fn workspace_root(root: &Path) -> String {
+        let text = "[workspace]\nmembers = [\"crates/a\", \"crates/b\"]\n\n\
+                    [workspace.package]\nversion = \"0.0.0\"\n";
+        fs::write(root.join("Cargo.toml"), text).expect("seed the workspace root");
+        text.to_owned()
+    }
+
+    #[test]
+    fn a_monorepo_release_rewrites_the_shared_workspace_version() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        let package = Package::from_identity("cargo:a", "crates/a");
+        let seeded = workspace_root(root);
+        member(root, "a", "add-a-thing.md", "Add a thing");
+
+        let outcome = release(root, &fragments(), &package, None, date(), false)
+            .expect("release")
+            .expect("something to release");
+
+        assert_eq!(outcome.version, Version::new(0, 1, 0));
+        let update = outcome.manifest.as_ref().expect("a manifest was synced");
+        assert_eq!(update.manifest, root.join("Cargo.toml"));
+        assert_eq!(
+            read(root, "Cargo.toml"),
+            seeded.replace("version = \"0.0.0\"", "version = \"0.1.0\""),
+            "the shared workspace version was not rewritten"
+        );
+        assert_eq!(
+            read(root, "crates/a/Cargo.toml"),
+            "[package]\nname = \"a\"\nversion.workspace = true\n",
+            "the member's own manifest was rewritten"
+        );
+    }
+
+    #[test]
+    fn two_members_sharing_a_workspace_version_must_agree_on_the_target() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        let seeded = workspace_root(root);
+        member(root, "a", "add-a-thing.md", "Add a thing");
+        member(root, "b", "fix-a-thing.md", "Fix a thing");
+        let a = Package::from_identity("cargo:a", "crates/a");
+        let b = Package::from_identity("cargo:b", "crates/b");
+
+        let plans = [
+            (
+                &a,
+                prepare_release(root, &fragments(), &a, None, date())
+                    .expect("prepare a")
+                    .expect("a release"),
+            ),
+            (
+                &b,
+                prepare_release(root, &fragments(), &b, None, date())
+                    .expect("prepare b")
+                    .expect("a release"),
+            ),
+        ];
+        assert_eq!(plans[0].1.version(), &Version::new(0, 1, 0));
+        assert_eq!(plans[1].1.version(), &Version::new(0, 0, 1));
+
+        let err = reject_shared_manifest_conflicts(&plans)
+            .expect_err("the two targets cannot share one scalar");
+        let message = err.to_string();
+        assert!(message.contains("cargo:a"), "{message}");
+        assert!(message.contains("cargo:b"), "{message}");
+        assert!(
+            message.contains("0.1.0") && message.contains("0.0.1"),
+            "{message}"
+        );
+
+        // Preparation is read-only, so the refusal left the tree untouched.
+        assert_eq!(read(root, "Cargo.toml"), seeded);
+    }
+
+    #[test]
+    fn two_members_sharing_a_workspace_version_may_agree_on_the_target() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        workspace_root(root);
+        member(root, "a", "add-a-thing.md", "Add a thing");
+        member(root, "b", "add-another.md", "Add another");
+        let a = Package::from_identity("cargo:a", "crates/a");
+        let b = Package::from_identity("cargo:b", "crates/b");
+
+        let plans = [
+            (
+                &a,
+                prepare_release(root, &fragments(), &a, None, date())
+                    .expect("prepare a")
+                    .expect("a release"),
+            ),
+            (
+                &b,
+                prepare_release(root, &fragments(), &b, None, date())
+                    .expect("prepare b")
+                    .expect("a release"),
+            ),
+        ];
+
+        reject_shared_manifest_conflicts(&plans).expect("one shared target is allowed");
     }
 
     #[test]
