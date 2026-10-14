@@ -28,6 +28,15 @@ pub struct Discovery {
 }
 
 impl Discovery {
+    /// The resolved Workspace — the single-Package fallback when discovery
+    /// failed.
+    ///
+    /// A verb reaches the discovered dependency graph through
+    /// [`Workspace::graph`].
+    pub fn workspace(&self) -> &Workspace {
+        &self.workspace
+    }
+
     /// A repo whose Packages were resolved, or that is not a monorepo at all.
     fn resolved(workspace: Workspace) -> Self {
         Self {
@@ -69,8 +78,13 @@ pub fn load(root: &Path, config: &Config) -> Result<Discovery> {
     }
 
     match crate::adapters::taskenv::discover(root, config.command_timeout) {
-        Ok(packages) if !packages.is_empty() => {
-            let workspace = Workspace::new(root, packages, config)?;
+        Ok(graph) if !graph.is_empty() => {
+            let packages: Vec<Package> = graph
+                .projects()
+                .iter()
+                .map(|project| Package::from_identity(project.id(), project.root()))
+                .collect();
+            let workspace = Workspace::new(root, packages, graph, config)?;
             Ok(Discovery::resolved(workspace))
         }
         Ok(_) => Ok(Discovery::degraded(root, single(), empty_graph())),
@@ -98,7 +112,7 @@ pub fn select<'a>(
     }
     let cwd = env::current_dir().context("resolving the current directory")?;
     Ok(discovery
-        .workspace
+        .workspace()
         .select(cli.package.as_deref(), cli.all, default, &cwd)?)
 }
 

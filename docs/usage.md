@@ -50,7 +50,7 @@ $ momo tag
 
 ## Monorepos
 
-A single-package repo is a monorepo with one package. A repo with a mise project graph is a monorepo of packages; discovery runs `mise tasks graph --json`, which requires `monorepo_root = true` in the mise configuration.
+A single-package repo is a monorepo with one package. A repo with a mise project graph is a monorepo of packages; discovery runs `mise tasks graph --json`, which requires `monorepo_root = true` in the mise configuration. The graph is manifest-inferred: mise derives the packages and their dependency edges from the workspace manifests it recognises (Cargo, uv, Go, Node), not from configured roots.
 
 Discovery is attempted whenever momo detects a mise config (`mise.toml` or `.mise/`) at or above the current directory. momo tells the outcomes apart by reading that configuration — never by parsing mise's error message, which is not a stable interface:
 
