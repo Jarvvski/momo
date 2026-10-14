@@ -19,3 +19,7 @@ Optional, larger, owner call: replace the hand-rolled serializer with `serde`/`s
 ## Related
 
 - Group E.
+
+## Resolution
+
+Landed the round-trip tests (#65). The optional direction was then taken: the hand-rolled serializer was replaced with `serde`/`serde_json` derive structs (#80), with `Status`/`StatusPackage` keeping hand-written `Serialize` impls for their computed fields. The `docs/ci.md` contract is byte-for-byte unchanged, verified by the exact-bytes tests and a new control-character escaping case.
