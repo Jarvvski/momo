@@ -1,7 +1,7 @@
 # 13: Decide the library's public-API contract
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: api
 

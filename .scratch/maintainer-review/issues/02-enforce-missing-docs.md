@@ -1,7 +1,7 @@
 # 02: Enforce the missing_docs convention
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: tooling
 Verified: yes — `[lints.rust]` in `Cargo.toml` sets only `unsafe_code` and `unused`; `mise run lint` runs `cargo clippy --all-targets -- -D warnings`.

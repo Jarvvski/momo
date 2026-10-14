@@ -1,7 +1,7 @@
 # 04: Run the test suite on macOS in CI
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: CI
 Verified: yes — `.github/workflows/ci.yml` runs `check` on `ubuntu-latest` only; the release workflow *builds* on macOS but never runs the tests.

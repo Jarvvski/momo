@@ -1,7 +1,7 @@
 # 17: Decide whether `.scratch/` and the agent skill dirs stay tracked
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: repo hygiene
 

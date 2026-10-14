@@ -1,7 +1,7 @@
 # 07: Tune the release profile
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: packaging
 Verified: yes — `Cargo.toml` has `[profile.dev]` and `[profile.test]` but no `[profile.release]`.

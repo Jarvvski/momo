@@ -1,7 +1,7 @@
 # 01: Enforce formatting in CI
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: tooling / CI
 Verified: yes — `mise run check` calls `mise run fmt`, which runs `cargo fmt --all` (writes), and `.github/workflows/ci.yml` runs `mise run check`.

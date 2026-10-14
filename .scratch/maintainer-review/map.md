@@ -1,47 +1,53 @@
 # Maintainer review — map
 
 Type: map
-Status: open
+Status: complete
 
-A Rust/open-source-maintainer review of momo at 0.5.0, taken on 2026-10-14, turned into a ticket batch. Three tiers: quick gate/hygiene wins, hardening with a decision or two, and longer-horizon structure. 17 tickets, grouped into five agent workspaces plus a decision queue and one deferred refactor.
+A Rust/open-source-maintainer review of momo at 0.5.0, taken on 2026-10-14, turned into a ticket batch. Three tiers: quick gate/hygiene wins, hardening with a decision or two, and longer-horizon structure. 18 tickets, delivered across 16 PRs, every one merged on green checks.
 
 ## Notes
 
-- **Origin:** a read of the whole tree — source, tests, docs, CI, release workflow, ADRs and the hardening triage. `cargo fmt --check` and `cargo clippy -D warnings` are both clean on `main`.
-- **Standing preference:** small, reviewable PRs; the repo's own conventions (`AGENTS.md`, `docs/contributing.md`) win over anything here.
-- **Landing:** jj only. Agents may push feature branches, open PRs and merge green PRs; never push to `main`. See `AGENTS.md`.
+- **Origin:** a read of the whole tree — source, tests, docs, CI, release workflow, ADRs and the hardening triage. `cargo fmt --check` and `cargo clippy -D warnings` were both clean on `main` at 0.5.0.
+- **Landing:** jj only. Agents may push feature branches, open PRs and merge green PRs; never push to `main`.
+- **No AI reviewer:** the merge gate is the required checks alone — recorded in `AGENTS.md`, which overrides the `ticket-batch` skill's review-drain steps for this repo.
+- **Delivery:** one jj workspace per group, one agent per workspace, all based on `main` and grouped so each owned a disjoint file set. Merges serialised because required checks are strict up-to-date; each branch was rebased as siblings landed.
 
-## Groups
+## Completed
 
-Grouped so that each workspace owns a disjoint set of files — the conflicts that remain are between independent axes, not artefacts of splitting one change in two.
+| Ticket | PR | Outcome |
+|--------|----|---------|
+| 01 Enforce formatting in CI | #62 | `check` runs `fmt:check`; `fmt` stays the writer |
+| 02 `missing_docs` lint | #62 | added; the public API was already documented |
+| 03 rustdoc link check | #62 | `check` runs `cargo doc -D warnings` |
+| 04 macOS test job | #66 | `check` is now a `[ubuntu, macos]` matrix |
+| 05 CI concurrency + action pins | #66 | concurrency group; every action SHA-pinned |
+| 06 Dependabot + cargo-deny | #66 | both added; Dependabot opened #68–#71 |
+| 07 Release profile | #62 | `strip`/`lto`/`codegen-units`; binary −37% |
+| 08 Release checksums | #66 | `SHA256SUMS` attached to the release |
+| 09 Doc version drift | #62 | version-agnostic install snippets |
+| 10 Changelog property tests | #67 | 7 invariants; no counterexamples at 200k cases |
+| 11 Safe process-group kill | #61 | `rustix` `kill_process_group`; no shell-out |
+| 12 JSON contract tests | #65 | every reporting verb round-tripped via `serde_json` |
+| 13 Library API contract | #75 | full shrink to bin-shaped; two tests moved inline |
+| 14 License | #73 | relicensed to `MIT OR Apache-2.0`; ADR 0004 |
+| 15 Split large modules | #76 | changelog split (parse/render/footer); **3 modules remain** |
+| 16 Non-Unix support | #72 | crate-root `compile_error!` on non-Unix |
+| 17 Repo hygiene | #63 | research/prototypes untracked, kept on disk |
+| 18 Dependabot auto-merge | #74 | `dependabot-automerge.yml`; merged on green |
 
-| Group | Workspace | Tickets | Owns |
-|-------|-----------|---------|------|
-| A Gates | `gates` | 01, 02, 03, 07, 09 | `mise.toml`, `Cargo.toml` (lints + profile), `README.md`, `docs/ci.md` |
-| B CI & supply chain | `ci-supply` | 04, 05, 06, 08 | `.github/**`, `deny.toml` |
-| C Changelog properties | `changelog-props` | 10 | `tests/changelog_properties.rs`, `Cargo.toml` (dev-deps) |
-| D Process-group kill | `spawn-kill` | 11 | `src/adapters/spawn.rs`, `Cargo.toml` (deps) |
-| E JSON contract | `json-contract` | 12 | `src/cli/output.rs`, `tests/` |
-
-`Cargo.toml` is touched by A, C and D, but in different sections (`[lints]`/`[profile]`, `[dev-dependencies]`, `[dependencies]`); reconcile on rebase if the hunks meet.
+Dependabot bumps #68 (`download-artifact`), #69 (`mise-action`), #70 (`upload-artifact`) and #71 (`checkout`) landed via auto-merge once #74's workflow existed.
 
 ## Decisions (2026-10-14)
 
-Cleared in one batched round. Each ruling is recorded in its ticket.
+| Ticket | Ruling |
+|--------|--------|
+| 13 | **Shrink to bin-shaped** — `domain`/`adapters` are `pub(crate)`; only `run()` is exported. The two integration tests that used the library API were moved inline. |
+| 14 | **Relicense to `MIT OR Apache-2.0`** — sole human author confirmed. |
+| 16 | **Declare Unix-only** — a non-Unix build fails with a clear compile error. |
+| 17 | **Keep the issue files, untrack research/prototypes** — non-destructively. |
 
-| Ticket | Ruling | Now |
-|--------|--------|-----|
-| 13 | **Shrink to bin-shaped** — `domain`/`adapters` become `pub(crate)`; expose only `run()` | ready-for-agent, sequenced after 11 + 12 |
-| 14 | **Relicense to `MIT OR Apache-2.0`** (confirm sole-author history first) | ready-for-agent, sequenced after 09 + 06 |
-| 16 | **Declare Unix-only** — `compile_error!` on non-Unix | ready-for-agent, sequenced after 11 + 09 |
-| 17 | **Keep the issue files, untrack research/prototypes** (non-destructively) | ready-for-agent, in flight |
+## Follow-ups (not in this batch)
 
-13, 14 and 16 are held: each touches files an in-flight workspace owns, so landing them now would be a semantic conflict, not a merge artefact. 17 is independent and runs now.
-
-## Deferred
-
-- **15 — split the >1000-line modules.** Agent-ready, but must wait for 10 and 12 to land: it touches `changelog.rs` and `output.rs`, which they change.
-
-## Decisions so far
-
-- **2026-10-14** — all four rulings recorded above. Tickets 13, 14 and 16 reclassified `ready-for-human` → `ready-for-agent` with their sequencing constraint written in; 17 spawned immediately.
+- **15, remaining modules.** `changelog.rs` was split; `cli/release.rs` (1415), `cli/output.rs` (1118) and `domain/config.rs` (1021) are still single files. Each is its own PR, per the ticket.
+- **13 fallout to review.** The shrink put ~14 items under dead-code analysis; #75 resolved it with a scoped `#[cfg_attr(not(test), allow(dead_code))]` on the two private module roots (recorded in ADR 0004). If the broad allow is unwanted, the alternative is keeping `domain` public.
+- **12, optional.** The JSON serializer is still hand-rolled; migrating to `serde`/`serde_json` was deferred as an owner call.

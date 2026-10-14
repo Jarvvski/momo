@@ -1,7 +1,7 @@
 # 08: Publish checksums with the release assets
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: release
 Verified: yes — `.github/workflows/release.yml` packages tarballs and attaches them with `gh release create`; no checksums are produced.

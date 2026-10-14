@@ -1,7 +1,7 @@
 # 16: Decide non-Unix support
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: adapters/spawn
 

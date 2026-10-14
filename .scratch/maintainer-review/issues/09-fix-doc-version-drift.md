@@ -1,7 +1,7 @@
 # 09: Fix stale versions in the docs
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: docs
 Verified: yes — `README.md:25` pins `mise use github:Jarvvski/momo@0.2.1` and `docs/ci.md:242` pins `v0.4.0`; the crate is at 0.5.0.

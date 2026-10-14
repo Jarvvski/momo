@@ -1,7 +1,7 @@
 # 06: Add Dependabot and cargo-deny
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: supply chain
 Verified: yes — `.github/` contains only `workflows/`; there is no `dependabot.yml` or `deny.toml`.

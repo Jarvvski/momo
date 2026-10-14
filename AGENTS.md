@@ -13,7 +13,7 @@ The owner uses **Jujutsu exclusively** in a colocated repo. **Never invoke `git`
 `main` is **protected**: it moves only through a pull request whose CI is green. Land a change like this:
 
 1. Make **one focused change** per commit, on its own bookmark cut from `main`: `jj new main`, then `jj bookmark create <branch> -r @`.
-2. Run `mise run check` (fmt + lint + domain purity + build + test); push only when it passes. (jj fires no git hooks, so fmt is a task, not a pre-commit hook.)
+2. Run `mise run check` (fmt:check + lint + domain purity + docs + build + test); push only when it passes. (jj fires no git hooks, so fmt is a task, not a pre-commit hook.)
 3. `jj describe -m "<imperative one-liner>"`, then `jj git push --bookmark <branch>`.
 4. Open a PR: `gh pr create -R Jarvvski/momo --base main --head <branch>`.
 5. Merge **only** once the `check` job is green: `gh pr checks <n>`, then `gh pr merge <n> --squash`.
@@ -27,8 +27,8 @@ Agents may push feature branches, open PRs, and merge green PRs. Agents must **n
 
 **mise** owns tasks and the Rust pin (see `mise.toml`, `rust-toolchain.toml`). Use the tasks, don't hand-roll cargo:
 
-- `mise run check` - the pre-land gate: fmt + lint + domain purity + build + test.
-- `mise run run` / `build` / `test` / `fmt` / `lint` - individual steps.
+- `mise run check` - the pre-land gate: fmt:check + lint + domain purity + docs + build + test.
+- `mise run run` / `build` / `test` / `fmt` / `lint` / `docs` - individual steps.
 - `mise run lint:domain` - the domain purity guard: no I/O, processes, the environment, clap or anyhow under `src/domain`.
 - `mise run install` - install the binary to `~/.cargo/bin`.
 

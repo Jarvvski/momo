@@ -1,7 +1,7 @@
 # 03: Check rustdoc links in the gate
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: tooling / CI
 Verified: yes — `mise run check` has no rustdoc step; the source carries intra-doc links (e.g. ADR 0003 cites `[ChangelogError](../../src/domain/changelog.rs)`).
