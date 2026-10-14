@@ -13,11 +13,12 @@ The owner uses **Jujutsu exclusively** in a colocated repo. **Never invoke `git`
 `main` is **protected**: it moves only through a pull request whose CI is green. Land a change like this:
 
 1. Make **one focused change** per commit, on its own bookmark cut from `main`: `jj new main`, then `jj bookmark create <branch> -r @`.
-2. Run `mise run check` (fmt:check + lint + domain purity + docs + build + test); push only when it passes. (jj fires no git hooks, so fmt is a task, not a pre-commit hook.)
-3. `jj describe -m "<imperative one-liner>"`, then `jj git push --bookmark <branch>`.
-4. Open a PR: `gh pr create -R Jarvvski/momo --base main --head <branch>`.
-5. Merge **only** once the `check` job is green: `gh pr checks <n>`, then `gh pr merge <n> --squash`.
-6. Resync: `jj git fetch`, then `jj bookmark set main -r main@origin`, then `jj new`, so `@` is again an empty commit above `main`.
+2. Record the change with `momo break|add|fix "<description>"`, so the changelog carries it. A release derives its version and notes from the unreleased changes, so a change that is never recorded can never be released. In changelog mode every branch edits the same `## Unreleased` section — when a rebase conflicts there, keep both entries.
+3. Run `mise run check` (fmt:check + lint + domain purity + docs + build + test); push only when it passes. (jj fires no git hooks, so fmt is a task, not a pre-commit hook.)
+4. `jj describe -m "<imperative one-liner>"`, then `jj git push --bookmark <branch>`.
+5. Open a PR: `gh pr create -R Jarvvski/momo --base main --head <branch>`.
+6. Merge **only** once the `check` job is green: `gh pr checks <n>`, then `gh pr merge <n> --squash`.
+7. Resync: `jj git fetch`, then `jj bookmark set main -r main@origin`, then `jj new`, so `@` is again an empty commit above `main`.
 
 Agents may push feature branches, open PRs, and merge green PRs. Agents must **never** push or force-push directly to `main`, and never merge past a failing or missing check. The owner handles releases and tags.
 
