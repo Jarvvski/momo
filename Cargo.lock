@@ -271,6 +271,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "predicates",
+ "rustix",
  "semver",
  "serde_json",
  "tempfile",
