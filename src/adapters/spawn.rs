@@ -133,7 +133,6 @@ pub(crate) fn run(
         program: program.to_owned(),
         source,
     })?;
-    let group = child.id();
 
     // Drain the pipes on their own threads: a child that fills a pipe buffer
     // would otherwise block forever, which the wait loop would misread as a
@@ -168,7 +167,7 @@ pub(crate) fn run(
         // would hold the call open for as long as the grandchild lives, which
         // is exactly the hang the timeout exists to bound. They end when the
         // killed group closes the pipes.
-        kill_group(&mut child, group);
+        kill_group(&mut child);
         return Err(match wait_error {
             Some(source) => ProcessError::Spawn {
                 program: program.to_owned(),
@@ -208,23 +207,32 @@ fn lead_its_own_group(_command: &mut Command) {}
 
 /// Stop `child` and everything it spawned, then reap it.
 ///
-/// The child leads its own process group, so signalling the group (`-<pgid>`)
-/// reaches a forked grandchild that inherited the pipes and not just the direct
-/// child. `unsafe` is forbidden crate-wide, so the group signal goes through the
-/// `kill` binary; when that is unavailable the direct child is killed on its
-/// own.
-fn kill_group(child: &mut Child, group: u32) {
-    let signalled = Command::new("kill")
-        .args(["-s", "KILL", "--", &format!("-{group}")])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success());
-    if !signalled {
+/// The child leads its own process group, so signalling the group reaches a
+/// forked grandchild that inherited the pipes and not just the direct child.
+/// The group signal goes through [`rustix::process::kill_process_group`], a
+/// safe wrapper around `kill(2)` — `unsafe` is forbidden crate-wide, and
+/// shelling out to the `kill` binary would leave a forked grandchild holding
+/// the pipes on an image that lacks it. When the group cannot be signalled the
+/// direct child is killed on its own.
+fn kill_group(child: &mut Child) {
+    if !kill_the_group(child) {
         let _ = child.kill();
     }
     let _ = child.wait();
+}
+
+/// Send `SIGKILL` to the process group led by `child`, reporting whether it was
+/// delivered.
+#[cfg(unix)]
+fn kill_the_group(child: &Child) -> bool {
+    use rustix::process::{Pid, Signal};
+    rustix::process::kill_process_group(Pid::from_child(child), Signal::KILL).is_ok()
+}
+
+/// Off Unix there are no process groups to signal; the direct child is killed.
+#[cfg(not(unix))]
+fn kill_the_group(_child: &Child) -> bool {
+    false
 }
 
 /// Turn a non-zero exit into [`ProcessError::Failed`], leaving a successful run
