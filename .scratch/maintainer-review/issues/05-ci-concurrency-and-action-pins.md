@@ -1,7 +1,7 @@
 # 05: Add CI concurrency and pin actions to commit SHAs
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: CI
 Verified: yes — `.github/workflows/ci.yml` has no `concurrency`; both workflows reference third-party actions by tag (`actions/checkout@v4`, `jdx/mise-action@v2`, `Swatinem/rust-cache@v2`, `actions/upload-artifact@v4`, `actions/download-artifact@v4`).

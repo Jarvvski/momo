@@ -8,10 +8,12 @@ The toolchain and the task runner are owned by [mise](https://mise.jdx.dev).
 mise install        # pin the Rust toolchain (see mise.toml, rust-toolchain.toml)
 mise run build      # cargo build --release
 mise run test       # cargo test
-mise run fmt        # cargo fmt --all
+mise run fmt        # cargo fmt --all (rewrites the tree)
+mise run fmt:check  # cargo fmt --all -- --check (what the gate runs)
 mise run lint       # cargo clippy --all-targets -- -D warnings
 mise run lint:domain # the domain must stay pure
-mise run check      # fmt + lint + domain purity + build + test — the pre-land gate
+mise run docs       # cargo doc with -D warnings
+mise run check      # fmt:check + lint + domain purity + docs + build + test — the pre-land gate
 mise run install    # install the `momo` binary to ~/.cargo/bin
 ```
 

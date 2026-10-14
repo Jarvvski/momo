@@ -1,7 +1,7 @@
 # 14: Decide the license
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: legal
 

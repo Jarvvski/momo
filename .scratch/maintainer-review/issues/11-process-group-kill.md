@@ -1,7 +1,7 @@
 # 11: Signal the child's process group without shelling out to `kill`
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: adapters/spawn
 Verified: yes — `src/adapters/spawn.rs:216-228` runs `kill -s KILL -- -<pgid>` and falls back to killing only the direct child when `kill` is unavailable.

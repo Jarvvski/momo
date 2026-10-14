@@ -1,7 +1,7 @@
 # 10: Property-test the changelog preserve model
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/changelog
 Verified: yes — `src/domain/changelog.rs` is the largest module (1511 lines); ADR 0003 makes preservation the contract; the hardening wave found a cluster of changelog-loss bugs.

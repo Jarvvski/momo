@@ -1,7 +1,7 @@
 # 12: Verify the JSON output contract per verb
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: cli/output
 Verified: yes — `src/cli/output.rs` hand-rolls JSON (`enum Json`, `escape_into`, `render`); tests parse some shapes via `serde_json` but not every verb.
