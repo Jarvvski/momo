@@ -655,6 +655,19 @@ mod tests {
     }
 
     #[test]
+    fn the_rendered_defaults_parse_back_as_overrides() {
+        // `init` writes `Config::default().to_string()`; the file it produces
+        // must be one momo can read back.
+        let text = Config::default().to_string();
+        let overrides: ConfigOverrides =
+            text.parse().expect("the rendered defaults are valid TOML");
+        assert_eq!(
+            Config::resolve(overrides, ConfigOverrides::default()),
+            Config::default()
+        );
+    }
+
+    #[test]
     fn file_layer_overrides_defaults() {
         let file: ConfigOverrides = "recording = \"fragments\"\n".parse().expect("valid TOML");
         let config = Config::resolve(file, ConfigOverrides::default());

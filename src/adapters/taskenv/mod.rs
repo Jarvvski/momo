@@ -8,7 +8,6 @@ mod monorepo;
 
 pub use detect::{detect, named};
 pub use graph::discover;
-pub use mise::MiseTaskEnvironment;
 pub use monorepo::is_monorepo;
 
 /// The config file names mise reads in a directory, relative to that directory.

@@ -601,6 +601,10 @@ fn blank(lines: &mut Vec<String>) {
     }
 }
 
+// Kept in its own file so the property tests do not bloat this one.
+#[cfg(test)]
+mod property_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;

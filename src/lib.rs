@@ -1,9 +1,9 @@
-//! momo's library: a pure versioning domain, the adapters that reach the
+//! momo's crate root: a pure versioning domain, the adapters that reach the
 //! outside world, and the CLI that wires them together.
 //!
-//! The [`domain`] and [`adapters`] modules are public so the versioning model
-//! can be reused; the command-line surface is private and reached only through
-//! [`run`].
+//! The library is an implementation detail of the `momo` binary, not a
+//! supported API: only [`run`] is exported, and the domain and adapter modules
+//! stay crate-private. See ADR 0004, *The library is not a public API*.
 //!
 //! momo is Unix-only: its process handling leads each child in its own process
 //! group so a timeout stops everything the child forked, and there is no
@@ -13,8 +13,15 @@
 #[cfg(not(unix))]
 compile_error!("momo targets Unix only (Linux and macOS); Windows is not supported");
 
-pub mod adapters;
-pub mod domain;
+// The internal API is broader than the CLI: the domain models the whole
+// versioning vocabulary and the adapters implement every port, while the tests
+// exercise more of it than any one verb reaches. In a non-test build those
+// parts look dead, so dead-code analysis is off there — `mise run lint` also
+// compiles the test build, where it still runs.
+#[cfg_attr(not(test), allow(dead_code))]
+mod adapters;
+#[cfg_attr(not(test), allow(dead_code))]
+mod domain;
 
 mod cli;
 

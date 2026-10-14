@@ -123,8 +123,6 @@ fn init_writes_a_valid_momo_toml_and_touches_nothing_else() {
     assert!(text.contains("changelog = \"CHANGELOG.md\""), "{text}");
     assert!(text.contains("changes_dir = \".momo/changes\""), "{text}");
     assert!(text.contains("tag_prefix = \"v\""), "{text}");
-    let _: momo_cli::domain::config::ConfigOverrides =
-        text.parse().expect("the file is valid TOML");
 
     assert_eq!(
         fs::read_to_string(&sentinel).expect("sentinel still readable"),
