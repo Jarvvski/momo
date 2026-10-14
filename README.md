@@ -22,7 +22,7 @@ cargo install momo-cli          # from crates.io; installs the `momo` binary
 Or let a task environment manage it:
 
 ```bash
-mise use github:Jarvvski/momo@0.2.1
+mise use github:Jarvvski/momo
 ```
 
 From a checkout:

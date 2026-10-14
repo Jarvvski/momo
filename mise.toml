@@ -23,6 +23,10 @@ run = "cargo test"
 description = "Format all code"
 run = "cargo fmt --all"
 
+[tasks."fmt:check"]
+description = "Check formatting without writing (the gate)"
+run = "cargo fmt --all -- --check"
+
 [tasks.lint]
 description = "Clippy, warnings as errors"
 run = "cargo clippy --all-targets -- -D warnings"
@@ -41,9 +45,13 @@ if grep -rnE '(^|[^[:alnum:]_])(fs|process|env|net)::|use std[^;]*[^[:alnum:]_](
 fi
 """
 
+[tasks.docs]
+description = "Build the docs with rustdoc warnings as errors"
+run = "RUSTDOCFLAGS=\"-D warnings\" cargo doc --no-deps"
+
 [tasks.check]
-description = "fmt + lint + domain purity + build + test (the pre-land gate)"
-run = "mise run fmt && mise run lint && mise run lint:domain && mise run build && mise run test"
+description = "fmt + lint + domain purity + docs + build + test (the pre-land gate)"
+run = "mise run fmt:check && mise run lint && mise run lint:domain && mise run docs && mise run build && mise run test"
 
 [tasks.install]
 description = "Build a host release binary and install it to ~/.cargo/bin (local dev)"

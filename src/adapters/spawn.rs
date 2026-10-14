@@ -1,9 +1,9 @@
 //! Building and running child processes.
 //!
 //! Every external command momo spawns runs unattended — in CI, in the release
-//! job — so it must never stop to prompt and must never hang forever. [`command`]
+//! job — so it must never stop to prompt and must never hang forever. `command`
 //! is the one place a [`Command`] is built, so the non-interactive environment is
-//! applied uniformly and can be asserted without spawning a process; [`run`] is
+//! applied uniformly and can be asserted without spawning a process; `run` is
 //! the one place a child is waited on, so the timeout applies everywhere. A child
 //! leads its own process group, so expiry stops what it forked as well as the
 //! child itself.

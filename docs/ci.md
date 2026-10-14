@@ -239,7 +239,8 @@ jobs:
 ```yaml
       - name: Install momo
         run: |
-          curl -sSL "https://github.com/Jarvvski/momo/releases/download/v0.4.0/momo-0.4.0-x86_64-unknown-linux-gnu.tar.gz" \
+          tag="$(curl -sSL https://api.github.com/repos/Jarvvski/momo/releases/latest | jq -r .tag_name)"
+          curl -sSL "https://github.com/Jarvvski/momo/releases/download/${tag}/momo-${tag#v}-x86_64-unknown-linux-gnu.tar.gz" \
             | sudo tar xz -C /usr/local/bin --strip-components=1
 ```
 

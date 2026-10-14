@@ -20,7 +20,7 @@ pub trait CommandRunner {
 
 /// The real runner: spawns a child process and captures its output.
 ///
-/// Every command is bounded by [`SystemRunner::timeout`]; a child that outlives
+/// Every command is bounded by `SystemRunner::timeout`; a child that outlives
 /// it is killed and reported as [`VcsError::Timeout`].
 #[derive(Debug, Clone, Copy)]
 pub struct SystemRunner {
