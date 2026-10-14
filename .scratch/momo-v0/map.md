@@ -26,6 +26,8 @@ builder can implement momo v0 with nothing left to decide.
   prints its version); this is its first map.
 - **Skills:** `grilling` + `domain-modeling` for decision tickets; `research`
   for research tickets; `prototype` for prototype tickets.
+- **Local-only payloads:** `research/` and `prototypes/` are untracked scratch
+  (ticket 17), so the links into them below resolve only in a local checkout.
 - **Settled during charting (no ticket):**
   - The tool **is `momo`** — this repo's binary.
   - **v0 extensibility:** an internal `TaskEnvironment` trait with `mise` as its
