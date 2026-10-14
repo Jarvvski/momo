@@ -43,6 +43,18 @@ candidate shares them with the eventual release.
   one the last `release` or `candidate` minted. It refuses a ledger older than the
   newest tag, because that version is behind the release already tagged.
 
+### Cargo workspaces
+
+A member with `version.workspace = true` takes its version from the root's
+`[workspace.package].version` — one scalar shared by every member. `release`
+resolves the root by walking up to the manifest declaring `[workspace]` and
+rewrites that scalar there, leaving the member's own manifest alone. Because the
+scalar is shared, `--all` writes it only when every affected member resolves to
+the same target; otherwise the whole run fails rather than letting the last
+writer win. A root that is both a package and a workspace keeps its own
+`[package].version` — that is the root crate's version, distinct from the default
+its members inherit.
+
 Neither `release` nor `candidate` commits or tags. The ceremony is split so the
 tag lands on the commit that contains the changelog:
 

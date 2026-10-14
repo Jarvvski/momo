@@ -169,27 +169,34 @@ fn release(cli: &Cli) -> Result<()> {
     let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
     let vcs = detect_vcs(&root);
-    let explicit = cli.package.is_some();
 
     // Read the date once for the whole run: `today()` inside the loop could
     // straddle UTC midnight and stamp a multi-package release with two dates.
     let date = today();
+
+    // Resolve every Package before writing any of them: a shared workspace
+    // version is validated across the whole run, not per Package.
+    let mut planned = Vec::new();
+    for package in packages {
+        if let Some(prepared) =
+            release::prepare_release(&root, &config, package, vcs.as_deref(), date)?
+        {
+            planned.push((package, prepared));
+        }
+    }
+    release::reject_shared_manifest_conflicts(&planned)?;
+
     let mut report = output::Release {
         verb: Verb::Release,
         dry_run: cli.dry_run,
         packages: Vec::new(),
     };
-    for package in packages {
-        let outcome = release::release(&root, &config, package, vcs.as_deref(), date, cli.dry_run)?;
-        match outcome {
-            Some(outcome) => {
-                warn_stale_lockfile(&outcome);
-                report
-                    .packages
-                    .push(release_package(package.identity(), outcome));
-            }
-            None if explicit => bail!("nothing unreleased to release"),
-            None => {}
+    for (package, prepared) in planned {
+        if let Some(outcome) = release::commit(prepared, cli.dry_run)? {
+            warn_stale_lockfile(&outcome);
+            report
+                .packages
+                .push(release_package(package.identity(), outcome));
         }
     }
     if report.packages.is_empty() {
@@ -211,28 +218,34 @@ fn candidate(cli: &Cli) -> Result<()> {
     let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
     let vcs = detect_vcs(&root);
-    let explicit = cli.package.is_some();
 
     // Read the date once for the whole run: `today()` inside the loop could
     // straddle UTC midnight and stamp a multi-package release with two dates.
     let date = today();
+
+    // Resolve every Package before writing any of them: a shared workspace
+    // version is validated across the whole run, not per Package.
+    let mut planned = Vec::new();
+    for package in packages {
+        if let Some(prepared) =
+            release::prepare_candidate(&root, &config, package, vcs.as_deref(), date)?
+        {
+            planned.push((package, prepared));
+        }
+    }
+    release::reject_shared_manifest_conflicts(&planned)?;
+
     let mut report = output::Release {
         verb: Verb::Candidate,
         dry_run: cli.dry_run,
         packages: Vec::new(),
     };
-    for package in packages {
-        let outcome =
-            release::candidate(&root, &config, package, vcs.as_deref(), date, cli.dry_run)?;
-        match outcome {
-            Some(outcome) => {
-                warn_stale_lockfile(&outcome);
-                report
-                    .packages
-                    .push(release_package(package.identity(), outcome));
-            }
-            None if explicit => bail!("nothing unreleased to release"),
-            None => {}
+    for (package, prepared) in planned {
+        if let Some(outcome) = release::commit(prepared, cli.dry_run)? {
+            warn_stale_lockfile(&outcome);
+            report
+                .packages
+                .push(release_package(package.identity(), outcome));
         }
     }
     if report.packages.is_empty() {

@@ -22,6 +22,11 @@ use semver::Version;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManifestUpdate {
     /// The manifest written.
+    ///
+    /// Normally the Package's own manifest, but an ecosystem that inherits a
+    /// version from a shared root (a Cargo workspace member's
+    /// `version.workspace = true`) writes the root instead, so this is the path
+    /// actually changed — which may sit outside the Package's directory.
     pub manifest: PathBuf,
     /// The lockfile left stale for the package manager to refresh, when the
     /// ecosystem keeps one next to the manifest.
@@ -30,8 +35,11 @@ pub struct ManifestUpdate {
 
 /// The manifest operations momo needs.
 ///
-/// A manifest belongs to one Package; both methods are rooted at
-/// `package_dir`. Every method is side-effect-free except
+/// A manifest belongs to one Package: [`ManifestSync::locate`] is rooted at
+/// `package_dir`. [`ManifestSync::render`] and [`ManifestSync::write`] read that
+/// manifest, but an ecosystem whose version is inherited writes the shared root
+/// the Package resolves to — outside `package_dir` — and report that path in
+/// [`ManifestUpdate::manifest`]. Every method is side-effect-free except
 /// [`ManifestSync::write`].
 pub trait ManifestSync {
     /// The manifest to sync for the Package rooted at `package_dir`.
@@ -50,8 +58,8 @@ pub trait ManifestSync {
     /// `version`.
     ///
     /// [`ManifestError::InheritedVersion`] when the manifest inherits its
-    /// version from a workspace root that is not in the same document: momo
-    /// cannot resolve it, so it must not be silently skipped.
+    /// version from a workspace root that momo cannot resolve: momo must not
+    /// silently skip it.
     fn render(
         &self,
         manifest: &Path,
@@ -62,8 +70,11 @@ pub trait ManifestSync {
     ///
     /// Only the version scalar changes: comments, key order, whitespace and the
     /// file's newline style (LF or CRLF, including whether it ends in a newline)
-    /// survive byte-for-byte. `Ok(None)` when the manifest holds no version momo
-    /// owns, or already carries `version` — either way the Release carries on.
+    /// survive byte-for-byte. The manifest actually written is
+    /// [`ManifestUpdate::manifest`], which an inherited version may place at the
+    /// shared workspace root rather than at `manifest`. `Ok(None)` when the
+    /// manifest holds no version momo owns, or already carries `version` —
+    /// either way the Release carries on.
     fn write(
         &self,
         manifest: &Path,

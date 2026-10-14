@@ -1,7 +1,7 @@
 # 15: Monorepo members with an inherited version are silently never synced
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: adapters/manifest
 Verified: yes — read at the cited lines; the behaviour is pinned by an existing test
@@ -130,3 +130,54 @@ Because that scalar is shared by every member, define the `--all` rule: a releas
 may only write it when every affected member resolves to the same target;
 otherwise fail rather than let the last writer win. This is the 15b policy
 decision, now made.
+
+## Resolution
+
+Implemented the Decision; the ticket's `## Triage` split (15a/15b) is superseded
+— 15a's `InheritedVersion` error is now only the last resort when no workspace
+root can be resolved at all.
+
+**Resolving the root.** `CargoManifest::render` walks up from the member to the
+nearest ancestor `Cargo.toml` declaring `[workspace]` and rewrites its
+`[workspace.package].version`. A root that declares `[workspace]` but no shared
+version is still unresolvable, so it keeps returning
+`ManifestError::InheritedVersion` — the silence is gone either way.
+
+**Writing outside the package directory.** `ManifestSync::render` now returns
+the manifest it actually wrote in `ManifestUpdate::manifest` (previously it
+echoed the input path), and `CargoManifest::write` writes that path rather than
+the one it was handed. `ManifestUpdate::manifest` already documented itself as
+"the manifest written", so no new port type was needed. The release path is
+unchanged in shape: it already stages at `update.manifest`, so a root write
+lands in the same staged transaction (`src/cli/atomic.rs`) as the changelog and
+version file, and never bypasses it. The port's `locate` stays rooted at
+`package_dir`; only the write target can escape it.
+
+**The `--all` rule.** The release path was split into a read-only `prepare`
+phase and a `commit` phase (`release::prepare_release` / `prepare_candidate` /
+`commit`), so a run resolves every Package before writing any of them.
+`reject_shared_manifest_conflicts` then refuses the run when two Packages would
+write one manifest with different results, naming both Packages, the manifest
+and the two targets. Two members that agree on the target are allowed and
+dedupe to one identical write. A root that is both `[package]` and `[workspace]`
+and a member of it targeting the same version but different scalars is also
+refused: the two writes are to one file, and staging cannot express both.
+
+**Which key wins for a root `[package]`+`[workspace]`.** `[package].version`
+wins for the root crate itself. It is that crate's own version; the shared
+`[workspace.package].version` is the default its *members* inherit, so a member
+release rewrites the shared scalar while the root crate's own version is left
+alone. This matches Cargo's semantics (the two are independent scalars) and is
+pinned by `a_root_that_is_both_a_package_and_a_workspace_keeps_its_own_version`
+and `a_member_of_a_root_that_is_also_a_package_rewrites_the_shared_version`.
+
+**Tests.** Unit: the on-disk walk-up (including CRLF preservation on the root),
+the root-both cases, the `--all` conflict and its allow path, and the
+release-level rewrite of the root. Integration (`tests/monorepo.rs`, real
+binary + mise): a member release rewrites the shared version; `--all` over two
+members with different targets fails before anything is written. Byte-preserving
+writes (ticket 34) are intact — the root goes through the same
+`preserve_line_endings` path.
+
+**Out of scope.** Cargo's `[package] workspace = "path"` redirection is not
+followed; only the nearest ancestor declaring `[workspace]` is resolved.

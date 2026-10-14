@@ -141,6 +141,36 @@ fn rendering_a_manifest_leaves_the_file_untouched() {
 }
 
 #[test]
+fn writing_an_inherited_version_rewrites_the_workspace_root() {
+    let dir = TempDir::new().expect("temp dir");
+    let root = dir.path().join("Cargo.toml");
+    let member_dir = dir.path().join("crates/a");
+    fs::create_dir_all(&member_dir).expect("create the member dir");
+    let member = member_dir.join("Cargo.toml");
+    let root_text =
+        "[workspace]\nmembers = [\"crates/a\"]\n\n[workspace.package]\nversion = \"0.1.0\"\n";
+    let member_text = "[package]\nname = \"a\"\nversion.workspace = true\n";
+    fs::write(&root, root_text).expect("seed the workspace root");
+    fs::write(&member, member_text).expect("seed the member manifest");
+
+    let update = CargoManifest
+        .write(&member, &version("0.2.0"))
+        .expect("write the manifest")
+        .expect("a manifest to sync");
+
+    assert_eq!(update.manifest, root, "the write targeted the member");
+    assert_eq!(
+        fs::read_to_string(&root).expect("read the workspace root"),
+        "[workspace]\nmembers = [\"crates/a\"]\n\n[workspace.package]\nversion = \"0.2.0\"\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&member).expect("read the member manifest"),
+        member_text,
+        "the member's own manifest was rewritten"
+    );
+}
+
+#[test]
 fn locate_finds_the_conventional_manifest() {
     let dir = TempDir::new().expect("temp dir");
     assert_eq!(CargoManifest.locate(dir.path(), None), None);
