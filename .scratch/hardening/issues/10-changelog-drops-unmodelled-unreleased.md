@@ -1,7 +1,7 @@
 # 10: The changelog drops any Unreleased content it cannot model
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: domain/changelog
 Verified: yes — read at the cited lines
@@ -95,3 +95,24 @@ changes).
 ## Decision (owner, 2026-10-14)
 
 **Subsumed by ticket 38** (preserve the document). Implement there.
+
+## Resolution
+
+Resolved by the `changelog-model` change set (ticket 38, ADR 0003).
+
+The Unreleased body is no longer parsed-and-re-rendered. `record` appends to the
+preserved body and `release` moves the whole body into the new dated section, so
+content momo cannot model — a `### Changed` heading and its bullets, HTML
+comments, `* item` bullets, prose, wrapped lines — is carried through verbatim
+instead of being dropped. Only `- ` bullets under the three recognised Kind
+headings feed the bump; everything else is preserved but never interpreted.
+
+`has_unreleased` now reports a non-blank Unreleased body of any kind, so
+hand-written unmodelled content is visible to the fragments-mode guard and to a
+Release rather than silently invisible.
+
+Tests: `an_unrecognised_heading_and_its_bullets_survive_a_release`,
+`html_comments_and_star_bullets_survive_a_release`,
+`recording_preserves_unmodelled_unreleased_content`,
+`has_unreleased_counts_content_momo_cannot_parse` (unit);
+`a_recording_verb_preserves_the_document_it_does_not_own` (integration).

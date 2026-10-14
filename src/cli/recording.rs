@@ -22,7 +22,9 @@ pub fn unreleased(repo_root: &Path, config: &Config, package: &Package) -> Resul
         Recording::Changelog => {
             let path = package.changelog(repo_root, config);
             match fs::read_to_string(&path) {
-                Ok(text) => Ok(Changelog::parse(&text).into_unreleased()),
+                Ok(text) => Ok(Changelog::parse(&text)
+                    .with_context(|| format!("reading {}", path.display()))?
+                    .into_unreleased()),
                 Err(err) if err.kind() == ErrorKind::NotFound => Ok(Vec::new()),
                 Err(err) => Err(err).with_context(|| format!("reading {}", path.display())),
             }
@@ -47,7 +49,8 @@ pub fn record(
         Recording::Changelog => {
             let path = package.changelog(repo_root, config);
             let mut changelog = match fs::read_to_string(&path) {
-                Ok(text) => Changelog::parse(&text),
+                Ok(text) => Changelog::parse(&text)
+                    .with_context(|| format!("reading {}", path.display()))?,
                 Err(err) if err.kind() == ErrorKind::NotFound => Changelog::empty(),
                 Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
             };

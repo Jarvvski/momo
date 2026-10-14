@@ -16,7 +16,10 @@ the [README](../README.md).
 Set `recording` in `momo.toml` (default `changelog`):
 
 - **`changelog`** — changes accumulate under `## Unreleased` in the changelog,
-  and that section is the source of unreleased changes.
+  and that section is the source of unreleased changes. momo edits only the spans
+  it owns — the Unreleased body, its own footer links and the release headings it
+  inserts — so the rest of the document (comments, `*` bullets, `### Changed`
+  sections, user footer definitions, CRLF) passes through untouched.
 - **`fragments`** — each change is its own file,
   `.momo/changes/<kind>-<slug>.md`, holding just the entry text. Fragments are
   plain files, so they can be hand- or CI-authored. The changelog then holds only
@@ -166,6 +169,3 @@ as soon as it exists. `status` and `--dry-run` never write.
   stale — but never rewrites the lockfile and never runs `cargo`. Node, Gradle and
   Python are later adapters behind the same port.
 - Monorepo discovery independent of `mise` — momo reads mise's project graph.
-- CRLF line endings in a `CHANGELOG.md`: recording and releasing rewrite it with
-  LF, so a CRLF changelog gets a whole-file diff on first write. A `Cargo.toml`'s
-  line endings are preserved.

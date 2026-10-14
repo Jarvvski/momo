@@ -169,6 +169,63 @@ fn release_consumes_fragments() {
 }
 
 #[test]
+fn release_preserves_a_hand_written_changelog_body_and_footer() {
+    let dir = TempDir::new().expect("temp dir");
+    fs::write(
+        dir.path().join("momo.toml"),
+        "remote = \"git@github.com:Jarvvski/momo.git\"\n",
+    )
+    .expect("seed momo.toml");
+    fs::create_dir_all(dir.path().join(".momo")).expect("create .momo");
+    fs::write(dir.path().join(".momo/version"), "1.0.0\n").expect("seed the version");
+    let seeded = "\
+# Changelog
+
+## [Unreleased]
+
+### Changed
+
+- Reworked the parser
+
+### Added
+
+- a shiny thing
+
+## [1.0.0] - 2026-01-01
+
+### Added
+
+- old
+
+[Keep a Changelog]: https://keepachangelog.com/en/1.0.0/
+";
+    fs::write(dir.path().join("CHANGELOG.md"), seeded).expect("seed the changelog");
+
+    momo(&dir)
+        .arg("release")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("released 1.1.0"));
+
+    let changelog = read(&dir, "CHANGELOG.md");
+    assert!(changelog.contains("## [1.1.0]"), "{changelog}");
+    assert!(
+        changelog.contains("### Changed\n\n- Reworked the parser"),
+        "the `### Changed` section was dropped:\n{changelog}"
+    );
+    assert!(changelog.contains("- a shiny thing"), "{changelog}");
+    assert!(
+        changelog.contains("[Keep a Changelog]: https://keepachangelog.com/en/1.0.0/"),
+        "the user footer definition was dropped:\n{changelog}"
+    );
+    assert!(
+        changelog.contains("[1.1.0]: https://github.com/Jarvvski/momo/compare/v1.0.0...v1.1.0"),
+        "the regenerated footer is missing:\n{changelog}"
+    );
+    assert!(!changelog.contains("## [Unreleased]"), "{changelog}");
+}
+
+#[test]
 fn release_in_fragments_mode_refuses_a_changelog_unreleased_section() {
     let dir = TempDir::new().expect("temp dir");
     seed_recording(&dir, "fragments");
