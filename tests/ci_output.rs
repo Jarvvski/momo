@@ -349,3 +349,191 @@ fn jj_repo(cwd: &Path) {
     );
     fs::write(cwd.join("a.txt"), "hi\n").expect("seed a tracked file");
 }
+
+/// Parse `text` as exactly one JSON document, as a CI consumer would.
+///
+/// `serde_json::from_str` rejects trailing content, so this doubles as the
+/// "one document per run" pin: a per-Package emit would leave a second document
+/// behind and fail here.
+fn json(text: &str) -> serde_json::Value {
+    serde_json::from_str(text).unwrap_or_else(|err| panic!("not one JSON document: {err}\n{text}"))
+}
+
+/// Assert `value` is an object carrying exactly `expected`'s keys.
+fn assert_keys(value: &serde_json::Value, expected: &[&str]) {
+    let mut actual: Vec<&str> = value
+        .as_object()
+        .expect("a JSON object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    actual.sort_unstable();
+    let mut expected = expected.to_vec();
+    expected.sort_unstable();
+    assert_eq!(actual, expected, "unexpected keys in {value}");
+}
+
+#[test]
+fn status_format_json_matches_the_documented_contract() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    // A quote and a backslash must survive `escape_into` and parse back verbatim.
+    let text = r#"A "quoted" \backslash"#;
+    momo(&proj).args(["add", text]).assert().success();
+
+    let value = json(&stdout(&proj, &["status", "--format", "json"]));
+
+    assert_keys(&value, &["unreleased", "packages"]);
+    assert_eq!(value["unreleased"], serde_json::Value::Bool(true));
+    let packages = value["packages"].as_array().expect("a `packages` array");
+    assert_eq!(packages.len(), 1, "{value}");
+    let package = &packages[0];
+    assert_keys(package, &["name", "current", "next", "changes"]);
+    assert_eq!(package["name"], "proj");
+    assert_eq!(package["current"], serde_json::Value::Null);
+    assert_eq!(package["next"], "0.1.0");
+    let changes = package["changes"].as_array().expect("a `changes` array");
+    assert_eq!(changes.len(), 1, "{value}");
+    assert_keys(&changes[0], &["kind", "text"]);
+    assert_eq!(changes[0]["kind"], "add");
+    assert_eq!(changes[0]["text"], text);
+}
+
+#[test]
+fn release_format_json_matches_the_documented_contract() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    // Fragments mode gives the run a `consumed` fragment to report, which is the
+    // shape `docs/ci.md` documents.
+    fs::write(proj.join("momo.toml"), "recording = \"fragments\"\n").expect("seed config");
+    momo(&proj)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    let value = json(&stdout(&proj, &["release", "--format", "json"]));
+
+    assert_keys(&value, &["dry_run", "packages"]);
+    assert_eq!(value["dry_run"], serde_json::Value::Bool(false));
+    let packages = value["packages"].as_array().expect("a `packages` array");
+    assert_eq!(packages.len(), 1, "{value}");
+    let package = &packages[0];
+    assert_keys(
+        package,
+        &[
+            "name",
+            "version",
+            "changelog",
+            "version_file",
+            "manifest",
+            "consumed",
+        ],
+    );
+    assert_eq!(package["name"], "proj");
+    assert_eq!(package["version"], "0.1.0");
+    let changelog = package["changelog"].as_str().expect("a `changelog` path");
+    assert!(changelog.ends_with("CHANGELOG.md"), "{value}");
+    let version_file = package["version_file"]
+        .as_str()
+        .expect("a `version_file` path");
+    assert!(version_file.ends_with(".momo/version"), "{value}");
+    // This project carries no ecosystem manifest, so the run synced none.
+    assert_eq!(package["manifest"], serde_json::Value::Null);
+    let consumed = package["consumed"].as_array().expect("a `consumed` array");
+    assert_eq!(consumed.len(), 1, "{value}");
+    assert!(
+        consumed[0]
+            .as_str()
+            .expect("a consumed path")
+            .ends_with("add-add-a-shiny-thing.md"),
+        "{value}"
+    );
+}
+
+#[test]
+fn candidate_format_json_matches_the_documented_contract() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    momo(&proj)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+
+    let value = json(&stdout(&proj, &["candidate", "--format", "json"]));
+
+    assert_keys(&value, &["dry_run", "packages"]);
+    assert_eq!(value["dry_run"], serde_json::Value::Bool(false));
+    let packages = value["packages"].as_array().expect("a `packages` array");
+    assert_eq!(packages.len(), 1, "{value}");
+    let package = &packages[0];
+    assert_keys(
+        package,
+        &[
+            "name",
+            "version",
+            "changelog",
+            "version_file",
+            "manifest",
+            "consumed",
+        ],
+    );
+    assert_eq!(package["name"], "proj");
+    assert_eq!(package["version"], "0.1.0-rc.1");
+    // A candidate cuts without consuming the fragments it was built from.
+    assert!(
+        package["consumed"]
+            .as_array()
+            .expect("a `consumed` array")
+            .is_empty(),
+        "{value}"
+    );
+}
+
+#[test]
+fn tag_format_json_matches_the_documented_contract() {
+    if !require_tool("jj") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    jj_repo(&proj);
+    momo(&proj)
+        .args(["add", "Add a shiny thing"])
+        .assert()
+        .success();
+    momo(&proj).arg("release").assert().success();
+
+    let value = json(&stdout(&proj, &["tag", "--rev", "@", "--format", "json"]));
+
+    assert_keys(&value, &["dry_run", "packages"]);
+    assert_eq!(value["dry_run"], serde_json::Value::Bool(false));
+    let packages = value["packages"].as_array().expect("a `packages` array");
+    assert_eq!(packages.len(), 1, "{value}");
+    let package = &packages[0];
+    assert_keys(package, &["name", "tag", "version"]);
+    assert_eq!(package["name"], "proj");
+    assert_eq!(package["tag"], "v0.1.0");
+    assert_eq!(package["version"], "0.1.0");
+}
+
+#[test]
+fn notes_format_json_matches_the_documented_contract() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    // The section body carries a newline, and the recorded text a quote and a
+    // backslash: all three must survive `escape_into` and parse back verbatim.
+    let text = r#"A "quoted" \backslash"#;
+    momo(&proj).args(["add", text]).assert().success();
+    momo(&proj).arg("release").assert().success();
+
+    let value = json(&stdout(&proj, &["notes", "--format", "json"]));
+
+    assert_keys(&value, &["packages"]);
+    let packages = value["packages"].as_array().expect("a `packages` array");
+    assert_eq!(packages.len(), 1, "{value}");
+    let package = &packages[0];
+    assert_keys(package, &["name", "version", "notes"]);
+    assert_eq!(package["name"], "proj");
+    assert_eq!(package["version"], "0.1.0");
+    assert_eq!(package["notes"], format!("### Added\n\n- {text}"));
+}
