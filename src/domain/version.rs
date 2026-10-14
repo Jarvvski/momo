@@ -605,6 +605,7 @@ mod tests {
 
         fn create_tag(
             &self,
+            _rev: Option<&str>,
             _prefix: &str,
             _version: &Version,
             _message: &str,

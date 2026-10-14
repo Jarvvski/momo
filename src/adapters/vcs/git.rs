@@ -64,7 +64,13 @@ impl<R: CommandRunner> Vcs for GitVcs<R> {
         })
     }
 
-    fn create_tag(&self, prefix: &str, version: &Version, message: &str) -> Result<(), VcsError> {
+    fn create_tag(
+        &self,
+        rev: Option<&str>,
+        prefix: &str,
+        version: &Version,
+        message: &str,
+    ) -> Result<(), VcsError> {
         let tag = checked_tag_name(prefix, version)?;
         let reference = format!("refs/tags/{tag}");
         let verify = ["rev-parse", "--quiet", "--verify", reference.as_str()];
@@ -72,7 +78,12 @@ impl<R: CommandRunner> Vcs for GitVcs<R> {
             return Err(VcsError::TagAlreadyExists { tag });
         }
 
-        let create = ["tag", "--annotate", "--message", message, tag.as_str()];
+        // `HEAD` is git's default anchor and already names the committed
+        // release; `--rev` appends an explicit commit-ish instead.
+        let mut create = vec!["tag", "--annotate", "--message", message, tag.as_str()];
+        if let Some(rev) = rev {
+            create.push(rev);
+        }
         require_success("git", &create, self.git(&create)?)?;
         Ok(())
     }
@@ -128,7 +139,34 @@ mod tests {
                 "",
             );
         adapter(runner)
-            .create_tag("v", &Version::new(0, 1, 0), "Release 0.1.0")
+            .create_tag(None, "v", &Version::new(0, 1, 0), "Release 0.1.0")
+            .unwrap();
+    }
+
+    #[test]
+    fn create_tag_appends_an_explicit_revision() {
+        // `--rev` names a commit-ish; the default omits the argument so git
+        // anchors at `HEAD`.
+        let runner = FakeRunner::new()
+            .fail(
+                "git",
+                &["rev-parse", "--quiet", "--verify", "refs/tags/v0.1.0"],
+                "",
+            )
+            .ok(
+                "git",
+                &[
+                    "tag",
+                    "--annotate",
+                    "--message",
+                    "Release 0.1.0",
+                    "v0.1.0",
+                    "abc123",
+                ],
+                "",
+            );
+        adapter(runner)
+            .create_tag(Some("abc123"), "v", &Version::new(0, 1, 0), "Release 0.1.0")
             .unwrap();
     }
 
@@ -140,7 +178,7 @@ mod tests {
             "f665a604ff51b0e3156f31bfa862e61acf77da52\n",
         );
         let err = adapter(runner)
-            .create_tag("v", &Version::new(0, 1, 0), "Release 0.1.0")
+            .create_tag(None, "v", &Version::new(0, 1, 0), "Release 0.1.0")
             .unwrap_err();
         assert!(matches!(err, VcsError::TagAlreadyExists { ref tag } if tag == "v0.1.0"));
     }
@@ -193,7 +231,7 @@ mod tests {
         // An empty script panics on any command, proving validation runs first.
         let runner = FakeRunner::new();
         let err = adapter(runner)
-            .create_tag("-", &Version::new(1, 2, 3), "Release 1.2.3")
+            .create_tag(None, "-", &Version::new(1, 2, 3), "Release 1.2.3")
             .unwrap_err();
         assert!(matches!(err, VcsError::InvalidTagName { ref name } if name == "-1.2.3"));
     }

@@ -104,12 +104,14 @@ pub fn candidate(
 ///
 /// The tag names the Version the Package's version file holds — the one the last
 /// Release minted — so `tag` brings the repository and momo's own record into
-/// sync. Returns the tag name, or `None` when the Package has never released.
+/// sync. `rev` overrides the adapter's default anchor (jj: `@-`, git: `HEAD`).
+/// Returns the tag name, or `None` when the Package has never released.
 pub fn tag(
     repo_root: &Path,
     config: &Config,
     package: &Package,
     vcs: &dyn Vcs,
+    rev: Option<&str>,
     dry_run: bool,
 ) -> Result<Option<String>> {
     let file = FileVersionSource::new(&package.dir(repo_root));
@@ -121,7 +123,7 @@ pub fn tag(
     let prefix = package.tag_prefix(&config.tag_prefix);
     let message = format!("Release {version}");
     if !dry_run {
-        vcs.create_tag(&prefix, &version, &message)?;
+        vcs.create_tag(rev, &prefix, &version, &message)?;
     }
     Ok(Some(format!("{prefix}{version}")))
 }
@@ -409,6 +411,7 @@ mod tests {
 
         fn create_tag(
             &self,
+            _rev: Option<&str>,
             _prefix: &str,
             _version: &Version,
             _message: &str,
@@ -802,9 +805,16 @@ mod tests {
             .write(&Version::new(1, 2, 3))
             .expect("write the version file");
 
-        let name = tag(root, &Config::default(), &package(), &FakeVcs::new(), false)
-            .expect("tag")
-            .expect("something to tag");
+        let name = tag(
+            root,
+            &Config::default(),
+            &package(),
+            &FakeVcs::new(),
+            None,
+            false,
+        )
+        .expect("tag")
+        .expect("something to tag");
 
         assert_eq!(name, "v1.2.3");
     }
@@ -820,7 +830,7 @@ mod tests {
             .expect("something to cut");
         assert_eq!(outcome.version.to_string(), "0.1.0-rc.1");
 
-        let name = tag(root, &fragments(), &package(), &FakeVcs::new(), false)
+        let name = tag(root, &fragments(), &package(), &FakeVcs::new(), None, false)
             .expect("tag")
             .expect("something to tag");
 
@@ -836,6 +846,7 @@ mod tests {
             &Config::default(),
             &package(),
             &FakeVcs::new(),
+            None,
             false,
         )
         .expect("tagging with nothing released is not an error");
@@ -866,7 +877,7 @@ mod tests {
             "a monorepo release wrote a repo-root changelog"
         );
 
-        let name = tag(root, &fragments(), &package, &FakeVcs::new(), false)
+        let name = tag(root, &fragments(), &package, &FakeVcs::new(), None, false)
             .expect("tag")
             .expect("something to tag");
         assert_eq!(name, "cargo-a-v0.1.0");

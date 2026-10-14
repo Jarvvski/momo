@@ -310,7 +310,7 @@ fn tags_are_created_per_package_as_slug_v_version() {
         .assert()
         .success();
     momo(&dir)
-        .args(["-p", "cargo:a", "tag"])
+        .args(["-p", "cargo:a", "tag", "--rev", "@"])
         .assert()
         .success()
         .stdout(predicate::str::contains("cargo-a-v0.1.0"));
@@ -344,7 +344,7 @@ fn a_configured_slug_overrides_the_derived_one() {
         .assert()
         .success();
     momo(&dir)
-        .args(["-p", "cargo:a", "tag"])
+        .args(["-p", "cargo:a", "tag", "--rev", "@"])
         .assert()
         .success()
         .stdout(predicate::str::contains("alpha-v0.1.0"));

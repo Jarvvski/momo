@@ -82,7 +82,8 @@ fn git_round_trip() {
     assert!(!vcs.is_dirty().unwrap());
 
     let version = Version::new(0, 1, 0);
-    vcs.create_tag("v", &version, "Release 0.1.0").unwrap();
+    vcs.create_tag(None, "v", &version, "Release 0.1.0")
+        .unwrap();
 
     assert_eq!(vcs.latest_tag("v").unwrap().as_ref(), Some(&version));
     // `cat-file -t` reports `tag` only for an annotated tag.
@@ -91,7 +92,9 @@ fn git_round_trip() {
         "tag"
     );
 
-    let err = vcs.create_tag("v", &version, "Release 0.1.0").unwrap_err();
+    let err = vcs
+        .create_tag(None, "v", &version, "Release 0.1.0")
+        .unwrap_err();
     assert!(matches!(err, VcsError::TagAlreadyExists { ref tag } if tag == "v0.1.0"));
     assert_eq!(err.to_string(), "tag `v0.1.0` already exists");
 
@@ -121,13 +124,17 @@ fn jj_round_trip() {
         &["config", "set", "--repo", "user.email", "momo@example.com"],
     );
     std::fs::write(dir.path().join("a.txt"), "hi\n").unwrap();
+    // Commit so `@-` is a real commit: the default anchor is the committed
+    // release, and a tag on the root commit cannot be exported to git.
+    run(dir.path(), "jj", &["commit", "--message", "first"]);
 
     let vcs = detect(dir.path()).unwrap();
     assert_eq!(vcs.kind(), VcsKind::Jj);
     assert_eq!(vcs.latest_tag("v").unwrap(), None);
 
     let version = Version::new(0, 1, 0);
-    vcs.create_tag("v", &version, "Release 0.1.0").unwrap();
+    vcs.create_tag(None, "v", &version, "Release 0.1.0")
+        .unwrap();
 
     assert_eq!(vcs.latest_tag("v").unwrap().as_ref(), Some(&version));
     // jj has no annotated tags: the tag reaches git as a lightweight ref, which
@@ -142,7 +149,9 @@ fn jj_round_trip() {
         "commit"
     );
 
-    let err = vcs.create_tag("v", &version, "Release 0.1.0").unwrap_err();
+    let err = vcs
+        .create_tag(None, "v", &version, "Release 0.1.0")
+        .unwrap_err();
     assert!(matches!(err, VcsError::TagAlreadyExists { ref tag } if tag == "v0.1.0"));
     assert_eq!(err.to_string(), "tag `v0.1.0` already exists");
 
@@ -193,7 +202,8 @@ fn jj_tag_anchors_to_the_commit_holding_the_release() {
     );
 
     let version = Version::new(0, 1, 0);
-    vcs.create_tag("v", &version, "Release 0.1.0").unwrap();
+    vcs.create_tag(None, "v", &version, "Release 0.1.0")
+        .unwrap();
 
     // The tag must name the commit that recorded the changelog, not the empty
     // working copy above it.
@@ -228,9 +238,9 @@ fn jj_tag_anchors_to_the_commit_holding_the_release() {
 }
 
 #[test]
-fn jj_tag_anchors_to_a_dirty_working_copy() {
+fn jj_tag_honours_an_explicit_revision() {
     if !have("jj") {
-        eprintln!("skipping jj_tag_anchors_to_a_dirty_working_copy: jj is not on PATH");
+        eprintln!("skipping jj_tag_honours_an_explicit_revision: jj is not on PATH");
         return;
     }
 
@@ -247,7 +257,7 @@ fn jj_tag_anchors_to_a_dirty_working_copy() {
         &["config", "set", "--repo", "user.email", "momo@example.com"],
     );
 
-    // The release is still uncommitted in `@`; the tag must name it directly.
+    // The release is still uncommitted in `@`; `--rev @` names it directly.
     std::fs::write(dir.path().join("CHANGELOG.md"), "# Changelog\n\n## 0.1.0\n").unwrap();
 
     let vcs = detect(dir.path()).unwrap();
@@ -258,11 +268,71 @@ fn jj_tag_anchors_to_a_dirty_working_copy() {
     let release = commit_id(dir.path(), "@");
 
     let version = Version::new(0, 1, 0);
-    vcs.create_tag("v", &version, "Release 0.1.0").unwrap();
+    vcs.create_tag(Some("@"), "v", &version, "Release 0.1.0")
+        .unwrap();
 
     assert_eq!(commit_id(dir.path(), "v0.1.0"), release);
     assert!(
         capture(dir.path(), "jj", &["diff", "-r", "v0.1.0", "--summary"]).contains("CHANGELOG.md"),
         "the tag must name the commit that holds the changelog"
+    );
+}
+
+#[test]
+fn jj_tag_defaults_to_the_parent_even_when_a_stray_file_makes_at_dirty() {
+    if !have("jj") {
+        eprintln!(
+            "skipping jj_tag_defaults_to_the_parent_even_when_a_stray_file_makes_at_dirty: \
+             jj is not on PATH"
+        );
+        return;
+    }
+
+    let dir = TempDir::new().unwrap();
+    run(dir.path(), "jj", &["git", "init", "--colocate"]);
+    run(
+        dir.path(),
+        "jj",
+        &["config", "set", "--repo", "user.name", "momo"],
+    );
+    run(
+        dir.path(),
+        "jj",
+        &["config", "set", "--repo", "user.email", "momo@example.com"],
+    );
+
+    // Release, then `jj commit`: the release is a real commit and `@` is the
+    // fresh, empty working-copy commit.
+    std::fs::write(dir.path().join("CHANGELOG.md"), "# Changelog\n\n## 0.1.0\n").unwrap();
+    run(dir.path(), "jj", &["commit", "--message", "release 0.1.0"]);
+
+    // An unrelated file flips `jj diff --summary` non-empty; the anchor must
+    // ignore it and stay on the committed release at `@-`.
+    std::fs::write(dir.path().join("stray.txt"), "unrelated\n").unwrap();
+    let vcs = detect(dir.path()).unwrap();
+    assert!(vcs.is_dirty().unwrap(), "the stray file should dirty `@`");
+    let release = commit_id(dir.path(), "@-");
+
+    let version = Version::new(0, 1, 0);
+    vcs.create_tag(None, "v", &version, "Release 0.1.0")
+        .unwrap();
+
+    let tagged = commit_id(dir.path(), "v0.1.0");
+    assert_eq!(tagged, release);
+    assert_ne!(tagged, commit_id(dir.path(), "@"));
+    assert_eq!(
+        capture(
+            dir.path(),
+            "jj",
+            &[
+                "log",
+                "-r",
+                "v0.1.0",
+                "--no-graph",
+                "-T",
+                "description.first_line()"
+            ]
+        ),
+        "release 0.1.0"
     );
 }

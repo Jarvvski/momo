@@ -59,7 +59,7 @@ pub fn run(cli: &Cli) -> Result<()> {
         Command::Status { check } => status(cli, *check),
         Command::Release => release(cli),
         Command::Candidate => candidate(cli),
-        Command::Tag => tag(cli),
+        Command::Tag { rev } => tag(cli, rev.as_deref()),
         Command::Init { version } => init(cli, version.as_ref()),
         Command::Install {
             env,
@@ -78,7 +78,7 @@ pub fn run(cli: &Cli) -> Result<()> {
 fn reject_output_flags(cli: &Cli) -> Result<()> {
     if matches!(
         cli.command,
-        Command::Status { .. } | Command::Release | Command::Candidate | Command::Tag
+        Command::Status { .. } | Command::Release | Command::Candidate | Command::Tag { .. }
     ) {
         return Ok(());
     }
@@ -226,7 +226,10 @@ fn candidate(cli: &Cli) -> Result<()> {
 }
 
 /// Create the VCS tag for each selected Package's current Version.
-fn tag(cli: &Cli) -> Result<()> {
+///
+/// `rev` overrides the adapter's default anchor: an uncommitted release passes
+/// `--rev @` on jj, where the default is the committed release at `@-`.
+fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
     let discovery = workspace::load(&root, &config)?;
@@ -238,7 +241,8 @@ fn tag(cli: &Cli) -> Result<()> {
 
     let mut tagged = 0;
     for package in packages {
-        let Some(name) = release::tag(&root, &config, package, vcs.as_ref(), cli.dry_run)? else {
+        let Some(name) = release::tag(&root, &config, package, vcs.as_ref(), rev, cli.dry_run)?
+        else {
             if explicit {
                 bail!("nothing to tag: run `momo release` first");
             }
@@ -486,7 +490,7 @@ mod tests {
             Command::Status { check: false },
             Command::Release,
             Command::Candidate,
-            Command::Tag,
+            Command::Tag { rev: None },
             Command::Init { version: None },
             Command::Install {
                 env: None,

@@ -54,10 +54,13 @@ $ momo tag
 ## Tagging
 
 - git → an **annotated** tag on `HEAD`, the committed release.
-- jj → a **lightweight** tag (all jj supports). It is anchored to the
-  working-copy commit `@` when that has changes, and to its parent `@-` when it
-  is empty — which is the case after `jj commit`, and after a pull-request merge
-  where `@` sits above `main`. git always names `HEAD`.
+- jj → a **lightweight** tag (all jj supports), anchored to `@-`, the parent of
+  the working-copy commit. The documented flow is release → commit → tag, so the
+  release is the commit `@-` names — after `jj commit`, or after a pull-request
+  merge where `@` sits above `main`.
+- `--rev <REV>` overrides the anchor: a commit-ish for git, a revset resolving
+  to exactly one commit for jj. Tag an **uncommitted** release (the files still
+  in `@`) with `--rev @`. The anchor is never inferred from the working copy.
 - The VCS is detected as `.jj` first, else `.git`.
 - An existing tag is never overwritten.
 - With no VCS, `tag` errors: `no VCS detected — nothing to tag`.

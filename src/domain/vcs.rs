@@ -48,13 +48,25 @@ pub trait Vcs {
     /// normalised by the caller.
     fn remote(&self) -> Result<Option<String>, VcsError>;
 
-    /// Create the tag `<prefix><version>` at the current revision.
+    /// Create the tag `<prefix><version>` at `rev`.
+    ///
+    /// `rev` is the revision to tag — a commit-ish for git, a revset that must
+    /// resolve to exactly one commit for jj. `None` uses the adapter's default
+    /// anchor: `HEAD` for git, `@-` for jj. The documented flow is
+    /// release → commit → tag, so jj's committed release sits at `@-`; an
+    /// uncommitted release names `Some("@")` explicitly.
     ///
     /// `message` is the Release title; git records it on the annotated tag, jj
     /// ignores it (jj tags are always lightweight). The computed name is
     /// validated as a git ref first, so an unusable one fails with
     /// [`VcsError::InvalidTagName`] rather than an opaque VCS error.
-    fn create_tag(&self, prefix: &str, version: &Version, message: &str) -> Result<(), VcsError>;
+    fn create_tag(
+        &self,
+        rev: Option<&str>,
+        prefix: &str,
+        version: &Version,
+        message: &str,
+    ) -> Result<(), VcsError>;
 
     /// Whether the working copy has changes that are not committed.
     fn is_dirty(&self) -> Result<bool, VcsError>;
