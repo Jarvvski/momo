@@ -385,6 +385,26 @@ mod tests {
     }
 
     #[test]
+    fn the_bump_policy_is_the_zero_aware_table() {
+        // The asserted table (see docs/opinions.md and ADR 0005): the bump is not
+        // configurable, so it is pinned here at MAJOR 0 and MAJOR >= 1.
+        let below_one = version(0, 5, 3);
+        assert_eq!(Kind::Break.bump(&below_one), Bump::Minor);
+        assert_eq!(Kind::Add.bump(&below_one), Bump::Minor);
+        assert_eq!(Kind::Fix.bump(&below_one), Bump::Patch);
+
+        let at_or_above_one = version(1, 5, 3);
+        assert_eq!(Kind::Break.bump(&at_or_above_one), Bump::Major);
+        assert_eq!(Kind::Add.bump(&at_or_above_one), Bump::Minor);
+        assert_eq!(Kind::Fix.bump(&at_or_above_one), Bump::Patch);
+    }
+
+    #[test]
+    fn the_default_rc_format_is_pinned() {
+        assert_eq!(DEFAULT_RC_FORMAT, "-rc.{n}");
+    }
+
+    #[test]
     fn the_highest_kind_wins_in_a_release() {
         let changes = [change(Kind::Fix), change(Kind::Add), change(Kind::Break)];
 
