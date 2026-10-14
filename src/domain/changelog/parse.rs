@@ -37,13 +37,6 @@ pub(super) fn trim_trailing_blanks(lines: &mut Vec<String>) {
     }
 }
 
-/// Drop blank lines from both ends of `lines`.
-pub(super) fn trim_blank_edges(lines: &mut Vec<String>) {
-    trim_trailing_blanks(lines);
-    let leading = lines.iter().take_while(|line| line.is_empty()).count();
-    lines.drain(..leading);
-}
-
 /// Whether `body` holds a non-blank line.
 pub(super) fn has_content(body: &[String]) -> bool {
     body.iter().any(|line| !line.is_empty())

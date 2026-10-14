@@ -101,13 +101,6 @@ pub enum Command {
         rev: Option<String>,
     },
 
-    /// Print the changelog section for a released version.
-    Notes {
-        /// Describe this version instead of the pending one.
-        #[arg(long, value_name = "X.Y.Z")]
-        version: Option<Version>,
-    },
-
     /// Scaffold momo.toml.
     Init {
         /// A semver version to record in `.momo/version`, so a fresh repo starts
@@ -142,7 +135,6 @@ impl fmt::Display for Command {
             Self::Release => "release",
             Self::Candidate => "candidate",
             Self::Tag { .. } => "tag",
-            Self::Notes { .. } => "notes",
             Self::Init { .. } => "init",
             Self::Install { .. } => "install",
         })

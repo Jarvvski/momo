@@ -31,7 +31,7 @@ use crate::domain::version::cmp_version_rank;
 use footer::{is_owned_link, owned, split_footer};
 use parse::{
     append_change, detect_ending, entries, has_content, heading_version, is_section, is_unreleased,
-    trim_blank_edges, trim_trailing_blanks,
+    trim_trailing_blanks,
 };
 use render::{blank, body_from_changes, release_section};
 
@@ -287,24 +287,6 @@ impl Changelog {
             .into_iter()
             .filter(|version| version.pre.is_empty())
             .max_by(cmp_version_rank)
-    }
-
-    /// The body of the section naming `version`, with its blank edges trimmed.
-    ///
-    /// The lines are joined with `\n` rather than the document's own ending: the
-    /// result is a released section as prose — a release body — not a document
-    /// to be re-rendered with the changelog's line endings. Everything the
-    /// section holds is returned, including content momo cannot interpret, so a
-    /// release body matches the changelog. `None` when no section names
-    /// `version`.
-    pub fn body_for(&self, version: &Version) -> Option<String> {
-        let section = self
-            .sections
-            .iter()
-            .find(|section| heading_version(&section.heading).as_ref() == Some(version))?;
-        let mut body = section.body.clone();
-        trim_blank_edges(&mut body);
-        Some(body.join("\n"))
     }
 
     /// The index of the Unreleased section, when the document has one.
