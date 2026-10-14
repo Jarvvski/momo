@@ -19,7 +19,10 @@ fn the_config_surface_is_frozen() {
             "packages",
         ]
     );
-    assert_eq!(KNOWN_PACKAGE_KEYS, ["identity", "slug", "manifest"]);
+    assert_eq!(
+        KNOWN_PACKAGE_KEYS,
+        ["identity", "slug", "manifest", "tag_prefix"]
+    );
 }
 
 #[test]
@@ -261,6 +264,23 @@ slug = \"cargo-momo\"
     assert_eq!(package.slug.as_deref(), Some("cargo-momo"));
     assert_eq!(package.identity, None);
     assert_eq!(package.manifest, None);
+    assert_eq!(package.tag_prefix, None);
+}
+
+#[test]
+fn a_package_tag_prefix_override_is_parsed() {
+    let file: ConfigOverrides = "\
+[packages.\"go:example.com/acme/api\"]
+tag_prefix = \"api/v\"
+"
+    .parse()
+    .expect("valid TOML");
+    let config = Config::resolve(file, ConfigOverrides::default());
+    let package = config
+        .packages
+        .get("go:example.com/acme/api")
+        .expect("package present");
+    assert_eq!(package.tag_prefix.as_deref(), Some("api/v"));
 }
 
 #[test]
@@ -297,6 +317,7 @@ fn generated_config_round_trips() {
             identity: None,
             slug: Some("cargo-momo".to_owned()),
             manifest: Some(PathBuf::from("crates/momo/Cargo.toml")),
+            tag_prefix: Some("cargo-momo-v".to_owned()),
         },
     );
 

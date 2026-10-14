@@ -139,7 +139,7 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
     };
     for package in packages {
         let changes = recording::unreleased(&root, &config, package)?;
-        let prefix = package.tag_prefix(&config.tag_prefix);
+        let prefix = tag::prefix(package, &config.tag_prefix);
         let changelog = release::read_changelog(&root, &config, package)?;
         let source = version::source(&package.dir(&root), &prefix, vcs.as_deref());
         let base = version::release_base(source.as_ref(), &changelog)?;
@@ -188,8 +188,8 @@ fn release(cli: &Cli) -> Result<()> {
         }
     }
     release::reject_shared_manifest_conflicts(&planned)?;
-    for (package, _) in &planned {
-        warn_go_prefix(package, &config.tag_prefix);
+    for (package, prepared) in &planned {
+        warn_go_major(package, prepared.version());
     }
 
     let mut report = output::Release {
@@ -244,8 +244,8 @@ fn candidate(cli: &Cli) -> Result<()> {
         }
     }
     release::reject_shared_manifest_conflicts(&planned)?;
-    for (package, _) in &planned {
-        warn_go_prefix(package, &config.tag_prefix);
+    for (package, prepared) in &planned {
+        warn_go_major(package, prepared.version());
     }
 
     let mut report = output::Release {
@@ -344,14 +344,16 @@ fn release_package(package: &str, outcome: Outcome) -> ReleasePackage {
     }
 }
 
-/// Warn when a Package's Go tag prefix would be unresolvable by `go get`.
+/// Warn when a Package's minted Version cannot resolve as a proper Go major.
 ///
-/// A `go:` module in a monorepo is namespaced by its slug, but Go resolves a
-/// module version by its directory: the tag momo would write cannot be fetched.
-/// The warning names that consequence and the tag that would resolve; it never
-/// blocks the release.
-fn warn_go_prefix(package: &Package, base: &str) {
-    if let Some(warning) = tag::go_prefix_warning(package, base) {
+/// From major 2 onward Go serves a version only when the module path ends in
+/// `/vN`: a `go:` module whose path lacks the suffix is served as
+/// `+incompatible`. The warning names that consequence; it never blocks the
+/// release.
+fn warn_go_major(package: &Package, version: &Version) {
+    if let Some(module) = tag::go_module_path(package)
+        && let Some(warning) = tag::go_major_warning(module, version)
+    {
         eprintln!("warning: {warning}");
     }
 }

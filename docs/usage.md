@@ -82,7 +82,7 @@ Discovery is attempted whenever momo detects a mise config (`mise.toml` or `.mis
 - **A monorepo whose graph cannot be read** (`monorepo_root = true`, but the command failed): momo warns and falls back to that same single package.
 - **`-p`/`--all` on a monorepo whose graph cannot be read** fails outright: the request for packages cannot be honoured.
 
-A package carries its ecosystem identity (`cargo:momo`, `node:@acme/ui`) and a derived, ref/path-safe slug (`cargo-momo`). The slug namespaces tags (`cargo-momo-v0.1.0`), the per-package changelog, and the fragment store.
+A package carries its ecosystem identity (`cargo:momo`, `node:@acme/ui`) and a derived, ref/path-safe slug (`cargo-momo`). The slug namespaces tags (`cargo-momo-v0.1.0`), the per-package changelog, and the fragment store. A `go:` module is the exception: Go resolves a module version by its directory, so it is tagged `api/v1.3.0` rather than `go-example-com-acme-api-v1.3.0`. A per-package `tag_prefix` overrides either derivation.
 
 Targeting:
 

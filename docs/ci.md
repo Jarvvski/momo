@@ -205,7 +205,7 @@ jobs:
 - **`--check` is inverted.** It exits non-zero when there is *nothing* to release. Read the other way round it skips every release.
 - **A protected branch needs a token that can bypass it.** `github.token` is rejected when protection requires review or status checks; supply a PAT or GitHub App token as `RELEASE_TOKEN`. If CI should not push at all, have the job open a pull request with the release commit and tag after the merge instead — the same commands, one step later.
 - **Concurrency.** Two runs seeing the same unreleased changes mint the same version, and the second `momo tag` then fails on the existing tag. The `concurrency` group serialises them.
-- **Monorepos.** Every package with unreleased changes is released in one run and `momo tag --format json` reports one entry per package: loop over `.packages[]` rather than taking `[0]`, and note that the tag prefix is `<slug>-v` per package.
+- **Monorepos.** Every package with unreleased changes is released in one run and `momo tag --format json` reports one entry per package: loop over `.packages[]` rather than taking `[0]`, and note that the tag prefix is `<slug>-v` per package — except a `go:` module, which is prefixed by its directory so `go get` resolves it (`api/v1.3.0`).
 
 ### Installing momo
 

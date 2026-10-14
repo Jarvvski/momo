@@ -19,6 +19,11 @@ pub struct PackageConfig {
     /// package's directory. Without one the ecosystem's conventional manifest
     /// is discovered.
     pub manifest: Option<PathBuf>,
+    /// Override the package's derived tag prefix, used verbatim.
+    ///
+    /// The escape hatch for a naming scheme momo does not derive; without one
+    /// the prefix follows the ecosystem (see [`crate::domain::tag::prefix`]).
+    pub tag_prefix: Option<String>,
 }
 
 impl PackageConfig {
@@ -32,6 +37,9 @@ impl PackageConfig {
         }
         if let Some(manifest) = other.manifest {
             self.manifest = Some(manifest);
+        }
+        if let Some(tag_prefix) = other.tag_prefix {
+            self.tag_prefix = Some(tag_prefix);
         }
     }
 }
@@ -104,6 +112,7 @@ pub(super) fn parse_packages(
                         .map(PathBuf::from)
                         .map(|path| validate_path(&format!("packages.{identity}.manifest"), path))
                         .transpose()?,
+                    tag_prefix: field("tag_prefix")?,
                 },
             ))
         })

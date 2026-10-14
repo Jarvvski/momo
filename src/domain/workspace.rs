@@ -347,6 +347,7 @@ mod tests {
                 identity: None,
                 slug: Some("alpha".to_owned()),
                 manifest: None,
+                tag_prefix: None,
             },
         );
         let workspace = Workspace::new(
@@ -388,6 +389,7 @@ mod tests {
                 identity: None,
                 slug: Some("node-acme-ui-plain".to_owned()),
                 manifest: None,
+                tag_prefix: None,
             },
         );
         let workspace = Workspace::new(
