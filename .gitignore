@@ -1,2 +1,6 @@
 /target
 /dist
+
+# Local-only scratch research and prototypes (ticket 17); the issue files stay tracked.
+.scratch/*/research/
+.scratch/*/prototypes/
