@@ -12,6 +12,8 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 
 This repo tracks issues as local markdown under `.scratch/`, so these strings appear as the `Status:` value near the top of each issue file rather than as tracker labels.
 
+The five roles above are the *open* states. Two terminal states close an issue: `resolved` once its change has landed, and `wontfix` when it never will.
+
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
 Edit the "Label in our tracker" column to match whatever vocabulary you actually use.

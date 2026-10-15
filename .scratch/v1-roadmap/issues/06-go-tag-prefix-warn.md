@@ -1,7 +1,7 @@
 # 06: Warn on an unresolvable Go tag prefix
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Points: 14
 Bucket: Ecosystem manifest adapters
 Severity: medium

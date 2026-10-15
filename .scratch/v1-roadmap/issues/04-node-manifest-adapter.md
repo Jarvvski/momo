@@ -1,7 +1,7 @@
 # 04: Node `package.json` manifest adapter
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Points: 14
 Bucket: Ecosystem manifest adapters
 Severity: high

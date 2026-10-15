@@ -1,7 +1,7 @@
 # 07: Cascade — rewrite dependent ranges in the same release
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Points: 13
 Bucket: Monorepo release engine
 Severity: high

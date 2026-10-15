@@ -1,7 +1,7 @@
 # 11: State the release opinions
 
 Type: task
-Status: ready-for-human
+Status: resolved
 Points: 13
 Bucket: Opinionated posture
 Severity: medium

@@ -1,7 +1,7 @@
 # 01: Write the option philosophy and freeze the config surface
 
 Type: task
-Status: ready-for-human
+Status: resolved
 Points: 17
 Bucket: Opinionated posture
 Severity: medium

@@ -1,7 +1,7 @@
 # 12: Cascade — report unsatisfied dependent ranges
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Points: 12
 Bucket: Monorepo release engine
 Severity: medium

@@ -1,7 +1,7 @@
 # 13: Teaching errors
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Points: 12
 Bucket: Trust & correctness
 Severity: medium
