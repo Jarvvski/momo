@@ -2,9 +2,10 @@
 
 use std::path::Path;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use semver::Version;
 
+use crate::cli::error::CliError;
 use crate::domain::manifest::ManifestPlan;
 use crate::domain::package::Package;
 
@@ -57,13 +58,13 @@ pub fn reject_shared_manifest_conflicts(plans: &[(&Package, Prepared)]) -> Resul
             } else {
                 format!("different versions ({version} and {})", prepared.version())
             };
-            bail!(
-                "`{}` and `{}` both sync `{}` with {detail}; a workspace version is shared, \
-                 so release them in separate runs",
-                other.identity(),
-                package.identity(),
-                path.display(),
-            );
+            return Err(CliError::SharedManifestConflict {
+                other: other.identity().to_owned(),
+                package: package.identity().to_owned(),
+                path: path.to_path_buf(),
+                detail,
+            }
+            .into());
         }
     }
     Ok(())

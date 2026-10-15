@@ -8,6 +8,8 @@ pub(crate) mod atomic;
 pub(crate) mod cascade;
 pub(crate) mod commands;
 pub(crate) mod config;
+pub(crate) mod diagnostic;
+pub(crate) mod error;
 pub(crate) mod output;
 pub(crate) mod recording;
 pub(crate) mod release;

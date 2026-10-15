@@ -8,9 +8,10 @@ use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 
 use crate::cli::atomic;
+use crate::cli::error::CliError;
 use crate::domain::change::{Change, Kind};
 use crate::domain::changelog::Changelog;
 use crate::domain::config::{Config, Recording};
@@ -101,7 +102,10 @@ fn create_fragment(dir: &Path, change: &Change) -> Result<PathBuf> {
             }
         }
     }
-    bail!("no free Fragment name under {}", dir.display())
+    Err(CliError::NoFragmentName {
+        dir: dir.to_path_buf(),
+    }
+    .into())
 }
 
 /// The Fragment file names to try for `change`, the plain name first.
@@ -190,11 +194,12 @@ fn fragment_paths(dir: &Path) -> Result<Vec<(PathBuf, Kind)>> {
         match fragment_entry(&path) {
             FragmentEntry::Fragment(kind) => fragments.push((path, kind)),
             FragmentEntry::Foreign => {}
-            FragmentEntry::Unrecognised(name) => bail!(
-                "{} is not a Fragment: expected `<kind>-<slug>.md` with `<kind>` one of: \
-                 break, add, fix",
-                dir.join(name).display(),
-            ),
+            FragmentEntry::Unrecognised(name) => {
+                return Err(CliError::UnrecognisedFragment {
+                    path: dir.join(name),
+                }
+                .into());
+            }
         }
     }
     Ok(fragments)

@@ -10,6 +10,8 @@ use std::time::Duration;
 
 use semver::Version;
 
+use crate::domain::diagnostic::impl_coded;
+
 /// Which version-control system backs a repository.
 ///
 /// Detection prefers [`VcsKind::Jj`] when a directory holds both `.jj` and
@@ -132,4 +134,26 @@ pub enum VcsError {
         /// The timeout that elapsed.
         timeout: Duration,
     },
+}
+
+impl_coded! {
+    VcsError {
+        VcsError::NoRepository { path } => (
+            "momo.vcs.no-repository",
+            fix = format!(
+                "initialise a repository at `{}` (`jj git init` or `git init`)",
+                path.display(),
+            ),
+        ),
+        VcsError::TagAlreadyExists { tag } => (
+            "momo.vcs.tag-exists",
+            fix = format!("delete the tag `{tag}`, or bump the version with `momo release`"),
+        ),
+        VcsError::InvalidTagName { .. } => (
+            "momo.vcs.invalid-tag-name",
+            fix = "fix the package's `tag_prefix` so the tag is a valid git ref",
+        ),
+        VcsError::Operation { .. } => ("momo.error.unclassified"),
+        VcsError::Timeout { .. } => ("momo.error.unclassified"),
+    }
 }

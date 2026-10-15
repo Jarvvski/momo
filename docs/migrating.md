@@ -355,17 +355,20 @@ The only unexpected diff is the footer, regenerated as described in [§3](#the-f
 
 ## When it disagrees with you
 
-| Symptom | Cause |
-|---|---|
-| `"current": null` but you have releases | The tags are missing, or `tag_prefix` does not match them. Check with `git tag --list`. |
-| A release would mint `0.1.0` on a mature project | Same as above — momo sees no recognised tag. |
-| `next` is lower than your changelog implies | The entries sit under `### Changed`/`### Removed`/`### Security`, which are preserved but not interpreted. Re-record them with `momo break`/`add`/`fix`. |
-| `next` is *higher* than expected | A hand-written `### Added`/`### Fixed` entry is being counted alongside your new ones — check for duplicates. |
-| `tag` refuses, mentioning a version older than the newest tag | A stale `.momo/version`. Run `momo release` to advance it, or delete it if it was hand-written. |
-| momo refuses the changelog, naming a line | More than one `## [Unreleased]` heading. Remove the duplicate. |
-| `error: reading momo.toml: unknown key` | A stale or misspelled config key (`tag_kind` is the common one). |
-| My footer links changed on the first release | Expected — momo owns `[Unreleased]` and `[x.y.z]` and rebuilds them. See [§3](#the-footer-is-regenerated-on-your-first-release). |
-| `momo tag` says there is nothing to tag | `tag` tags what the ledger holds, which only `release`/`candidate` write. Run a release first. |
+Every error momo raises carries a stable code; the ones below link to the full
+catalog in [errors.md](errors.md).
+
+| Symptom | Cause | Code |
+|---|---|---|
+| `"current": null` but you have releases | The tags are missing, or `tag_prefix` does not match them. Check with `git tag --list`. | — |
+| A release would mint `0.1.0` on a mature project | Same as above — momo sees no recognised tag. | — |
+| `next` is lower than your changelog implies | The entries sit under `### Changed`/`### Removed`/`### Security`, which are preserved but not interpreted. Re-record them with `momo break`/`add`/`fix`. | — |
+| `next` is *higher* than expected | A hand-written `### Added`/`### Fixed` entry is being counted alongside your new ones — check for duplicates. | — |
+| `tag` refuses, mentioning a version older than the newest tag | A stale `.momo/version`. Run `momo release` to advance it, or delete it if it was hand-written. | `momo.tag.stale-version` |
+| momo refuses the changelog, naming a line | More than one `## [Unreleased]` heading. Remove the duplicate. | `momo.changelog.duplicate-unreleased` |
+| `error[momo.config.unknown-key]` | A stale or misspelled config key (`tag_kind` is the common one). | `momo.config.unknown-key` |
+| My footer links changed on the first release | Expected — momo owns `[Unreleased]` and `[x.y.z]` and rebuilds them. See [§3](#the-footer-is-regenerated-on-your-first-release). | — |
+| `momo tag` says there is nothing to tag | `tag` tags what the ledger holds, which only `release`/`candidate` write. Run a release first. | `momo.tag.nothing-to-tag` |
 
 ## Upgrading an existing momo install
 

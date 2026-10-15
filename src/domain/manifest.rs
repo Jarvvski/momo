@@ -23,6 +23,8 @@ use std::path::{Path, PathBuf};
 
 use semver::Version;
 
+use crate::domain::diagnostic::impl_coded;
+
 /// One manifest a sync would write: where it goes and what it would hold.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManifestWrite {
@@ -210,6 +212,28 @@ pub enum ManifestError {
         /// The manifest whose version is inherited.
         manifest: PathBuf,
     },
+}
+
+impl_coded! {
+    ManifestError {
+        ManifestError::Read { .. } => ("momo.error.unclassified"),
+        ManifestError::Write { .. } => ("momo.error.unclassified"),
+        ManifestError::Parse { path, .. } => (
+            "momo.manifest.unparseable",
+            fix = format!("fix the syntax in `{}`", path.display()),
+        ),
+        ManifestError::Conflict { path, .. } => (
+            "momo.manifest.conflict",
+            fix = format!("resolve the contradiction in `{}`", path.display()),
+        ),
+        ManifestError::InheritedVersion { manifest } => (
+            "momo.manifest.inherited-version",
+            fix = format!(
+                "pin an explicit `version` in `{}`, or keep the workspace root in the repo",
+                manifest.display(),
+            ),
+        ),
+    }
 }
 
 #[cfg(test)]

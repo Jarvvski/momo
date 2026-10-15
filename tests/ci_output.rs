@@ -166,7 +166,57 @@ fn status_check_exits_non_zero_when_nothing_is_unreleased() {
         .args(["status", "--check"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("nothing unreleased"));
+        .stderr(predicate::str::contains(
+            "error[momo.release.nothing-unreleased]: nothing unreleased",
+        ))
+        .stderr(predicate::str::contains("fix:"));
+}
+
+#[test]
+fn a_failing_run_reports_a_structured_error_on_stdout() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+
+    // A minting run with nothing unreleased emits no report, so the error
+    // document is the only thing on stdout.
+    let assert = momo(&proj)
+        .args(["release", "--format", "json"])
+        .assert()
+        .failure();
+
+    let value = json(&String::from_utf8_lossy(&assert.get_output().stdout));
+    let error = value["error"].as_object().expect("an `error` object");
+    assert_eq!(error["code"], "momo.release.nothing-unreleased");
+    assert_eq!(error["message"], "nothing unreleased to release");
+    assert!(
+        error["fix"]
+            .as_str()
+            .is_some_and(|fix| fix.contains("momo add")),
+        "{value}"
+    );
+    assert!(
+        error["url"]
+            .as_str()
+            .is_some_and(|url| url.ends_with("#momo-release-nothing-unreleased")),
+        "{value}"
+    );
+    assert_eq!(error["context"], serde_json::json!([]));
+}
+
+#[test]
+fn a_failing_run_never_writes_output() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+    let path = dir.path().join("out.json");
+
+    momo(&proj)
+        .args(["release", "--format", "json", "--output"])
+        .arg(&path)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("momo.release.nothing-unreleased"));
+
+    assert!(!path.exists(), "a failed run wrote `--output`");
 }
 
 #[test]

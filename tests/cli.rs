@@ -434,11 +434,21 @@ fn output_flags_are_rejected_on_verbs_without_a_report() {
     ];
 
     for (args, flag, verb) in cases {
-        momo(&dir)
-            .args(args)
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains(flag).and(predicate::str::contains(verb)));
+        let assert = momo(&dir).args(args).assert().failure();
+        if flag == "--format" {
+            // A JSON error goes to stdout: the rejection *is* the document.
+            let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+            assert!(
+                stdout.contains(flag) && stdout.contains(verb),
+                "`{args:?}` did not report the rejection on stdout: {stdout}"
+            );
+            assert!(
+                String::from_utf8_lossy(&assert.get_output().stderr).is_empty(),
+                "`{args:?}` also wrote to stderr"
+            );
+        } else {
+            assert.stderr(predicate::str::contains(flag).and(predicate::str::contains(verb)));
+        }
     }
 }
 

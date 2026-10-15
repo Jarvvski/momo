@@ -136,6 +136,7 @@ Global flags:
 - **[Migrating](https://github.com/Jarvvski/momo/blob/main/docs/migrating.md)** — adopting momo on a project that already has tags, a changelog and releases.
 - **[Configuration](https://github.com/Jarvvski/momo/blob/main/docs/configuration.md)** — every `momo.toml` key, the precedence order, and the `MOMO_*` environment variables.
 - **[CI](https://github.com/Jarvvski/momo/blob/main/docs/ci.md)** — the JSON shapes, `status --check`, and `--output`.
+- **[Errors](https://github.com/Jarvvski/momo/blob/main/docs/errors.md)** — every error code, its message, and its fix.
 - **[Contributing](https://github.com/Jarvvski/momo/blob/main/docs/contributing.md)** — building, testing, and the landing flow.
 
 ## License
