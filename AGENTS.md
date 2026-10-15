@@ -14,6 +14,8 @@ The owner uses **Jujutsu exclusively** in a colocated repo. **Never invoke `git`
 
 1. Make **one focused change** per commit, on its own bookmark cut from `main`: `jj new main`, then `jj bookmark create <branch> -r @`.
 2. Record the change with `momo break|add|fix "<description>"`, so the changelog carries it. A release derives its version and notes from the unreleased changes, so a change that is never recorded can never be released. In changelog mode every branch edits the same `## Unreleased` section — when a rebase conflicts there, keep both entries.
+
+   **Chores are not recorded.** Dependency bumps, tooling and CI cleanups, and docs housekeeping stay out of the changelog: it is for user-visible changes, and a chore entry is noise in release notes a consumer will never act on. If nothing user-visible changed, leave `## Unreleased` absent rather than minting one for a chore.
 3. Run `mise run check` (fmt:check + lint + domain purity + docs + build + test); push only when it passes. (jj fires no git hooks, so fmt is a task, not a pre-commit hook.)
 4. `jj describe -m "<imperative one-liner>"`, then `jj git push --bookmark <branch>`.
 5. Open a PR: `gh pr create -R Jarvvski/momo --base main --head <branch>`.
