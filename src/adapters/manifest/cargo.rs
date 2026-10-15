@@ -9,7 +9,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::domain::manifest::{
-    DependencyRequirement, ManifestError, ManifestPlan, ManifestSync, ManifestWrite, SkipReason,
+    DependencyRangeEdit, DependencyRequirement, ManifestEdits, ManifestError, ManifestPlan,
+    ManifestSync, ManifestWrite, SkipReason,
 };
 use semver::Version;
 use toml_edit::{DocumentMut, Item, TableLike};
@@ -41,25 +42,37 @@ impl ManifestSync for CargoManifest {
         path.is_file().then_some(path)
     }
 
-    fn render(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError> {
-        let text = toml::read(manifest)?;
+    fn render(
+        &self,
+        manifest: &Path,
+        edits: &ManifestEdits,
+    ) -> Result<ManifestPlan, ManifestError> {
+        let mut plan = ManifestPlan::default();
+        let mut pending = Pending::default();
 
-        Ok(match set_version(&text, manifest, version)? {
-            Resolved::Write { path, text } => ManifestPlan {
-                lockfiles: lockfile(&path).into_iter().collect(),
-                writes: vec![ManifestWrite { path, text }],
-                skipped: Vec::new(),
-            },
-            Resolved::Skip { path, reason } => ManifestPlan {
-                writes: Vec::new(),
-                lockfiles: Vec::new(),
-                skipped: vec![(path, reason)],
-            },
-        })
+        if let Some(version) = &edits.version {
+            match set_version(&toml::read(manifest)?, manifest, version)? {
+                Resolved::Write { path, text } => pending.stage(path, text),
+                Resolved::Skip { path, reason } => plan.skipped.push((path, reason)),
+            }
+        }
+        for edit in &edits.ranges {
+            if let Some(applied) = widen_range(&mut pending, manifest, edit)? {
+                plan.ranges.push(applied);
+            }
+        }
+
+        plan.lockfiles = pending
+            .writes
+            .iter()
+            .filter_map(|write| lockfile(&write.path))
+            .collect();
+        plan.writes = pending.writes;
+        Ok(plan)
     }
 
-    fn write(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError> {
-        let plan = self.render(manifest, version)?;
+    fn write(&self, manifest: &Path, edits: &ManifestEdits) -> Result<ManifestPlan, ManifestError> {
+        let plan = self.render(manifest, edits)?;
         for write in &plan.writes {
             fs::write(&write.path, &write.text).map_err(|source| ManifestError::Write {
                 path: write.path.clone(),
@@ -83,6 +96,10 @@ impl ManifestSync for CargoManifest {
         semver::VersionReq::parse(requirement)
             .ok()
             .map(|parsed| parsed.matches(version))
+    }
+
+    fn widen(&self, requirement: &str, target: &Version) -> Option<String> {
+        widened(requirement, target)
     }
 }
 
@@ -141,12 +158,18 @@ fn collect_dependency_tables<'a>(table: &'a dyn TableLike, tables: &mut Vec<&'a 
 /// `None` when the dependency carries no version — a `path`- or `git`-only
 /// entry, or a `workspace = true` whose shared requirement cannot be resolved.
 fn entry_requirement(manifest: &Path, key: &str, item: &Item) -> Option<String> {
-    if let Some(table) = item.as_table_like()
-        && table.get("workspace").and_then(Item::as_bool) == Some(true)
-    {
+    if is_inherited(item) {
         return inherited_requirement(manifest, key);
     }
     requirement_of(item)
+}
+
+/// Whether `item` inherits its requirement from the workspace root.
+fn is_inherited(item: &Item) -> bool {
+    item.as_table_like()
+        .and_then(|table| table.get("workspace"))
+        .and_then(Item::as_bool)
+        == Some(true)
 }
 
 /// The requirement a dependency value declares, when it declares one.
@@ -169,12 +192,15 @@ fn entry_package(key: &str, item: &Item) -> String {
         .to_owned()
 }
 
-/// The requirement a `workspace = true` dependency inherits from its root.
+/// The workspace dependency `key` inherits: the root manifest, its text, and
+/// the shared requirement.
 ///
 /// Cargo resolves the shared requirement against the workspace root's
 /// `[workspace.dependencies]`. The search starts at the member's own directory,
-/// so a root that is also a package resolves against itself.
-fn inherited_requirement(member: &Path, key: &str) -> Option<String> {
+/// so a root that is also a package resolves against itself. `None` when no
+/// ancestor declares the key — there is no requirement momo can read, and none
+/// it could rewrite.
+fn inherited(member: &Path, key: &str) -> Option<(PathBuf, String, String)> {
     for ancestor in member.parent()?.ancestors() {
         let candidate = ancestor.join(MANIFEST);
         let Ok(text) = fs::read_to_string(&candidate) else {
@@ -189,16 +215,227 @@ fn inherited_requirement(member: &Path, key: &str) -> Option<String> {
             .and_then(|dependencies| dependencies.get(key))
             .and_then(requirement_of)
         {
-            return Some(requirement);
+            return Some((candidate, text, requirement));
         }
     }
     None
+}
+
+/// The requirement a `workspace = true` dependency inherits from its root.
+fn inherited_requirement(member: &Path, key: &str) -> Option<String> {
+    inherited(member, key).map(|(_, _, requirement)| requirement)
+}
+
+/// The workspace roots and `[workspace.dependencies]` keys that declare the
+/// requirement `edit` names for a `workspace = true` dependency.
+///
+/// A dependency can appear in more than one table, and a member can declare
+/// both an inherited and a direct entry for one package, so this is a list.
+/// Only declarations whose inherited requirement matches `edit` are returned —
+/// the rest are a different range momo was not asked to touch.
+fn inherited_sites(
+    doc: &DocumentMut,
+    member: &Path,
+    edit: &DependencyRangeEdit,
+) -> Vec<(PathBuf, String)> {
+    let mut sites = Vec::new();
+    for table in dependency_tables(doc) {
+        for (key, item) in table.iter() {
+            if !is_inherited(item) || entry_package(key, item) != edit.name {
+                continue;
+            }
+            if let Some((root, _, requirement)) = inherited(member, key)
+                && requirement == edit.requirement
+            {
+                sites.push((root, key.to_owned()));
+            }
+        }
+    }
+    sites
+}
+
+/// The mutable `[workspace.dependencies]` entry `key` names.
+fn inherited_item<'a>(doc: &'a mut DocumentMut, key: &str) -> Option<&'a mut Item> {
+    doc.get_mut("workspace")?
+        .get_mut("dependencies")?
+        .get_mut(key)
 }
 
 /// The lockfile Cargo keeps beside `manifest`, when there is one.
 fn lockfile(manifest: &Path) -> Option<PathBuf> {
     let lockfile = manifest.parent()?.join(LOCKFILE);
     lockfile.is_file().then_some(lockfile)
+}
+
+/// Widen `requirement` so it admits `target`, preserving its operator form.
+///
+/// Only Cargo's single-term forms are rewritten: a caret (`^1.0`, or a bare
+/// `1.0`, which Cargo reads as one), `~`, `=`, `>=` and `*`. A conjunction
+/// (`>=1.0, <2.0`) or an upper bound is refused — re-anchoring one could narrow
+/// the range rather than widen it, and a wrong rewrite is a semver lie. The
+/// result is checked to admit `target` before it is returned, so momo never
+/// writes a requirement that excludes the version it was widened for.
+fn widened(requirement: &str, target: &Version) -> Option<String> {
+    let trimmed = requirement.trim();
+    let parsed = semver::VersionReq::parse(trimmed).ok()?;
+    let [comparator] = parsed.comparators.as_slice() else {
+        return None;
+    };
+    let widened = match comparator.op {
+        semver::Op::Caret if trimmed.starts_with('^') => format!("^{target}"),
+        // A bare `1.0` is a caret in Cargo; keep the bare spelling.
+        semver::Op::Caret => target.to_string(),
+        semver::Op::Tilde => format!("~{target}"),
+        semver::Op::Exact => format!("={target}"),
+        semver::Op::GreaterEq => format!(">={target}"),
+        // `*` admits every version, so it is never the unsatisfied side, and an
+        // upper bound (`<`, `<=`) cannot be widened by re-anchoring it.
+        _ => return None,
+    };
+    semver::VersionReq::parse(&widened)
+        .ok()?
+        .matches(target)
+        .then_some(widened)
+}
+
+/// Widen the requirement `edit` names, staging the rewritten manifest.
+///
+/// The requirement is declared either in the member's own manifest or — for a
+/// `workspace = true` dependency — in the workspace root's
+/// `[workspace.dependencies]`, so the write lands on whichever file holds it.
+/// `None` when nothing was rewritten: a requirement whose syntax [`widened`]
+/// refuses, or one no declaration in the manifest holds.
+fn widen_range(
+    pending: &mut Pending,
+    member: &Path,
+    edit: &DependencyRangeEdit,
+) -> Result<Option<DependencyRangeEdit>, ManifestError> {
+    let Some(requirement) = widened(&edit.requirement, &edit.target) else {
+        return Ok(None);
+    };
+    let text = pending.base(member)?;
+    let mut doc = toml::parse(&text, member)?;
+
+    // A member can hold both a direct and an inherited declaration of one
+    // package, so both are rewritten: leaving one behind would leave a range the
+    // new Version still breaks.
+    let mut applied = widen_direct(&mut doc, edit, &requirement);
+    if applied {
+        pending.stage(
+            member.to_path_buf(),
+            toml::preserve_line_endings(&text, doc.to_string()),
+        );
+    }
+
+    // The inherited entries' requirements live in the workspace root, so the
+    // write lands there — composed with a version write that targets the same
+    // root rather than overwriting it.
+    for (root, key) in inherited_sites(&doc, member, edit) {
+        let root_text = pending.base(&root)?;
+        let mut root_doc = toml::parse(&root_text, &root)?;
+        let Some(item) = inherited_item(&mut root_doc, &key) else {
+            continue;
+        };
+        if set_requirement(item, &requirement) {
+            pending.stage(
+                root,
+                toml::preserve_line_endings(&root_text, root_doc.to_string()),
+            );
+            applied = true;
+        }
+    }
+
+    Ok(applied.then(|| edit.clone()))
+}
+
+/// Widen every direct declaration of `edit`'s package in `doc`.
+///
+/// Every dependency table is scanned — `[dependencies]`, `[dev-dependencies]`,
+/// `[build-dependencies]` and each `[target.<cfg>.*]` — because a requirement
+/// momo read from any of them is one it must rewrite in all of them. Returns
+/// whether the document changed.
+fn widen_direct(doc: &mut DocumentMut, edit: &DependencyRangeEdit, requirement: &str) -> bool {
+    let mut changed = false;
+    for kind in DEPENDENCY_TABLES {
+        if let Some(table) = doc.get_mut(kind).and_then(Item::as_table_like_mut) {
+            changed |= widen_table(table, edit, requirement);
+        }
+    }
+    if let Some(target) = doc.get_mut("target").and_then(Item::as_table_like_mut) {
+        for (_, entry) in target.iter_mut() {
+            let Some(cfg) = entry.as_table_like_mut() else {
+                continue;
+            };
+            for kind in DEPENDENCY_TABLES {
+                if let Some(table) = cfg.get_mut(kind).and_then(Item::as_table_like_mut) {
+                    changed |= widen_table(table, edit, requirement);
+                }
+            }
+        }
+    }
+    changed
+}
+
+/// Widen every entry of one dependency `table` that holds `edit`'s requirement.
+fn widen_table(table: &mut dyn TableLike, edit: &DependencyRangeEdit, requirement: &str) -> bool {
+    let mut changed = false;
+    for (key, item) in table.iter_mut() {
+        // An inherited entry's requirement is the root's to rewrite.
+        if is_inherited(item) || entry_package(key.get(), item) != edit.name {
+            continue;
+        }
+        if requirement_of(item).as_deref() != Some(edit.requirement.as_str()) {
+            continue;
+        }
+        changed |= set_requirement(item, requirement);
+    }
+    changed
+}
+
+/// Set a dependency entry's requirement to `requirement`, keeping its form.
+///
+/// A shorthand `a = "1.0"` is a bare string; a detailed entry
+/// `a = { version = "1.0", … }` holds the requirement under `version`. Returns
+/// whether the document changed.
+fn set_requirement(item: &mut Item, requirement: &str) -> bool {
+    if item.as_str().is_some() {
+        return toml::set_string(item, requirement);
+    }
+    item.as_table_like_mut()
+        .and_then(|table| table.get_mut("version"))
+        .is_some_and(|version| toml::set_string(version, requirement))
+}
+
+/// The writes one render has accumulated, keyed by path.
+///
+/// A version scalar and a dependency range can target the same manifest — a
+/// member with its own version and a direct sibling dependency — or different
+/// ones — an inherited version writes the workspace root while a direct range
+/// stays in the member. Keying by path composes every edit to one file into a
+/// single text, rather than staging two writes to one target where the second
+/// silently replaces the first.
+#[derive(Default)]
+struct Pending {
+    /// Each staged write, in the order its path was first touched.
+    writes: Vec<ManifestWrite>,
+}
+
+impl Pending {
+    /// Stage `text` for `path`, replacing whatever is already staged there.
+    fn stage(&mut self, path: PathBuf, text: String) {
+        match self.writes.iter_mut().find(|write| write.path == path) {
+            Some(write) => write.text = text,
+            None => self.writes.push(ManifestWrite { path, text }),
+        }
+    }
+
+    /// The text `path` holds now: what is staged for it, else the file on disk.
+    fn base(&self, path: &Path) -> Result<String, ManifestError> {
+        match self.writes.iter().find(|write| write.path == path) {
+            Some(write) => Ok(write.text.clone()),
+            None => toml::read(path),
+        }
+    }
 }
 
 /// The outcome of resolving one manifest against a Version.
@@ -834,5 +1071,349 @@ remote = { git = \"https://example.com/remote.git\" }
         let cargo = CargoManifest;
         assert_eq!(cargo.satisfied("not a range", &version("1.0.0")), None);
         assert_eq!(cargo.satisfied("", &version("1.0.0")), None);
+    }
+
+    /// The edits that widen `name`'s `requirement` to admit `target`.
+    fn widening(name: &str, requirement: &str, target: &str) -> ManifestEdits {
+        ManifestEdits {
+            version: None,
+            ranges: vec![DependencyRangeEdit {
+                name: name.to_owned(),
+                requirement: requirement.to_owned(),
+                target: version(target),
+            }],
+        }
+    }
+
+    /// Render `edits` against a manifest seeded on disk with `text`.
+    fn rendered(text: &str, edits: &ManifestEdits) -> ManifestPlan {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("Cargo.toml");
+        fs::write(&path, text).expect("seed the manifest");
+        CargoManifest
+            .render(&path, edits)
+            .expect("render the manifest")
+    }
+
+    /// The single write `plan` staged.
+    fn only_write(plan: &ManifestPlan) -> &ManifestWrite {
+        assert_eq!(plan.writes.len(), 1, "{plan:?}");
+        &plan.writes[0]
+    }
+
+    #[test]
+    fn a_requirement_is_widened_by_preserving_its_operator() {
+        let cargo = CargoManifest;
+        for (requirement, expected) in [
+            ("1.0", "2.0.0"),
+            ("^1.0", "^2.0.0"),
+            ("~1.2", "~2.0.0"),
+            ("=1.2.3", "=2.0.0"),
+            (">=1.0", ">=2.0.0"),
+        ] {
+            assert_eq!(
+                cargo.widen(requirement, &version("2.0.0")).as_deref(),
+                Some(expected),
+                "`{requirement}` widened wrongly"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unwritable_requirement_is_refused() {
+        let cargo = CargoManifest;
+        for requirement in [
+            "*",
+            "1.*",
+            ">=1.0, <2.0",
+            "<2.0",
+            "<=2.0",
+            ">1.0",
+            "not a range",
+            "",
+        ] {
+            assert_eq!(
+                cargo.widen(requirement, &version("2.0.0")),
+                None,
+                "`{requirement}` was rewritten instead of refused"
+            );
+        }
+    }
+
+    #[test]
+    fn a_widened_requirement_always_admits_its_target() {
+        // The rewrite must never exclude the version it was widened for: that
+        // would be a semver lie rather than a widen.
+        let cargo = CargoManifest;
+        let target = version("2.0.0");
+        for requirement in ["1.0", "^1.0", "~1.2", "=1.2.3", ">=1.0"] {
+            let widened = cargo.widen(requirement, &target).expect("a widen");
+            assert_eq!(
+                cargo.satisfied(&widened, &target),
+                Some(true),
+                "`{widened}` does not admit {target}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_direct_requirement_is_widened_in_place() {
+        let original = "\
+# The crate manifest.
+[package]
+name = \"momo\"
+version = \"0.1.0\"
+
+[dependencies]
+semver = \"^1.0\" # pinned
+";
+        let plan = rendered(original, &widening("semver", "^1.0", "2.0.0"));
+
+        assert_eq!(
+            only_write(&plan).text,
+            "\
+# The crate manifest.
+[package]
+name = \"momo\"
+version = \"0.1.0\"
+
+[dependencies]
+semver = \"^2.0.0\" # pinned
+"
+        );
+        assert_eq!(
+            plan.ranges,
+            vec![DependencyRangeEdit {
+                name: "semver".to_owned(),
+                requirement: "^1.0".to_owned(),
+                target: version("2.0.0"),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_detailed_dependency_keeps_its_other_keys() {
+        // Only the `version` scalar moves; a `path`, `features` or `optional`
+        // beside it is the project's to keep.
+        let original = "\
+[package]
+name = \"b\"
+version = \"0.1.0\"
+
+[dependencies]
+a = { path = \"../a\", version = \"^0.1.0\", features = [\"x\"], optional = true }
+";
+        let plan = rendered(original, &widening("a", "^0.1.0", "0.2.0"));
+
+        assert_eq!(
+            only_write(&plan).text,
+            "\
+[package]
+name = \"b\"
+version = \"0.1.0\"
+
+[dependencies]
+a = { path = \"../a\", version = \"^0.2.0\", features = [\"x\"], optional = true }
+"
+        );
+    }
+
+    #[test]
+    fn a_renamed_dependency_is_widened_under_its_table_key() {
+        let original = "\
+[dependencies]
+toml = { package = \"toml_edit\", version = \"0.25\" }
+";
+        let plan = rendered(original, &widening("toml_edit", "0.25", "0.26.0"));
+
+        assert_eq!(
+            only_write(&plan).text,
+            "[dependencies]\ntoml = { package = \"toml_edit\", version = \"0.26.0\" }\n"
+        );
+    }
+
+    #[test]
+    fn every_declaration_holding_the_requirement_is_widened() {
+        let original = "\
+[dependencies]
+a = \"^0.1.0\"
+
+[dev-dependencies]
+a = { version = \"^0.1.0\" }
+
+[build-dependencies]
+a = \"^0.1.0\"
+
+[target.'cfg(unix)'.dependencies]
+a = \"^0.1.0\"
+";
+        let plan = rendered(original, &widening("a", "^0.1.0", "0.2.0"));
+
+        let text = &only_write(&plan).text;
+        assert_eq!(text.matches("^0.2.0").count(), 4, "{text}");
+        assert!(!text.contains("^0.1.0"), "{text}");
+    }
+
+    #[test]
+    fn a_declaration_with_a_different_requirement_is_left_alone() {
+        // The edit names one requirement; a table declaring another is a range
+        // momo was not asked to touch.
+        let original = "\
+[dependencies]
+a = \"^0.1.0\"
+
+[dev-dependencies]
+a = \"^0.9.0\"
+";
+        let plan = rendered(original, &widening("a", "^0.1.0", "0.2.0"));
+
+        let text = &only_write(&plan).text;
+        assert!(text.contains("[dependencies]\na = \"^0.2.0\""), "{text}");
+        assert!(
+            text.contains("[dev-dependencies]\na = \"^0.9.0\""),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn an_edit_that_matches_no_declaration_writes_nothing() {
+        let original = "[dependencies]\nb = \"^0.1.0\"\n";
+        let plan = rendered(original, &widening("a", "^0.1.0", "0.2.0"));
+
+        assert!(plan.writes.is_empty(), "{plan:?}");
+        assert!(plan.ranges.is_empty(), "{plan:?}");
+    }
+
+    #[test]
+    fn an_unwritable_requirement_leaves_the_manifest_untouched() {
+        let original = "[dependencies]\na = \">=0.1.0, <0.5.0\"\n";
+        let plan = rendered(original, &widening("a", ">=0.1.0, <0.5.0", "0.2.0"));
+
+        assert!(plan.writes.is_empty(), "{plan:?}");
+        assert!(plan.ranges.is_empty(), "{plan:?}");
+    }
+
+    #[test]
+    fn an_inherited_requirement_is_widened_in_the_workspace_root() {
+        let (_dir, root, member, _member_text) = workspace(
+            "# the workspace\n[workspace]\nmembers = [\"crates/a\"]\n\n\
+             [workspace.dependencies]\na = { path = \"crates/a\", version = \"=0.1.0\" } # shared\n",
+            "[package]\nname = \"b\"\nversion = \"0.1.0\"\n\n\
+             [dependencies]\na = { workspace = true }\n",
+        );
+
+        let plan = CargoManifest
+            .render(&member, &widening("a", "=0.1.0", "0.2.0"))
+            .expect("render the manifest");
+
+        let write = only_write(&plan);
+        assert_eq!(write.path, root, "the member's own manifest was targeted");
+        assert_eq!(
+            write.text,
+            "# the workspace\n[workspace]\nmembers = [\"crates/a\"]\n\n\
+             [workspace.dependencies]\na = { path = \"crates/a\", version = \"=0.2.0\" } # shared\n"
+        );
+    }
+
+    #[test]
+    fn an_inherited_requirement_that_cannot_be_resolved_writes_nothing() {
+        // No ancestor declares `[workspace.dependencies]`, so there is nothing
+        // momo can rewrite — and it must not invent a requirement in the member.
+        let original = "[package]\nname = \"b\"\nversion = \"0.1.0\"\n\n\
+                        [dependencies]\na = { workspace = true }\n";
+        let plan = rendered(original, &widening("a", "^0.1.0", "0.2.0"));
+
+        assert!(plan.writes.is_empty(), "{plan:?}");
+        assert!(plan.ranges.is_empty(), "{plan:?}");
+    }
+
+    #[test]
+    fn a_direct_and_an_inherited_declaration_are_both_widened() {
+        // One package declared twice, once directly and once inherited: leaving
+        // either behind would leave a range the new Version still breaks.
+        let (_dir, root, member, _member_text) = workspace(
+            "[workspace]\nmembers = [\"crates/b\"]\n\n\
+             [workspace.dependencies]\na = { path = \"crates/a\", version = \"^0.1.0\" }\n",
+            "[package]\nname = \"b\"\nversion = \"0.1.0\"\n\n\
+             [dependencies]\na = { workspace = true }\n\n\
+             [dev-dependencies]\na = { path = \"../a\", version = \"^0.1.0\" }\n",
+        );
+
+        let plan = CargoManifest
+            .render(&member, &widening("a", "^0.1.0", "0.2.0"))
+            .expect("render the manifest");
+
+        assert_eq!(plan.ranges.len(), 1, "{plan:?}");
+        let mut paths: Vec<&Path> = plan
+            .writes
+            .iter()
+            .map(|write| write.path.as_path())
+            .collect();
+        paths.sort_unstable();
+        assert_eq!(paths, vec![root.as_path(), member.as_path()], "{plan:?}");
+        for write in &plan.writes {
+            assert!(
+                write.text.contains("^0.2.0"),
+                "`{}` was not widened: {}",
+                write.path.display(),
+                write.text
+            );
+        }
+    }
+
+    #[test]
+    fn a_version_and_a_range_compose_into_one_write() {
+        // Both edits target the member's own manifest; two writes to one path
+        // would let the second silently overwrite the first.
+        let original = "\
+[package]
+name = \"b\"
+version = \"0.1.0\"
+
+[dependencies]
+a = \"^0.1.0\"
+";
+        let edits = ManifestEdits {
+            version: Some(version("0.2.0")),
+            ranges: widening("a", "^0.1.0", "0.2.0").ranges,
+        };
+        let plan = rendered(original, &edits);
+
+        assert_eq!(
+            only_write(&plan).text,
+            "\
+[package]
+name = \"b\"
+version = \"0.2.0\"
+
+[dependencies]
+a = \"^0.2.0\"
+"
+        );
+    }
+
+    #[test]
+    fn a_range_is_widened_even_when_no_version_is_written() {
+        // A manifest momo owns no version scalar in can still carry a range the
+        // new Version breaks, and the edit is independent of the version.
+        let original = "[dependencies]\na = \"^0.1.0\"\n";
+        let plan = rendered(original, &widening("a", "^0.1.0", "0.2.0"));
+
+        assert_eq!(only_write(&plan).text, "[dependencies]\na = \"^0.2.0\"\n");
+        assert_eq!(plan.ranges.len(), 1, "{plan:?}");
+    }
+
+    #[test]
+    fn a_widened_range_keeps_the_manifests_crlf_line_endings() {
+        let original = "[package]\r\nname = \"b\"\r\nversion = \"0.1.0\"\r\n\r\n\
+                        [dependencies]\r\na = \"^0.1.0\"\r\n";
+        let plan = rendered(original, &widening("a", "^0.1.0", "0.2.0"));
+
+        let text = &only_write(&plan).text;
+        assert!(text.contains("a = \"^0.2.0\"\r\n"), "{text:?}");
+        assert!(
+            !text.replace("\r\n", "").contains('\n'),
+            "a bare LF leaked into a CRLF manifest: {text:?}"
+        );
     }
 }

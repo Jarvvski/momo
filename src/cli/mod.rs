@@ -46,6 +46,7 @@ Examples:
 const RELEASE_EXAMPLES: &str = "\
 Examples:
   momo release
+  momo release --sync-ranges     rewrite dependents' ranges in the same release
   momo release --version-only    print the minted version, for CI";
 const CANDIDATE_EXAMPLES: &str = "Examples:\n  momo candidate    cut 1.3.0-rc.1, then 1.3.0-rc.2";
 const TAG_EXAMPLES: &str = "\
@@ -120,6 +121,15 @@ impl Cli {
             self.format.unwrap_or_default()
         }
     }
+
+    /// Whether the run rewrites the dependency ranges of its dependents.
+    ///
+    /// Only `release` carries the flag: `candidate` mints a prerelease, and
+    /// `^5.0.0` is not satisfied by `5.1.0-next.0`, so a candidate widening a
+    /// range would rewrite every internal dependency spuriously.
+    pub fn sync_ranges(&self) -> bool {
+        matches!(self.command, Command::Release { sync_ranges: true })
+    }
 }
 
 /// The commands momo exposes.
@@ -156,7 +166,12 @@ pub enum Command {
 
     /// Mint a version from the unreleased changes.
     #[command(after_help = RELEASE_EXAMPLES)]
-    Release,
+    Release {
+        /// Rewrite the dependency ranges of the packages released alongside
+        /// this one, so a dependent's declared range admits the new version.
+        #[arg(long)]
+        sync_ranges: bool,
+    },
 
     /// Cut or increment a release candidate.
     #[command(visible_alias = "rc", after_help = CANDIDATE_EXAMPLES)]
@@ -215,7 +230,7 @@ impl fmt::Display for Command {
             Self::Add { .. } => "add",
             Self::Fix { .. } => "fix",
             Self::Status { .. } => "status",
-            Self::Release => "release",
+            Self::Release { .. } => "release",
             Self::Candidate => "candidate",
             Self::Tag { .. } => "tag",
             Self::Init { .. } => "init",

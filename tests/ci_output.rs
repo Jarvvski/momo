@@ -513,6 +513,7 @@ fn release_format_json_matches_the_documented_contract() {
             "skipped",
             "consumed",
             "cascade",
+            "ranges",
         ],
     );
     assert_eq!(package["name"], "proj");
@@ -565,6 +566,7 @@ fn candidate_format_json_matches_the_documented_contract() {
             "skipped",
             "consumed",
             "cascade",
+            "ranges",
         ],
     );
     assert_eq!(package["name"], "proj");

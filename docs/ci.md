@@ -105,19 +105,27 @@ Every reporting verb emits **one** JSON document per run, whatever the number of
           "target": "0.2.0",
           "satisfied": false
         }
+      ],
+      "ranges": [
+        {
+          "dependent": "cargo:b",
+          "dependency": "momo",
+          "requirement": "^0.1.0",
+          "target": "0.2.0"
+        }
       ]
     }
   ]
 }
 ```
 
-`dry_run` is the run-wide flag. Each entry in `packages` is one released package, named by its `name` (the same identity `status` reports). `version_file` is the version file the run wrote. `manifest` is the list of ecosystem manifests whose version scalar the run synced — empty when the package has none, and possibly more than one, since a member that inherits its version writes the shared workspace root rather than its own manifest. `skipped` names the manifests the run considered but did not write, each as `{"path": …, "reason": …}`: a reason is `no version momo owns`, `already current`, or `dynamic version (…)` for a version computed elsewhere (a `hatch-vcs` project). A skip is never silent — it is reported here and on stderr. `consumed` lists the fragments the run deleted (empty for `candidate`). `cascade` is the same array `status` reports, read against the version the run minted. Under `--dry-run` the paths are what the run *would* have written — including the manifest, which the dry run parses but does not write.
+`dry_run` is the run-wide flag. Each entry in `packages` is one released package, named by its `name` (the same identity `status` reports). `version_file` is the version file the run wrote. `manifest` is the list of ecosystem manifests whose version scalar the run synced — empty when the package has none, and possibly more than one, since a member that inherits its version writes the shared workspace root rather than its own manifest. `skipped` names the manifests the run considered but did not write, each as `{"path": …, "reason": …}`: a reason is `no version momo owns`, `already current`, or `dynamic version (…)` for a version computed elsewhere (a `hatch-vcs` project). A skip is never silent — it is reported here and on stderr. `consumed` lists the fragments the run deleted (empty for `candidate`). `cascade` is the same array `status` reports, read against the version the run minted. `ranges` names the dependent requirements the run actually rewrote — see [Dependency ranges](#dependency-ranges) below; it is `[]` unless the run passed `--sync-ranges`. Under `--dry-run` the paths are what the run *would* have written — including the manifest, which the dry run parses but does not write.
 
 A lockfile the package manager maintains (`Cargo.lock`, `pnpm-lock.yaml`) is never rewritten and never appears in the report; momo warns on stderr that it may be stale, naming a shared lockfile once however many packages resolve to it. For a Node lockfile the warning names the refresh command (`npm install --package-lock-only`, `pnpm install --lockfile-only`, `yarn install --mode update-lockfile`, `bun install --lockfile-only`); a Node lockfile lives at the workspace root, not beside the package, so it is found by walking up from the package.
 
 ### Cascade
 
-`cascade` is a per-package array of the dependent edges a release would leave unsatisfied. It is **report-only**: momo never rewrites a dependent's range.
+`cascade` is a per-package array of the dependent edges a release would leave unsatisfied. It is **report-only**: momo never rewrites a dependent's range here.
 
 ```json
 {
@@ -134,6 +142,23 @@ A lockfile the package manager maintains (`Cargo.lock`, `pnpm-lock.yaml`) is nev
 - `satisfied` is `false` when momo read the range and the target does not match it, and `null` when it could not check the edge: a Node/uv/Go dependent (no manifest reader yet), a requirement whose syntax momo does not recognise, or a manifest it could not read. It is **never `true`** — a satisfied edge is simply absent, so an empty array means either no dependents or every one satisfied.
 
 Only Cargo ranges are checked for now. The edges come from `mise tasks graph`, so a dependency mise does not infer is not reported at all — an empty array is not a promise that nothing will break.
+
+### Dependency ranges
+
+`release --sync-ranges` rewrites the ranges `cascade` reports, for dependents that are themselves in the release set. The rewrite is opt-in, so an un-opted-in run's JSON is unchanged but for the empty array.
+
+```json
+{
+  "dependent": "cargo:b",
+  "dependency": "cargo:a",
+  "requirement": "^0.1.0",
+  "target": "0.2.0"
+}
+```
+
+- `requirement` is what the dependent declared before the rewrite; `target` is the version the requirement was widened to admit.
+- The array is attached to the package whose release *caused* the rewrite — the `dependency` — and is empty unless the run passed `--sync-ranges`.
+- Only dependents already in the release set are rewritten; the rest stay in `cascade`. Only Cargo ranges are rewritten, only the operator's form is preserved (`^0.1.0` → `^0.2.0`), and a requirement momo cannot rewrite is left alone and reported in `cascade`. A `candidate` never rewrites a range.
 
 ### `tag` (`--format json`)
 

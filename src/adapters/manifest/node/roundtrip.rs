@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::adapters::manifest::NodeManifest;
-use crate::domain::manifest::{ManifestSync, SkipReason};
+use crate::domain::manifest::{ManifestEdits, ManifestSync, SkipReason};
 use semver::Version;
 use tempfile::TempDir;
 
@@ -40,6 +40,11 @@ fn version(text: &str) -> Version {
     text.parse().expect("a valid version")
 }
 
+/// The edits that sync only a version, leaving every range alone.
+fn edits(text: &str) -> ManifestEdits {
+    ManifestEdits::version(version(text))
+}
+
 #[test]
 fn writing_a_manifest_rewrites_only_the_version_value() {
     let dir = TempDir::new().expect("temp dir");
@@ -47,7 +52,7 @@ fn writing_a_manifest_rewrites_only_the_version_value() {
     fs::write(&path, MANIFEST).expect("seed the manifest");
 
     let plan = NodeManifest
-        .write(&path, &version("0.2.0"))
+        .write(&path, &edits("0.2.0"))
         .expect("write the manifest");
 
     assert_eq!(plan.writes.len(), 1, "{plan:?}");
@@ -71,7 +76,7 @@ fn a_lockfile_at_the_workspace_root_is_reported_and_left_alone() {
     fs::write(&lockfile, LOCKFILE).expect("seed the root lockfile");
 
     let plan = NodeManifest
-        .write(&path, &version("0.2.0"))
+        .write(&path, &edits("0.2.0"))
         .expect("write the manifest");
 
     assert_eq!(plan.lockfiles, vec![lockfile.clone()]);
@@ -89,7 +94,7 @@ fn an_already_current_version_writes_nothing() {
     fs::write(&path, MANIFEST).expect("seed the manifest");
 
     let plan = NodeManifest
-        .write(&path, &version("0.1.0"))
+        .write(&path, &edits("0.1.0"))
         .expect("write the manifest");
 
     assert!(plan.writes.is_empty(), "{plan:?}");
@@ -111,7 +116,7 @@ fn a_manifest_without_a_version_is_reported_as_skipped() {
     fs::write(&path, "{\n  \"name\": \"@acme/ui\"\n}\n").expect("seed the manifest");
 
     let plan = NodeManifest
-        .write(&path, &version("0.2.0"))
+        .write(&path, &edits("0.2.0"))
         .expect("write the manifest");
 
     assert!(plan.writes.is_empty(), "{plan:?}");
@@ -132,7 +137,7 @@ fn writing_a_crlf_manifest_preserves_its_line_endings() {
     fs::write(&path, CRLF).expect("seed the manifest");
 
     NodeManifest
-        .write(&path, &version("0.2.0"))
+        .write(&path, &edits("0.2.0"))
         .expect("write the manifest");
 
     assert_eq!(
@@ -148,7 +153,7 @@ fn rendering_a_manifest_leaves_the_file_untouched() {
     fs::write(&path, MANIFEST).expect("seed the manifest");
 
     let plan = NodeManifest
-        .render(&path, &version("0.2.0"))
+        .render(&path, &edits("0.2.0"))
         .expect("render the manifest");
 
     assert_eq!(plan.writes.len(), 1, "{plan:?}");

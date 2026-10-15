@@ -6,12 +6,12 @@ use anyhow::Result;
 use semver::Version;
 
 use crate::cli::error::CliError;
-use crate::domain::manifest::ManifestPlan;
+use crate::domain::manifest::{ManifestEdits, ManifestPlan};
 use crate::domain::package::Package;
 
 use super::Prepared;
 
-/// Render `version` into the Package's ecosystem manifest, when it has one.
+/// Render `edits` into the Package's ecosystem manifest, when it has one.
 ///
 /// A read-only step: it parses the manifest, so a malformed one fails before
 /// anything is written, and returns the plan of what to stage. A Package whose
@@ -19,10 +19,13 @@ use super::Prepared;
 /// Release still succeeds. An inherited version momo cannot resolve is an error,
 /// never a silent skip; a manifest momo can see but cannot sync is reported in
 /// [`ManifestPlan::skipped`], never dropped.
+///
+/// The version and the dependency ranges are rendered together, in one call:
+/// they can target the same file, and two renders would overwrite each other.
 pub(super) fn render_manifest(
     package_dir: &Path,
     package: &Package,
-    version: &Version,
+    edits: &ManifestEdits,
 ) -> Result<Option<ManifestPlan>> {
     let Some(sync) = crate::adapters::manifest::for_package(package) else {
         return Ok(None);
@@ -30,17 +33,19 @@ pub(super) fn render_manifest(
     let Some(manifest) = sync.locate(package_dir, package.manifest_override()) else {
         return Ok(None);
     };
-    Ok(Some(sync.render(&manifest, version)?))
+    Ok(Some(sync.render(&manifest, edits)?))
 }
 
-/// Refuse a run whose Packages would write one manifest to different versions.
+/// Refuse a run whose Packages would write one manifest to different contents.
 ///
 /// A Cargo workspace member inherits its version from the root's
 /// `[workspace.package].version`, a single scalar shared by every member, so a
 /// release may only write it when every Package resolving to that manifest
-/// agrees on the target. A plan may write more than one path, so every written
-/// path is compared. Otherwise the last writer would win and the earlier ones
-/// would be silently wrong, so the whole run fails before anything is written.
+/// agrees on the target. The same holds for a shared `[workspace.dependencies]`
+/// requirement a range edit rewrites. A plan may write more than one path, so
+/// every written path is compared; otherwise the last writer would win and the
+/// earlier ones would be silently wrong, so the whole run fails before anything
+/// is written.
 pub fn reject_shared_manifest_conflicts(plans: &[(&Package, Prepared)]) -> Result<()> {
     let mut written: Vec<(&Path, &Version, &str, &Package)> = Vec::new();
     for (package, prepared) in plans {
@@ -53,6 +58,8 @@ pub fn reject_shared_manifest_conflicts(plans: &[(&Package, Prepared)]) -> Resul
             if **version == *prepared.version() && *seen == text {
                 continue;
             }
+            // Equal versions with different text means a range edit differs: the
+            // version scalar is the same, so something else on the path moved.
             let detail = if **version == *prepared.version() {
                 format!("the same version {version} but different contents")
             } else {

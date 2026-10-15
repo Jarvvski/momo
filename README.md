@@ -109,7 +109,7 @@ Two deviations from convention are deliberate and owned out loud: a `fix` at `0.
 | `momo add "<desc>"` | `a` | Record an added change |
 | `momo fix "<desc>"` | `f` | Record a fixed change |
 | `momo status` | | Show unreleased changes and the version they would mint |
-| `momo release` | | Mint a version from the unreleased changes |
+| `momo release` | | Mint a version from the unreleased changes (`--sync-ranges` rewrites dependents' ranges) |
 | `momo candidate` | `rc` | Cut or increment a release candidate |
 | `momo tag` | | Create the VCS tag for the current version |
 | `momo init` | | Scaffold `momo.toml`, optionally with a start version |

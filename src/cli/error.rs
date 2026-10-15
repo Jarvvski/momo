@@ -81,8 +81,9 @@ pub enum CliError {
 
     /// Two Packages would write one shared manifest to different contents.
     #[error(
-        "`{other}` and `{package}` both sync `{path}` with {detail}; a workspace version is shared, \
-         so release them in separate runs"
+        "`{other}` and `{package}` both sync `{path}` with {detail}; a shared manifest — the \
+         workspace version or a dependency range — must be written identically, so release them \
+         in separate runs"
     )]
     SharedManifestConflict {
         /// The Package that already claimed the manifest.

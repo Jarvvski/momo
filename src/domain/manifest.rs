@@ -13,9 +13,15 @@
 //! Both return a [`ManifestPlan`] rather than a single edit: an ecosystem may
 //! write more than one manifest, and a manifest momo decides *not* to touch is
 //! reported with a [`SkipReason`] rather than vanishing into an `Option`. The
-//! write is deliberately conservative: only version scalars change, and a
-//! lockfile the ecosystem maintains is *reported* rather than rewritten —
-//! refreshing it is the package manager's job, never momo's.
+//! write is deliberately conservative: only version scalars and dependency
+//! ranges change, and a lockfile the ecosystem maintains is *reported* rather
+//! than rewritten — refreshing it is the package manager's job, never momo's.
+//!
+//! One render carries every edit a manifest receives, in a [`ManifestEdits`]:
+//! a version scalar and the dependency ranges widened to admit a sibling's new
+//! version. Composing them is not a convenience — a version write and a range
+//! edit can target the *same* file, and two separate writes to one path would
+//! silently overwrite each other.
 
 use std::error::Error;
 use std::fmt;
@@ -66,9 +72,13 @@ impl fmt::Display for SkipReason {
 }
 
 /// What syncing a manifest produced.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ManifestPlan {
     /// The manifests to write, with their new text.
+    ///
+    /// One entry per path, whatever number of edits landed on it: a version
+    /// scalar and a range edit that target the same file are composed into one
+    /// text rather than staged as two writes to the same target.
     pub writes: Vec<ManifestWrite>,
     /// The lockfiles the sync left stale for the package manager to refresh.
     ///
@@ -78,6 +88,54 @@ pub struct ManifestPlan {
     pub lockfiles: Vec<PathBuf>,
     /// The manifests considered but not written, each with why.
     pub skipped: Vec<(PathBuf, SkipReason)>,
+    /// The dependency ranges this render actually widened, in the order the
+    /// edits were asked for.
+    ///
+    /// An edit that matched no declaration, or whose requirement already admits
+    /// the target, is absent — this is what changed, not what was requested.
+    pub ranges: Vec<DependencyRangeEdit>,
+}
+
+/// A dependency requirement momo would widen to admit a sibling's new Version.
+///
+/// The requirement is named as the *manifest* resolves it, so a Cargo
+/// dependency renamed with `package = "…"` reports the real crate name, not the
+/// table key it was declared under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DependencyRangeEdit {
+    /// The depended-on package, as the manifest resolves it.
+    pub name: String,
+    /// The requirement the manifest declares now, verbatim.
+    ///
+    /// Carried so the adapter rewrites exactly the declarations holding it: a
+    /// dependency may appear in more than one table, and only the ones whose
+    /// requirement matches are touched.
+    pub requirement: String,
+    /// The Version the requirement must be widened to admit.
+    pub target: Version,
+}
+
+/// The edits one render applies to a manifest.
+///
+/// Both halves are optional: a manifest may only need its version synced, only
+/// need a range widened (a Package whose own version scalar momo cannot see),
+/// or both at once — which is why they are one value rather than two calls.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ManifestEdits {
+    /// The Version to write, when momo is syncing one.
+    pub version: Option<Version>,
+    /// The dependency ranges to widen.
+    pub ranges: Vec<DependencyRangeEdit>,
+}
+
+impl ManifestEdits {
+    /// The edits that sync only a version, leaving every range alone.
+    pub fn version(version: Version) -> Self {
+        Self {
+            version: Some(version),
+            ranges: Vec::new(),
+        }
+    }
 }
 
 /// A dependency one manifest declares on another package.
@@ -116,26 +174,31 @@ pub trait ManifestSync {
     /// manifest is present — nothing to sync, which is not an error.
     fn locate(&self, package_dir: &Path, override_path: Option<&Path>) -> Option<PathBuf>;
 
-    /// Render `manifest` with `version` set, without writing it.
+    /// Render `manifest` with `edits` applied, without writing it.
     ///
     /// The read-only half of [`ManifestSync::write`]: the manifest is read and
     /// parsed and the resulting [`ManifestPlan`] is returned. A manifest that
-    /// holds no version momo owns, or that already carries `version`, appears
+    /// holds no version momo owns, or that already carries the version, appears
     /// in [`ManifestPlan::skipped`] rather than being dropped.
+    ///
+    /// A range edit is independent of the version: a manifest momo cannot sync
+    /// a version into can still have a range widened, and the two compose into
+    /// one [`ManifestWrite`] when they target the same file.
     ///
     /// [`ManifestError::InheritedVersion`] when the manifest inherits its
     /// version from a workspace root that momo cannot resolve: momo must not
     /// silently skip it.
-    fn render(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError>;
+    fn render(&self, manifest: &Path, edits: &ManifestEdits)
+    -> Result<ManifestPlan, ManifestError>;
 
-    /// Write `version` into `manifest`, preserving the file's formatting.
+    /// Write `edits` into `manifest`, preserving the file's formatting.
     ///
-    /// Only version scalars change: comments, key order, whitespace and the
-    /// file's newline style (LF or CRLF, including whether it ends in a newline)
-    /// survive byte-for-byte. Every path in the plan is written; an inherited
-    /// version may place one at the shared workspace root rather than at
-    /// `manifest`.
-    fn write(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError>;
+    /// Only version scalars and dependency requirements change: comments, key
+    /// order, whitespace and the file's newline style (LF or CRLF, including
+    /// whether it ends in a newline) survive byte-for-byte. Every path in the
+    /// plan is written; an inherited version may place one at the shared
+    /// workspace root rather than at `manifest`.
+    fn write(&self, manifest: &Path, edits: &ManifestEdits) -> Result<ManifestPlan, ManifestError>;
 
     /// The dependencies `manifest` declares, each with its version requirement.
     ///
@@ -153,6 +216,16 @@ pub trait ManifestSync {
     /// edge it could not read as *not checked*, never as satisfied, so this
     /// never returns `Some(true)` for a range it does not understand.
     fn satisfied(&self, requirement: &str, version: &Version) -> Option<bool>;
+
+    /// Widen `requirement` so it admits `target`, or `None` when the
+    /// requirement's syntax is not one this ecosystem rewrites.
+    ///
+    /// A caller must not fall back to a guess: `None` means the range is left
+    /// exactly as the project wrote it, and the edge is reported as unsatisfied
+    /// rather than silently rewritten into something momo invented. The result,
+    /// when there is one, always admits `target` — a rewrite that excluded the
+    /// version it was widened for would be a semver lie.
+    fn widen(&self, requirement: &str, target: &Version) -> Option<String>;
 }
 
 /// The domain errors a caller must be able to match on.

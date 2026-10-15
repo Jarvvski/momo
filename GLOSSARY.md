@@ -27,3 +27,7 @@ momo is a versioning CLI: it turns a project's accumulated changes into semver r
 **Changelog**: The durable record of Releases and their Changes, grouped by Kind, newest first. _Avoid_: release notes, history
 
 **Task Environment**: An external task runner momo integrates into (e.g. `mise`), so a project can run momo's commands through its own tooling. _Avoid_: build system, task runner
+
+**Cascade**: The dependent Packages a Release's new Version would leave with an unsatisfied dependency range, and — when the run opts in — the ranges it widens in response. _Avoid_: propagation, propagation chain, ripple
+
+**Range Rewrite**: Widening a dependent's declared dependency range so it admits the Version a sibling Package just minted, in the same Release. Only dependents already in the Release are rewritten, only the requirement's operator form is preserved, and an unrecognised form is refused rather than guessed. _Avoid_: range bump, range update, dependency fix

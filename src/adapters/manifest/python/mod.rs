@@ -29,7 +29,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::domain::manifest::{
-    DependencyRequirement, ManifestError, ManifestPlan, ManifestSync, ManifestWrite, SkipReason,
+    DependencyRequirement, ManifestEdits, ManifestError, ManifestPlan, ManifestSync, ManifestWrite,
+    SkipReason,
 };
 use semver::Version;
 use toml_edit::{DocumentMut, Item};
@@ -51,25 +52,32 @@ impl ManifestSync for PythonManifest {
         path.is_file().then_some(path)
     }
 
-    fn render(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError> {
+    fn render(
+        &self,
+        manifest: &Path,
+        edits: &ManifestEdits,
+    ) -> Result<ManifestPlan, ManifestError> {
+        let Some(version) = &edits.version else {
+            // PEP 440 ranges are not rewritten yet, so an edits value carrying
+            // no version has nothing for this adapter to write.
+            return Ok(ManifestPlan::default());
+        };
         let text = toml::read(manifest)?;
 
         Ok(match set_version(&text, manifest, version)? {
             Resolved::Write { path, text } => ManifestPlan {
                 writes: vec![ManifestWrite { path, text }],
-                lockfiles: Vec::new(),
-                skipped: Vec::new(),
+                ..ManifestPlan::default()
             },
             Resolved::Skip { path, reason } => ManifestPlan {
-                writes: Vec::new(),
-                lockfiles: Vec::new(),
                 skipped: vec![(path, reason)],
+                ..ManifestPlan::default()
             },
         })
     }
 
-    fn write(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError> {
-        let plan = self.render(manifest, version)?;
+    fn write(&self, manifest: &Path, edits: &ManifestEdits) -> Result<ManifestPlan, ManifestError> {
+        let plan = self.render(manifest, edits)?;
         for write in &plan.writes {
             fs::write(&write.path, &write.text).map_err(|source| ManifestError::Write {
                 path: write.path.clone(),
@@ -92,6 +100,12 @@ impl ManifestSync for PythonManifest {
     /// PEP 440 ranges are not evaluated yet, so no Python requirement is ever
     /// reported satisfied.
     fn satisfied(&self, _requirement: &str, _version: &Version) -> Option<bool> {
+        None
+    }
+
+    /// PEP 440 ranges are not rewritten yet, so no Python requirement is ever
+    /// widened.
+    fn widen(&self, _requirement: &str, _target: &Version) -> Option<String> {
         None
     }
 }
