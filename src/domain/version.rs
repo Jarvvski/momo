@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn the_bump_policy_is_the_zero_aware_table() {
-        // The asserted table (see docs/opinions.md and ADR 0005): the bump is not
+        // The asserted table (see docs/opinions.md and ADR 0006): the bump is not
         // configurable, so it is pinned here at MAJOR 0 and MAJOR >= 1.
         let below_one = version(0, 5, 3);
         assert_eq!(Kind::Break.bump(&below_one), Bump::Minor);

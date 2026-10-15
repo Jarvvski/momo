@@ -22,7 +22,7 @@ These are the decisions a versioning tool exists to make. They are pinned by tes
 
 **Three Kinds, and the highest wins.** Every Change is exactly one of `break`, `add` or `fix`. There is no `changed`, `deprecated` or `security` Kind; those are Keep a Changelog headings momo preserves but does not read. When a release mixes Kinds the highest wins (`break > add > fix`), so one breaking change in a release of twenty fixes makes the whole release breaking.
 
-**The zero-aware bump.** At MAJOR 0 a `break` and an `add` both bump MINOR, and a `fix` bumps PATCH; at MAJOR ≥ 1 a `break` bumps MAJOR, `add` MINOR and `fix` PATCH. The point of pre-1.0 is that the minor is where breakage is expected, so below 1.0 `break` and `add` collapse to the same bump. The version alone therefore cannot signal a pre-1.0 break — the `Breaking` changelog section is that signal. See [ADR 0005](adr/0005-zero-aware-bump-policy.md).
+**The zero-aware bump.** At MAJOR 0 a `break` and an `add` both bump MINOR, and a `fix` bumps PATCH; at MAJOR ≥ 1 a `break` bumps MAJOR, `add` MINOR and `fix` PATCH. The point of pre-1.0 is that the minor is where breakage is expected, so below 1.0 `break` and `add` collapse to the same bump. The version alone therefore cannot signal a pre-1.0 break — the `Breaking` changelog section is that signal. See [ADR 0006](adr/0006-zero-aware-bump-policy.md).
 
 **Baseline `0.0.0`; absence is not `0.0.0`.** A package that has never released has *no* version, and momo reports it that way (`"current": null`) rather than pretending it sits at `0.0.0`. `0.0.0` is a legal release, so a package that genuinely shipped `0.0.0` is not the same as one that never released. The first release still bumps from `0.0.0` under the rules above.
 
@@ -48,7 +48,7 @@ Two of the asserted rules part company with a well-known convention. Both are de
 
 ### Cargo semver at `0.0.x`
 
-momo's rules match Cargo's compatibility boundaries at `0.x` and at `≥ 1`. The one divergence is `0.0.x`: Cargo treats every `0.0.z` as breaking, so a fix at `0.0.0` would bump `0.1.0`; momo bumps PATCH, `0.0.0` → `0.0.1`. This is deliberate — `0.0.x` is bootstrap scaffolding, not a compatibility promise, and a fix is a fix. The divergence is bounded to `0.0.x`: the moment a project leaves it, the policy is Cargo's. Recorded in [ADR 0005](adr/0005-zero-aware-bump-policy.md).
+momo's rules match Cargo's compatibility boundaries at `0.x` and at `≥ 1`. The one divergence is `0.0.x`: Cargo treats every `0.0.z` as breaking, so a fix at `0.0.0` would bump `0.1.0`; momo bumps PATCH, `0.0.0` → `0.0.1`. This is deliberate — `0.0.x` is bootstrap scaffolding, not a compatibility promise, and a fix is a fix. The divergence is bounded to `0.0.x`: the moment a project leaves it, the policy is Cargo's. Recorded in [ADR 0006](adr/0006-zero-aware-bump-policy.md).
 
 ### Keep a Changelog's `Changed`
 
