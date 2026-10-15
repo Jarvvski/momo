@@ -419,6 +419,7 @@ fn package_entry(name: &str, text: &str) -> ReleasePackage {
         skipped: Vec::new(),
         consumed: vec![PathBuf::from("/repo/.momo/changes/add-a-thing.md")],
         cascade: Vec::new(),
+        ranges: Vec::new(),
     }
 }
 
@@ -456,11 +457,68 @@ fn release_json_has_the_documented_shape() {
       "consumed": [
         "/repo/.momo/changes/add-a-thing.md"
       ],
-      "cascade": []
+      "cascade": [],
+      "ranges": []
     }
   ]
 }
 "#
+    );
+}
+
+#[test]
+fn release_human_names_a_rewritten_range_after_the_cascade() {
+    let report = Release {
+        verb: Verb::Release,
+        dry_run: false,
+        packages: vec![ReleasePackage {
+            ranges: vec![Range {
+                dependent: "cargo:b".to_owned(),
+                dependency: "cargo:a".to_owned(),
+                requirement: "^0.1.0".to_owned(),
+                target: version("0.2.0"),
+            }],
+            ..package_entry("cargo:a", "0.2.0")
+        }],
+    };
+
+    assert!(
+        report
+            .human()
+            .ends_with("range: cargo:b requires cargo:a ^0.1.0 — rewritten for 0.2.0\n"),
+        "{}",
+        report.human()
+    );
+}
+
+#[test]
+fn release_json_reports_a_rewritten_range() {
+    let report = Release {
+        verb: Verb::Release,
+        dry_run: false,
+        packages: vec![ReleasePackage {
+            ranges: vec![Range {
+                dependent: "cargo:b".to_owned(),
+                dependency: "cargo:a".to_owned(),
+                requirement: "=0.0.1".to_owned(),
+                target: version("0.1.0"),
+            }],
+            ..package_entry("cargo:a", "0.1.0")
+        }],
+    };
+
+    let json: serde_json::Value =
+        serde_json::from_str(&report.json()).expect("the release report is one JSON document");
+    assert_eq!(
+        json["packages"][0]["ranges"],
+        serde_json::json!([{
+            "dependent": "cargo:b",
+            "dependency": "cargo:a",
+            "requirement": "=0.0.1",
+            "target": "0.1.0",
+        }]),
+        "{}",
+        report.json()
     );
 }
 

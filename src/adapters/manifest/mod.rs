@@ -17,7 +17,7 @@ pub use python::PythonManifest;
 use std::path::{Path, PathBuf};
 
 use crate::domain::manifest::{
-    DependencyRequirement, ManifestError, ManifestPlan, ManifestSync, SkipReason,
+    DependencyRequirement, ManifestEdits, ManifestError, ManifestPlan, ManifestSync, SkipReason,
 };
 use crate::domain::package::Package;
 use semver::Version;
@@ -103,16 +103,20 @@ impl ManifestSync for Probe {
         }
     }
 
-    fn render(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError> {
+    fn render(
+        &self,
+        manifest: &Path,
+        edits: &ManifestEdits,
+    ) -> Result<ManifestPlan, ManifestError> {
         match self.owner(manifest) {
-            Some(adapter) => adapter.render(manifest, version),
+            Some(adapter) => adapter.render(manifest, edits),
             None => Ok(unowned(manifest)),
         }
     }
 
-    fn write(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError> {
+    fn write(&self, manifest: &Path, edits: &ManifestEdits) -> Result<ManifestPlan, ManifestError> {
         match self.owner(manifest) {
-            Some(adapter) => adapter.write(manifest, version),
+            Some(adapter) => adapter.write(manifest, edits),
             None => Ok(unowned(manifest)),
         }
     }
@@ -131,14 +135,19 @@ impl ManifestSync for Probe {
     fn satisfied(&self, _requirement: &str, _version: &Version) -> Option<bool> {
         None
     }
+
+    /// A single-package repo carries no ecosystem prefix, so momo does not
+    /// rewrite a range it cannot attribute to a grammar.
+    fn widen(&self, _requirement: &str, _target: &Version) -> Option<String> {
+        None
+    }
 }
 
 /// A plan that writes nothing: no adapter owns `manifest`.
 fn unowned(manifest: &Path) -> ManifestPlan {
     ManifestPlan {
-        writes: Vec::new(),
-        lockfiles: Vec::new(),
         skipped: vec![(manifest.to_path_buf(), SkipReason::NoVersion)],
+        ..ManifestPlan::default()
     }
 }
 
@@ -152,6 +161,11 @@ mod tests {
 
     fn version(text: &str) -> Version {
         text.parse().expect("a valid version")
+    }
+
+    /// The edits that sync only a version, leaving every range alone.
+    fn edits(text: &str) -> ManifestEdits {
+        ManifestEdits::version(version(text))
     }
 
     #[test]
@@ -234,7 +248,7 @@ mod tests {
         let sync = for_package(&Package::single("proj")).expect("a probe");
         let located = sync.locate(dir.path(), None).expect("a manifest");
         let plan = sync
-            .render(&located, &version("0.2.0"))
+            .render(&located, &edits("0.2.0"))
             .expect("render the manifest");
 
         assert_eq!(plan.writes.len(), 1, "{plan:?}");
@@ -254,7 +268,7 @@ mod tests {
             .locate(dir.path(), Some(Path::new("package.json")))
             .expect("a manifest");
         let plan = sync
-            .render(&located, &version("0.2.0"))
+            .render(&located, &edits("0.2.0"))
             .expect("render the manifest");
 
         assert_eq!(plan.writes[0].text, "{\"version\": \"0.2.0\"}");
@@ -281,7 +295,7 @@ mod tests {
         let manifest = sync.locate(dir.path(), None).expect("a manifest is found");
         assert_eq!(manifest, dir.path().join("pyproject.toml"));
         let plan = sync
-            .render(&manifest, &Version::new(2, 0, 0))
+            .render(&manifest, &ManifestEdits::version(Version::new(2, 0, 0)))
             .expect("render");
         assert_eq!(plan.writes.len(), 1, "{plan:?}");
     }
@@ -326,7 +340,7 @@ mod tests {
             .locate(dir.path(), Some(Path::new("pyproject.toml")))
             .expect("the override is found");
         let plan = sync
-            .render(&manifest, &Version::new(2, 0, 0))
+            .render(&manifest, &ManifestEdits::version(Version::new(2, 0, 0)))
             .expect("render");
         assert_eq!(plan.writes.len(), 1, "{plan:?}");
         assert!(

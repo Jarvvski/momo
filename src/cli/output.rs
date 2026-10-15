@@ -109,6 +109,35 @@ impl Cascade {
     }
 }
 
+/// One dependent's requirement a Release widened to admit a new Version.
+///
+/// The counterpart of [`Cascade`] on the rewriting path: a `cascade` entry is a
+/// range momo *left* unsatisfied, a `range` entry is one it rewrote. `requirement`
+/// is what the dependent declared, and `target` is the Version it was widened
+/// for — the requirement the run wrote is that pair resolved by the ecosystem's
+/// own rules.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Range {
+    /// The dependent Package whose manifest was rewritten, e.g. `cargo:b`.
+    pub dependent: String,
+    /// The Package being released, e.g. `cargo:a`.
+    pub dependency: String,
+    /// The requirement the dependent declared before the rewrite.
+    pub requirement: String,
+    /// The Version the requirement was widened to admit.
+    pub target: Version,
+}
+
+impl Range {
+    /// The entry's human line, without indentation.
+    fn line(&self) -> String {
+        format!(
+            "{} requires {} {} — rewritten for {}",
+            self.dependent, self.dependency, self.requirement, self.target
+        )
+    }
+}
+
 /// One Package's line in a `status` report.
 pub struct StatusPackage {
     /// The Package's identity, e.g. `cargo:momo`.
@@ -351,6 +380,13 @@ pub struct ReleasePackage {
     /// could not check. Empty when it has no dependents or every one is
     /// satisfied.
     pub cascade: Vec<Cascade>,
+    /// The dependent requirements this Release widened in the dependents it is
+    /// releasing alongside it.
+    ///
+    /// Empty unless the run opted in *and* a dependent in the same release set
+    /// declared a range the new Version does not satisfy. A dependent outside
+    /// the set is never rewritten, so it appears in `cascade` instead.
+    pub ranges: Vec<Range>,
 }
 
 /// What `momo release` / `momo candidate` report.
@@ -369,7 +405,8 @@ pub struct ReleasePackage {
 ///       "manifest": ["Cargo.toml"],
 ///       "skipped": [],
 ///       "consumed": [".momo/changes/add-a-thing.md"],
-///       "cascade": []
+///       "cascade": [],
+///       "ranges": []
 ///     }
 ///   ]
 /// }
@@ -382,8 +419,11 @@ pub struct ReleasePackage {
 /// the ecosystem manifests the run synced — `[]` when the Package has none —
 /// and `skipped` names the manifests it considered but left alone, so a skip is
 /// never silent. `cascade` names the dependent edges the new Version leaves
-/// unsatisfied, or could not check — `[]` when there are none. Under
-/// `--dry-run` the paths are what the run *would* have written.
+/// unsatisfied, or could not check — `[]` when there are none. `ranges` names
+/// the dependent requirements the run *rewrote*, as
+/// `{ "dependent", "dependency", "requirement", "target" }` — `[]` unless
+/// `release --sync-ranges` opted in. Under `--dry-run` the paths are what the
+/// run *would* have written.
 #[derive(Serialize)]
 pub struct Release {
     /// Which verb minted the Version. The two verbs share one document, so it
@@ -423,6 +463,9 @@ impl Report for Release {
             }
             for cascade in &package.cascade {
                 out.push_str(&format!("cascade: {}\n", cascade.line()));
+            }
+            for range in &package.ranges {
+                out.push_str(&format!("range: {}\n", range.line()));
             }
         }
         out

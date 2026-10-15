@@ -11,7 +11,7 @@
 //! cwd-relative default applies otherwise. Each Package is reported through
 //! [`crate::output`].
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::io;
@@ -35,7 +35,7 @@ use crate::domain::version::next_version;
 
 use crate::cli::config::{self, CONFIG_FILE};
 use crate::cli::output::{
-    self, Cascade, ReleasePackage, SkippedManifest, StatusPackage, TagPackage, Verb,
+    self, Cascade, Range, ReleasePackage, SkippedManifest, StatusPackage, TagPackage, Verb,
 };
 use crate::cli::recording;
 use crate::cli::release::{self, Outcome};
@@ -69,7 +69,7 @@ pub fn run(cli: &Cli) -> Result<()> {
         Command::Add { text } => record(cli, Kind::Add, text),
         Command::Fix { text } => record(cli, Kind::Fix, text),
         Command::Status { check } => status(cli, *check),
-        Command::Release => release(cli),
+        Command::Release { .. } => release(cli),
         Command::Candidate => candidate(cli),
         Command::Tag { rev } => tag(cli, rev.as_deref()),
         Command::Init { version } => init(cli, version.as_ref()),
@@ -92,7 +92,7 @@ pub fn run(cli: &Cli) -> Result<()> {
 fn reject_output_flags(cli: &Cli) -> Result<()> {
     if matches!(
         cli.command,
-        Command::Status { .. } | Command::Release | Command::Candidate | Command::Tag { .. }
+        Command::Status { .. } | Command::Release { .. } | Command::Candidate | Command::Tag { .. }
     ) {
         return Ok(());
     }
@@ -215,6 +215,12 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
 /// With no `-p`, every Package that has Unreleased Changes is released. Writes
 /// each Package's Changelog and version file and consumes its Fragments; it
 /// never commits and never tags.
+///
+/// With `--sync-ranges`, a dependent in the same release set whose declared
+/// requirement the new Version does not satisfy has that range widened in the
+/// same transaction. The rewrite is resolved across the whole run — it needs
+/// every Package's target — so the run is resolved in two passes and each
+/// manifest is rendered once.
 fn release(cli: &Cli) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
@@ -226,15 +232,45 @@ fn release(cli: &Cli) -> Result<()> {
     // straddle UTC midnight and stamp a multi-package release with two dates.
     let date = today();
 
-    // Resolve every Package before writing any of them: a shared workspace
-    // version is validated across the whole run, not per Package.
-    let mut planned = Vec::new();
+    // Resolve every Package's target before writing any of them: a shared
+    // workspace version is validated across the whole run, not per Package, and
+    // the ranges a dependent rewrites are a function of the other targets.
+    let mut resolved: Vec<(&Package, release::Resolved)> = Vec::new();
     for package in packages {
         if let Some(prepared) =
-            release::prepare_release(&root, &config, package, vcs.as_deref(), date)?
+            release::resolve_release(&root, &config, package, vcs.as_deref(), date)?
         {
-            planned.push((package, prepared));
+            resolved.push((package, prepared));
         }
+    }
+
+    let mut rewrites = if cli.sync_ranges() {
+        let targets: Vec<(&Package, &Version)> = resolved
+            .iter()
+            .map(|(package, resolved)| (*package, resolved.version()))
+            .collect();
+        cascade::range_rewrites(&root, discovery.workspace(), &targets)
+    } else {
+        cascade::RangeRewrites::default()
+    };
+
+    // The released Packages by the bare name a manifest resolves them to, so a
+    // rewritten range can name the Package it widened for.
+    let released_by_name: BTreeMap<String, String> = resolved
+        .iter()
+        .map(|(package, _)| {
+            (
+                cascade::package_name(package.identity()).to_owned(),
+                package.identity().to_owned(),
+            )
+        })
+        .collect();
+
+    // Render each manifest once, with its version and the ranges it receives.
+    let mut planned = Vec::new();
+    for (package, resolved) in resolved {
+        let ranges = rewrites.take(package.identity());
+        planned.push((package, release::assemble(package, resolved, ranges)?));
     }
     release::reject_shared_manifest_conflicts(&planned)?;
     for (package, prepared) in &planned {
@@ -253,11 +289,16 @@ fn release(cli: &Cli) -> Result<()> {
         }
     }
     report_manifest(committed.iter().map(|(_, outcome)| outcome));
+    let mut widened = widened_ranges(&committed, &released_by_name);
     for (package, outcome) in committed {
         let cascade = cascade::for_package(&root, discovery.workspace(), package, &outcome.version);
-        report
-            .packages
-            .push(release_package(package.identity(), outcome, cascade));
+        let ranges = widened.remove(package.identity()).unwrap_or_default();
+        report.packages.push(release_package(
+            package.identity(),
+            outcome,
+            cascade,
+            ranges,
+        ));
     }
     if report.packages.is_empty() {
         return Err(CliError::NothingToRelease.into());
@@ -271,7 +312,9 @@ fn release(cli: &Cli) -> Result<()> {
 /// Cut a Release Candidate from the Unreleased Changes.
 ///
 /// Bumps as a Release would, then appends `-rc.N`; the Fragments are shared with
-/// the eventual Release.
+/// the eventual Release. A Candidate never rewrites a dependent's range: a
+/// prerelease is not satisfied by the range it was widened from, so every
+/// internal range would be rewritten spuriously.
 fn candidate(cli: &Cli) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
@@ -312,9 +355,12 @@ fn candidate(cli: &Cli) -> Result<()> {
     report_manifest(committed.iter().map(|(_, outcome)| outcome));
     for (package, outcome) in committed {
         let cascade = cascade::for_package(&root, discovery.workspace(), package, &outcome.version);
-        report
-            .packages
-            .push(release_package(package.identity(), outcome, cascade));
+        report.packages.push(release_package(
+            package.identity(),
+            outcome,
+            cascade,
+            Vec::new(),
+        ));
     }
     if report.packages.is_empty() {
         return Err(CliError::NothingToRelease.into());
@@ -361,8 +407,45 @@ fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
     output::emit(cli, &report)
 }
 
+/// The range rewrites the run actually applied, keyed by the Package that
+/// caused each one.
+///
+/// Read back from the committed plans rather than from the edits the run
+/// resolved: a range momo could not locate in the manifest is not a range it
+/// wrote, and the report says what changed, never what was intended. An edit
+/// whose dependency matches no released Package is dropped rather than named
+/// with a guess.
+fn widened_ranges(
+    committed: &[(&Package, Outcome)],
+    released_by_name: &BTreeMap<String, String>,
+) -> BTreeMap<String, Vec<Range>> {
+    let mut widened: BTreeMap<String, Vec<Range>> = BTreeMap::new();
+    for (package, outcome) in committed {
+        let Some(plan) = &outcome.manifest else {
+            continue;
+        };
+        for edit in &plan.ranges {
+            let Some(dependency) = released_by_name.get(&edit.name) else {
+                continue;
+            };
+            widened.entry(dependency.clone()).or_default().push(Range {
+                dependent: package.identity().to_owned(),
+                dependency: dependency.clone(),
+                requirement: edit.requirement.clone(),
+                target: edit.target.clone(),
+            });
+        }
+    }
+    widened
+}
+
 /// One Package's entry in a `release`/`candidate` report.
-fn release_package(package: &str, outcome: Outcome, cascade: Vec<Cascade>) -> ReleasePackage {
+fn release_package(
+    package: &str,
+    outcome: Outcome,
+    cascade: Vec<Cascade>,
+    ranges: Vec<Range>,
+) -> ReleasePackage {
     let Outcome {
         version,
         changelog,
@@ -393,6 +476,7 @@ fn release_package(package: &str, outcome: Outcome, cascade: Vec<Cascade>) -> Re
         skipped,
         consumed,
         cascade,
+        ranges,
     }
 }
 
@@ -659,7 +743,7 @@ mod tests {
                 text: String::new(),
             },
             Command::Status { check: false },
-            Command::Release,
+            Command::Release { sync_ranges: false },
             Command::Candidate,
             Command::Tag { rev: None },
             Command::Init { version: None },
@@ -707,9 +791,8 @@ mod tests {
     /// A plan that left `lockfile` stale.
     fn stale(lockfile: &str) -> ManifestPlan {
         ManifestPlan {
-            writes: Vec::new(),
             lockfiles: vec![PathBuf::from(lockfile)],
-            skipped: Vec::new(),
+            ..ManifestPlan::default()
         }
     }
 
@@ -750,9 +833,8 @@ mod tests {
     #[test]
     fn a_skip_is_reported_with_its_reason() {
         let skipped = outcome(Some(ManifestPlan {
-            writes: Vec::new(),
-            lockfiles: Vec::new(),
             skipped: vec![(PathBuf::from("Cargo.toml"), SkipReason::NoVersion)],
+            ..ManifestPlan::default()
         }));
 
         assert_eq!(

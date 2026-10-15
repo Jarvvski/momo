@@ -122,7 +122,7 @@ Unreleased
 $ momo --all release
 ```
 
-There is no cascading yet: releasing a package does not bump its dependents. What momo does do is *report* — `status` and `release`/`candidate` (human and JSON) carry a `cascade` array per package, naming each dependent edge the new version would leave unsatisfied:
+Every run *reports*: `status` and `release`/`candidate` (human and JSON) carry a `cascade` array per package, naming each dependent edge the new version would leave unsatisfied:
 
 ```console
 $ momo status
@@ -140,7 +140,31 @@ Unreleased
 
 Each entry is `{ dependent, dependency, requirement, target, satisfied }`. `satisfied` is `false` for a range momo read and found unsatisfied, and `null` for an edge it could not check: a Node/uv/Go dependent, for which there is no manifest reader yet, or a requirement whose syntax momo does not recognise. It is never `true` — a satisfied edge is simply absent. Only Cargo ranges are checked for now; the graph comes from `mise tasks graph`, so an edge mise does not infer is not reported at all.
 
-The report says what the run *would leave*, not what a cascade would fix. With `-p cargo:a` only `cargo:a` is planned, and the report still shows `cargo:b`'s unsatisfied range; with `--all`, `cargo:b` is planned only when it has its own unreleased changes. So cascade mostly *reports* until the rewrite lands — momo never edits a dependent's range.
+### Rewriting dependent ranges
+
+`momo release --sync-ranges` goes one step further and rewrites the ranges it reports, so a dependent's published manifest admits the version its sibling just minted:
+
+```console
+$ momo --all release --sync-ranges
+released 0.2.0
+wrote crates/a/CHANGELOG.md
+wrote crates/a/Cargo.toml
+cascade: cargo:b requires cargo:a ^0.1.0 — unsatisfied at 0.2.0
+range: cargo:b requires cargo:a ^0.1.0 — rewritten for 0.2.0
+released 0.1.0
+wrote crates/b/CHANGELOG.md
+wrote crates/b/Cargo.toml
+```
+
+The rewrite is **opt-in** (`--sync-ranges`, default off), so an existing run's output is unchanged until you ask for it. Each entry is `{ dependent, dependency, requirement, target }` — `requirement` is what the dependent declared and `target` is the version it was widened for.
+
+- **Only dependents already in the release set.** A dependent is rewritten only when it is being released in the same run, because that is a manifest momo was going to write anyway. A dependent with no unreleased Changes of its own keeps its range and stays in `cascade` — momo never manufactures a release for it.
+- **One file, one render.** The dependent's version scalar and its widened range are composed into a single write, so one never overwrites the other. A range inherited with `workspace = true` is rewritten in the workspace root's `[workspace.dependencies]`, where the requirement actually lives.
+- **Widen only, and never guess.** The requirement's operator is preserved and re-anchored at the new version (`^0.1.0` → `^0.2.0`). A form momo does not rewrite — a conjunction such as `>=1.0, <2.0`, or an upper bound — is left exactly as the project wrote it and reported in `cascade` instead.
+- **Never on `candidate`.** `^5.0.0` is not satisfied by `5.1.0-next.0`, so a prerelease would rewrite every internal range spuriously. A candidate bumps versions and reports ranges; only a release rewrites them.
+- **Cargo only for now.** A Node/uv/Go dependent is never rewritten, and a requirement momo cannot read is never guessed at.
+
+With `-p cargo:a` only `cargo:a` is planned, so nothing is rewritten even with the flag: the report still shows `cargo:b`'s unsatisfied range.
 
 ## Task-environment integration
 

@@ -26,7 +26,7 @@ use crate::domain::manifest::ManifestPlan;
 use crate::domain::package::Package;
 
 pub use manifest::reject_shared_manifest_conflicts;
-pub use prepare::{commit, prepare_candidate, prepare_release};
+pub use prepare::{Resolved, assemble, commit, prepare_candidate, resolve_release};
 pub use tag::tag;
 
 /// What a `release` or `candidate` run did, or would do under `--dry-run`.

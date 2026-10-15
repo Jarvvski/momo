@@ -23,7 +23,8 @@ use std::path::{Path, PathBuf};
 use semver::Version;
 
 use crate::domain::manifest::{
-    DependencyRequirement, ManifestError, ManifestPlan, ManifestSync, ManifestWrite, SkipReason,
+    DependencyRequirement, ManifestEdits, ManifestError, ManifestPlan, ManifestSync, ManifestWrite,
+    SkipReason,
 };
 
 use json::JsonError;
@@ -52,7 +53,16 @@ impl ManifestSync for NodeManifest {
         path.is_file().then_some(path)
     }
 
-    fn render(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError> {
+    fn render(
+        &self,
+        manifest: &Path,
+        edits: &ManifestEdits,
+    ) -> Result<ManifestPlan, ManifestError> {
+        let Some(version) = &edits.version else {
+            // npm ranges are not rewritten yet, so an edits value carrying no
+            // version has nothing for this adapter to write.
+            return Ok(ManifestPlan::default());
+        };
         let text = read(manifest)?;
 
         Ok(match set_version(&text, manifest, version)? {
@@ -62,18 +72,17 @@ impl ManifestSync for NodeManifest {
                     path: manifest.to_path_buf(),
                     text,
                 }],
-                skipped: Vec::new(),
+                ..ManifestPlan::default()
             },
             Resolved::Skip { reason } => ManifestPlan {
-                writes: Vec::new(),
-                lockfiles: Vec::new(),
                 skipped: vec![(manifest.to_path_buf(), reason)],
+                ..ManifestPlan::default()
             },
         })
     }
 
-    fn write(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError> {
-        let plan = self.render(manifest, version)?;
+    fn write(&self, manifest: &Path, edits: &ManifestEdits) -> Result<ManifestPlan, ManifestError> {
+        let plan = self.render(manifest, edits)?;
         for write in &plan.writes {
             fs::write(&write.path, &write.text).map_err(|source| ManifestError::Write {
                 path: write.path.clone(),
@@ -96,6 +105,11 @@ impl ManifestSync for NodeManifest {
     /// npm ranges are not evaluated yet, so no Node requirement is ever reported
     /// satisfied.
     fn satisfied(&self, _requirement: &str, _version: &Version) -> Option<bool> {
+        None
+    }
+
+    /// npm ranges are not rewritten yet, so no Node requirement is ever widened.
+    fn widen(&self, _requirement: &str, _target: &Version) -> Option<String> {
         None
     }
 }

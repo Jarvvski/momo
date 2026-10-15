@@ -250,6 +250,128 @@ fn a_dry_run_release_reports_the_cascade_it_would_leave() {
     assert_eq!(cascade.len(), 1, "{stdout}");
     assert_eq!(cascade[0]["dependent"], "cargo:b", "{stdout}");
     assert_eq!(cascade[0]["satisfied"], serde_json::Value::Bool(false));
+    // Without `--sync-ranges` nothing is rewritten, so there is no `ranges` entry.
+    assert_eq!(
+        value["packages"][0]["ranges"],
+        serde_json::json!([]),
+        "{stdout}"
+    );
+}
+
+/// Give both members an Unreleased Change, so both are in the release set.
+fn add_to_both(dir: &TempDir) {
+    for package in ["cargo:a", "cargo:b"] {
+        momo(dir)
+            .args(["-p", package, "add", "Add a thing"])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn release_sync_ranges_rewrites_a_dependent_range_in_one_transaction() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    monorepo_with_range(&dir, "=0.0.1");
+    add_to_both(&dir);
+
+    let assert = momo(&dir)
+        .args(["--all", "release", "--sync-ranges", "--format", "json"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout).expect("the release report is one JSON document");
+
+    // The dependent's manifest carries both the new version scalar and the
+    // widened range, composed into the one file momo was already writing.
+    let b = fs::read_to_string(dir.path().join("crates/b/Cargo.toml")).expect("b manifest");
+    assert!(b.contains("version = \"0.1.0\""), "{b}");
+    assert!(b.contains("version = \"=0.1.0\""), "{b}");
+    assert!(!b.contains("=0.0.1"), "{b}");
+
+    // The rewrite is reported against the Package whose Release caused it.
+    let packages = value["packages"].as_array().expect("a `packages` array");
+    let a = packages
+        .iter()
+        .find(|package| package["name"] == "cargo:a")
+        .expect("cargo:a in the report");
+    assert_eq!(
+        a["ranges"],
+        serde_json::json!([{
+            "dependent": "cargo:b",
+            "dependency": "cargo:a",
+            "requirement": "=0.0.1",
+            "target": "0.1.0",
+        }]),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn release_sync_ranges_names_the_rewrite_in_the_human_report() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    monorepo_with_range(&dir, "=0.0.1");
+    add_to_both(&dir);
+
+    momo(&dir)
+        .args(["--all", "release", "--sync-ranges"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "range: cargo:b requires cargo:a =0.0.1 — rewritten for 0.1.0",
+        ));
+}
+
+#[test]
+fn a_release_without_sync_ranges_leaves_the_dependent_alone() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    monorepo_with_range(&dir, "=0.0.1");
+    add_to_both(&dir);
+
+    // Opt-in and default off: the dry run reports the unsatisfied edge and
+    // rewrites nothing, and the real run leaves the range as the project wrote
+    // it.
+    let assert = momo(&dir)
+        .args(["--all", "release", "--dry-run"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    assert!(
+        stdout.contains("cascade: cargo:b requires cargo:a =0.0.1 — unsatisfied at 0.1.0"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("range:"), "{stdout}");
+
+    momo(&dir).args(["--all", "release"]).assert().success();
+    let b = fs::read_to_string(dir.path().join("crates/b/Cargo.toml")).expect("b manifest");
+    assert!(b.contains("version = \"=0.0.1\""), "{b}");
+}
+
+#[test]
+fn a_candidate_never_rewrites_a_dependent_range() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    monorepo_with_range(&dir, "=0.0.1");
+    add_to_both(&dir);
+
+    momo(&dir).args(["--all", "candidate"]).assert().success();
+
+    // `=0.0.1` is not satisfied by `0.1.0-rc.1`, so a Candidate that rewrote it
+    // would widen every internal range spuriously. The version still moves.
+    let b = fs::read_to_string(dir.path().join("crates/b/Cargo.toml")).expect("b manifest");
+    assert!(b.contains("version = \"=0.0.1\""), "{b}");
+    assert!(b.contains("version = \"0.1.0-rc.1\""), "{b}");
 }
 
 #[test]
@@ -485,7 +607,7 @@ fn a_shared_workspace_version_with_different_targets_fails_the_run() {
         .args(["--all", "release"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("workspace version is shared"))
+        .stderr(predicate::str::contains("a shared manifest"))
         .stderr(predicate::str::contains("cargo:a"))
         .stderr(predicate::str::contains("cargo:b"));
 

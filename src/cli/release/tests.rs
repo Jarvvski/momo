@@ -3,12 +3,46 @@ use super::*;
 use std::path::Path;
 
 use crate::domain::config::Recording;
-use crate::domain::manifest::SkipReason;
+use crate::domain::manifest::{DependencyRangeEdit, ManifestPlan, ManifestWrite, SkipReason};
 use crate::domain::vcs::{Vcs, VcsError, VcsKind};
 use tempfile::TempDir;
 use time::Date;
 
+use crate::cli::release::prepare::resolve_candidate;
 use crate::cli::version::{FileVersionSource, VERSION_FILE};
+
+/// Resolve and render a Release, as a run does before writing anything.
+fn prepare(
+    root: &Path,
+    config: &Config,
+    package: &Package,
+    ranges: Vec<DependencyRangeEdit>,
+) -> Prepared {
+    let resolved = resolve_release(root, config, package, None, date())
+        .expect("resolve the release")
+        .expect("a release");
+    assemble(package, resolved, ranges).expect("assemble the release")
+}
+
+/// A `Prepared` whose manifest plan writes `path` with `text`.
+fn prepared(path: &str, text: &str, version: Version) -> Prepared {
+    Prepared {
+        outcome: Outcome {
+            version,
+            changelog: PathBuf::from("/repo/CHANGELOG.md"),
+            version_file: PathBuf::from("/repo/.momo/version"),
+            consumed: Vec::new(),
+            manifest: Some(ManifestPlan {
+                writes: vec![ManifestWrite {
+                    path: PathBuf::from(path),
+                    text: text.to_owned(),
+                }],
+                ..ManifestPlan::default()
+            }),
+        },
+        writes: Vec::new(),
+    }
+}
 
 /// Resolve and write a Release in one step, as a single-Package caller does.
 fn release(
@@ -19,10 +53,10 @@ fn release(
     date: Date,
     dry_run: bool,
 ) -> Result<Option<Outcome>> {
-    let Some(prepared) = prepare_release(repo_root, config, package, vcs, date)? else {
+    let Some(resolved) = resolve_release(repo_root, config, package, vcs, date)? else {
         return Ok(None);
     };
-    commit(prepared, dry_run)
+    commit(assemble(package, resolved, Vec::new())?, dry_run)
 }
 
 /// Resolve and write a Release Candidate in one step.
@@ -957,18 +991,8 @@ fn two_members_sharing_a_workspace_version_must_agree_on_the_target() {
     let b = Package::from_identity("cargo:b", "crates/b");
 
     let plans = [
-        (
-            &a,
-            prepare_release(root, &fragments(), &a, None, date())
-                .expect("prepare a")
-                .expect("a release"),
-        ),
-        (
-            &b,
-            prepare_release(root, &fragments(), &b, None, date())
-                .expect("prepare b")
-                .expect("a release"),
-        ),
+        (&a, prepare(root, &fragments(), &a, Vec::new())),
+        (&b, prepare(root, &fragments(), &b, Vec::new())),
     ];
     assert_eq!(plans[0].1.version(), &Version::new(0, 1, 0));
     assert_eq!(plans[1].1.version(), &Version::new(0, 0, 1));
@@ -998,18 +1022,8 @@ fn two_members_sharing_a_workspace_version_may_agree_on_the_target() {
     let b = Package::from_identity("cargo:b", "crates/b");
 
     let plans = [
-        (
-            &a,
-            prepare_release(root, &fragments(), &a, None, date())
-                .expect("prepare a")
-                .expect("a release"),
-        ),
-        (
-            &b,
-            prepare_release(root, &fragments(), &b, None, date())
-                .expect("prepare b")
-                .expect("a release"),
-        ),
+        (&a, prepare(root, &fragments(), &a, Vec::new())),
+        (&b, prepare(root, &fragments(), &b, Vec::new())),
     ];
 
     reject_shared_manifest_conflicts(&plans).expect("one shared target is allowed");
@@ -1042,4 +1056,136 @@ fn a_configured_manifest_override_wins_over_discovery() {
         "[package]\nname = \"momo\"\nversion = \"0.1.0\"\n"
     );
     assert_eq!(read(root, "Cargo.toml"), conventional);
+}
+
+/// A manifest whose `a` requirement the next Release breaks.
+fn ranged_manifest(root: &Path) -> String {
+    let contents = "[package]\nname = \"momo\"\nversion = \"0.0.0\"\n\n\
+                    [dependencies]\na = { path = \"../a\", version = \"^0.0.1\" }\n";
+    fs::write(root.join("Cargo.toml"), contents).expect("write the manifest");
+    contents.to_owned()
+}
+
+/// The edit that widens `a`'s `^0.0.1` to admit `0.1.0`.
+fn widen() -> DependencyRangeEdit {
+    DependencyRangeEdit {
+        name: "a".to_owned(),
+        requirement: "^0.0.1".to_owned(),
+        target: Version::new(0, 1, 0),
+    }
+}
+
+#[test]
+fn a_release_widens_a_dependency_range_in_the_same_render() {
+    let dir = TempDir::new().expect("temp dir");
+    let root = dir.path();
+    fragment(root, "add-a-thing.md", "Add a thing");
+    ranged_manifest(root);
+
+    let resolved = resolve_release(root, &fragments(), &package(), None, date())
+        .expect("resolve the release")
+        .expect("a release");
+    let prepared = assemble(&package(), resolved, vec![widen()]).expect("assemble the release");
+    let plan = prepared
+        .outcome
+        .manifest
+        .as_ref()
+        .expect("a manifest was synced");
+
+    // One write, holding both the new version scalar and the widened range:
+    // two writes to one path would let the second overwrite the first.
+    assert_eq!(plan.writes.len(), 1, "{plan:?}");
+    assert_eq!(
+        plan.writes[0].text,
+        "[package]\nname = \"momo\"\nversion = \"0.1.0\"\n\n\
+         [dependencies]\na = { path = \"../a\", version = \"^0.1.0\" }\n"
+    );
+    assert_eq!(plan.ranges, vec![widen()]);
+}
+
+#[test]
+fn a_candidate_leaves_dependency_ranges_alone() {
+    let dir = TempDir::new().expect("temp dir");
+    let root = dir.path();
+    fragment(root, "add-a-thing.md", "Add a thing");
+    let seeded = ranged_manifest(root);
+
+    let resolved = resolve_candidate(root, &fragments(), &package(), None, date())
+        .expect("resolve the candidate")
+        .expect("a candidate");
+    let prepared = assemble(&package(), resolved, vec![widen()]).expect("assemble the candidate");
+    let plan = prepared
+        .outcome
+        .manifest
+        .as_ref()
+        .expect("a manifest was synced");
+
+    // `^0.0.1` is not satisfied by `0.1.0-rc.1`, so a Candidate that rewrote it
+    // would widen every internal range spuriously. The gate drops the edits.
+    assert!(plan.ranges.is_empty(), "{plan:?}");
+    assert!(
+        plan.writes[0].text.contains("version = \"^0.0.1\""),
+        "{plan:?}"
+    );
+    assert!(
+        !plan.writes[0].text.contains("^0.1.0"),
+        "the candidate rewrote the range: {plan:?}"
+    );
+
+    // Resolving is read-only, so the manifest on disk is untouched either way.
+    assert_eq!(read(root, "Cargo.toml"), seeded);
+}
+
+#[test]
+fn two_packages_writing_one_shared_manifest_with_different_ranges_are_refused() {
+    let a = Package::from_identity("cargo:a", "crates/a");
+    let b = Package::from_identity("cargo:b", "crates/b");
+    // The same version scalar, two different range edits: a shared root cannot
+    // hold both, so the last writer would silently win.
+    let plans = [
+        (
+            &a,
+            prepared(
+                "/repo/Cargo.toml",
+                "version = \"0.1.0\"\na = \"^0.1.0\"\n",
+                Version::new(0, 1, 0),
+            ),
+        ),
+        (
+            &b,
+            prepared(
+                "/repo/Cargo.toml",
+                "version = \"0.1.0\"\nb = \"^0.1.0\"\n",
+                Version::new(0, 1, 0),
+            ),
+        ),
+    ];
+
+    let err = reject_shared_manifest_conflicts(&plans)
+        .expect_err("two different range edits cannot share one manifest");
+    let message = err.to_string();
+    assert!(message.contains("cargo:a"), "{message}");
+    assert!(message.contains("cargo:b"), "{message}");
+    assert!(message.contains("different contents"), "{message}");
+}
+
+#[test]
+fn two_packages_writing_one_shared_manifest_identically_are_allowed() {
+    let a = Package::from_identity("cargo:a", "crates/a");
+    let b = Package::from_identity("cargo:b", "crates/b");
+    // Two dependents inheriting one `[workspace.dependencies]` entry widen it to
+    // the same requirement, so the shared root has one consistent text.
+    let text = "version = \"0.1.0\"\na = \"^0.1.0\"\n";
+    let plans = [
+        (
+            &a,
+            prepared("/repo/Cargo.toml", text, Version::new(0, 1, 0)),
+        ),
+        (
+            &b,
+            prepared("/repo/Cargo.toml", text, Version::new(0, 1, 0)),
+        ),
+    ];
+
+    reject_shared_manifest_conflicts(&plans).expect("one identical write is allowed");
 }
