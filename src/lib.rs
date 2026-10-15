@@ -3,7 +3,7 @@
 //!
 //! The library is an implementation detail of the `momo` binary, not a
 //! supported API: only [`run`] is exported, and the domain and adapter modules
-//! stay crate-private. See ADR 0004, *The library is not a public API*.
+//! stay crate-private. See ADR 0005, *The library is not a public API*.
 //!
 //! momo is Unix-only: its process handling leads each child in its own process
 //! group so a timeout stops everything the child forked, and there is no

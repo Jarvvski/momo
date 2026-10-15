@@ -2,7 +2,7 @@
 
 momo needs `cargo install` as a distribution channel, and a published crate cannot depend on unpublished path dependencies. As a five-crate virtual workspace, publishing `momo-cli` to crates.io would mean publishing `momo-core`, `momo-vcs`, `momo-taskenv` and `momo-manifest` too — in dependency order, every release, with each dependent waiting on crates.io to index its predecessor before it can be published. Four of those five crates would exist on crates.io solely to satisfy cargo, with no independent audience.
 
-momo is therefore a **single crate**: package `momo-cli` (the name `momo` is taken on crates.io), with a library target and a thin binary named `momo`. The separation the workspace enforced is kept as modules — `domain/` (pure: no I/O, no `clap`), `adapters/{vcs,taskenv,manifest}/`, and a private `cli/`. Those modules are crate-private; the crate exposes only `run()`, so the versioning model is internals, not a supported API (see [ADR 0004](0004-the-library-is-not-a-public-api.md)). One `cargo publish` per release.
+momo is therefore a **single crate**: package `momo-cli` (the name `momo` is taken on crates.io), with a library target and a thin binary named `momo`. The separation the workspace enforced is kept as modules — `domain/` (pure: no I/O, no `clap`), `adapters/{vcs,taskenv,manifest}/`, and a private `cli/`. Those modules are crate-private; the crate exposes only `run()`, so the versioning model is internals, not a supported API (see [ADR 0005](0005-the-library-is-not-a-public-api.md)). One `cargo publish` per release.
 
 ## Considered Options
 
@@ -14,6 +14,6 @@ momo is therefore a **single crate**: package `momo-cli` (the name `momo` is tak
 
 - The "domain is pure" invariant is no longer enforced by a crate boundary. It is now enforced by `mise run check`, which fails if `src/domain/` reaches for `std::fs`, `std::process`, `std::env`, `clap` or `anyhow`.
 - `momo-cli` is the published name; the installed binary stays `momo`, so the install is `cargo install momo-cli`.
-- The domain and adapters stay modules of the crate; they are crate-private, so the crate is bin-shaped rather than a reusable library (see [ADR 0004](0004-the-library-is-not-a-public-api.md)).
+- The domain and adapters stay modules of the crate; they are crate-private, so the crate is bin-shaped rather than a reusable library (see [ADR 0005](0005-the-library-is-not-a-public-api.md)).
 - The four adapter crates' integration round-trips move to `#[cfg(test)]` submodules, since the binary target exposes no library to `tests/`.
 - Amends spec §14.
