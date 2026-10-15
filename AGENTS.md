@@ -26,7 +26,7 @@ Agents may push feature branches, open PRs, and merge green PRs. Agents must **n
 
 ## Toolchain
 
-**mise** owns tasks and the Rust pin (see `mise.toml`, `rust-toolchain.toml`). Use the tasks, don't hand-roll cargo:
+**mise** owns tasks and the Rust pin (see `mise.toml`). Use the tasks, don't hand-roll cargo:
 
 - `mise run check` - the pre-land gate: fmt:check + lint + domain purity + docs + build + test.
 - `mise run run` / `build` / `test` / `fmt` / `lint` / `docs` - individual steps.

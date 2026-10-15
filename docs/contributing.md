@@ -5,7 +5,7 @@
 The toolchain and the task runner are owned by [mise](https://mise.jdx.dev).
 
 ```bash
-mise install        # pin the Rust toolchain (see mise.toml, rust-toolchain.toml)
+mise install        # pin the Rust toolchain (see mise.toml)
 mise run build      # cargo build --release
 mise run test       # cargo test
 mise run fmt        # cargo fmt --all (rewrites the tree)

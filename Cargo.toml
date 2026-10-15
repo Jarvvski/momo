@@ -8,8 +8,8 @@ repository = "https://github.com/Jarvvski/momo"
 readme = "README.md"
 keywords = ["semver", "changelog", "release", "versioning", "monorepo"]
 categories = ["command-line-utilities", "development-tools"]
-# The project pins its toolchain in rust-toolchain.toml and mise.toml; this is
-# the version the suite is verified against, not a hand-computed minimum.
+# The project pins its toolchain in mise.toml; this is the version the suite is
+# verified against, not a hand-computed minimum.
 rust-version = "1.99"
 # Keep the published crate to what a `cargo install` consumer needs: planning
 # notes, CI config, the logo, and the docs the README links to are not part of
@@ -29,9 +29,6 @@ exclude = [
   "SECURITY.md",
   "mise.toml",
   "momo.toml",
-  # `rust-version` already states the toolchain floor; shipping the pin would
-  # make `cargo install` download a specific toolchain instead.
-  "rust-toolchain.toml",
   "skills-lock.json",
 ]
 
