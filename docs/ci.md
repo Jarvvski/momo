@@ -71,13 +71,14 @@ Every reporting verb emits **one** JSON document per run, whatever the number of
           "text": "Add a shiny thing"
         }
       ],
-      "unversioned": []
+      "unversioned": [],
+      "cascade": []
     }
   ]
 }
 ```
 
-`unreleased` is `true` when at least one package has an unreleased change — the same gate as `--check`. `current` is the package's last release (or cut candidate), or `null` when it has never released. `next` is the version a release would mint, or the current version when nothing is unreleased (then `changes` is empty). `unversioned` lists the Unreleased sections under a Keep-a-Changelog heading momo cannot read — the condition that makes a `release` refuse; it is empty in the common case. `packages` is always an array, even for a single-package repo.
+`unreleased` is `true` when at least one package has an unreleased change — the same gate as `--check`. `current` is the package's last release (or cut candidate), or `null` when it has never released. `next` is the version a release would mint, or the current version when nothing is unreleased (then `changes` is empty). `unversioned` lists the Unreleased sections under a Keep-a-Changelog heading momo cannot read — the condition that makes a `release` refuse; it is empty in the common case. `packages` is always an array, even for a single-package repo. `cascade` names the dependent edges the new version would leave unsatisfied, or could not check — see [Cascade](#cascade) below.
 
 ### `release` and `candidate` (`--format json`)
 
@@ -94,15 +95,44 @@ Every reporting verb emits **one** JSON document per run, whatever the number of
       "skipped": [],
       "consumed": [
         "/repo/.momo/changes/add-a-shiny-thing.md"
+      ],
+      "cascade": [
+        {
+          "dependent": "cargo:b",
+          "dependency": "momo",
+          "requirement": "^0.1.0",
+          "target": "0.2.0",
+          "satisfied": false
+        }
       ]
     }
   ]
 }
 ```
 
-`dry_run` is the run-wide flag. Each entry in `packages` is one released package, named by its `name` (the same identity `status` reports). `version_file` is the version file the run wrote. `manifest` is the list of ecosystem manifests whose version scalar the run synced — empty when the package has none, and possibly more than one, since a member that inherits its version writes the shared workspace root rather than its own manifest. `skipped` names the manifests the run considered but did not write, each as `{"path": …, "reason": …}`: a reason is `no version momo owns`, `already current`, or `dynamic version (…)` for a version computed elsewhere (a `hatch-vcs` project). A skip is never silent — it is reported here and on stderr. `consumed` lists the fragments the run deleted (empty for `candidate`). Under `--dry-run` the paths are what the run *would* have written — including the manifest, which the dry run parses but does not write.
+`dry_run` is the run-wide flag. Each entry in `packages` is one released package, named by its `name` (the same identity `status` reports). `version_file` is the version file the run wrote. `manifest` is the list of ecosystem manifests whose version scalar the run synced — empty when the package has none, and possibly more than one, since a member that inherits its version writes the shared workspace root rather than its own manifest. `skipped` names the manifests the run considered but did not write, each as `{"path": …, "reason": …}`: a reason is `no version momo owns`, `already current`, or `dynamic version (…)` for a version computed elsewhere (a `hatch-vcs` project). A skip is never silent — it is reported here and on stderr. `consumed` lists the fragments the run deleted (empty for `candidate`). `cascade` is the same array `status` reports, read against the version the run minted. Under `--dry-run` the paths are what the run *would* have written — including the manifest, which the dry run parses but does not write.
 
 A lockfile the package manager maintains (`Cargo.lock`, `pnpm-lock.yaml`) is never rewritten and never appears in the report; momo warns on stderr that it may be stale, naming a shared lockfile once however many packages resolve to it. For a Node lockfile the warning names the refresh command (`npm install --package-lock-only`, `pnpm install --lockfile-only`, `yarn install --mode update-lockfile`, `bun install --lockfile-only`); a Node lockfile lives at the workspace root, not beside the package, so it is found by walking up from the package.
+
+### Cascade
+
+`cascade` is a per-package array of the dependent edges a release would leave unsatisfied. It is **report-only**: momo never rewrites a dependent's range.
+
+```json
+{
+  "dependent": "cargo:b",
+  "dependency": "cargo:a",
+  "requirement": "^0.1.0",
+  "target": "0.2.0",
+  "satisfied": false
+}
+```
+
+- `dependent` depends on `dependency` — the package being released — declaring `requirement`.
+- `target` is the version the released package would mint.
+- `satisfied` is `false` when momo read the range and the target does not match it, and `null` when it could not check the edge: a Node/uv/Go dependent (no manifest reader yet), a requirement whose syntax momo does not recognise, or a manifest it could not read. It is **never `true`** — a satisfied edge is simply absent, so an empty array means either no dependents or every one satisfied.
+
+Only Cargo ranges are checked for now. The edges come from `mise tasks graph`, so a dependency mise does not infer is not reported at all — an empty array is not a promise that nothing will break.
 
 ### `tag` (`--format json`)
 

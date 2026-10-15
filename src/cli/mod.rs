@@ -5,6 +5,7 @@
 //! exit non-zero with a clear message (see [`crate::cli::commands`]).
 
 pub(crate) mod atomic;
+pub(crate) mod cascade;
 pub(crate) mod commands;
 pub(crate) mod config;
 pub(crate) mod output;

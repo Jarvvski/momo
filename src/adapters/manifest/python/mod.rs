@@ -29,7 +29,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::domain::manifest::{
-    ManifestError, ManifestPlan, ManifestSync, ManifestWrite, SkipReason,
+    DependencyRequirement, ManifestError, ManifestPlan, ManifestSync, ManifestWrite, SkipReason,
 };
 use semver::Version;
 use toml_edit::{DocumentMut, Item};
@@ -78,6 +78,21 @@ impl ManifestSync for PythonManifest {
         }
 
         Ok(plan)
+    }
+
+    /// The dependencies `pyproject.toml` declares.
+    ///
+    /// Not read yet: the cascade evaluates Cargo ranges only and reports a
+    /// Python dependent as unchecked without consulting this. An empty list
+    /// therefore means *not checked*, never "no dependencies".
+    fn dependencies(&self, _manifest: &Path) -> Result<Vec<DependencyRequirement>, ManifestError> {
+        Ok(Vec::new())
+    }
+
+    /// PEP 440 ranges are not evaluated yet, so no Python requirement is ever
+    /// reported satisfied.
+    fn satisfied(&self, _requirement: &str, _version: &Version) -> Option<bool> {
+        None
     }
 }
 

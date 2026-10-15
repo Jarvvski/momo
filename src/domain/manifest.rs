@@ -78,6 +78,25 @@ pub struct ManifestPlan {
     pub skipped: Vec<(PathBuf, SkipReason)>,
 }
 
+/// A dependency one manifest declares on another package.
+///
+/// The read-only counterpart to a [`ManifestWrite`]: not what momo would change
+/// but what the manifest *asks for*, so a caller can tell whether a Release
+/// leaves a dependent's requirement unsatisfied. Only a dependency that carries
+/// a version requirement appears — a `path`- or `git`-only dependency
+/// constrains nothing momo could break, so it is omitted rather than reported
+/// as trivially satisfied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DependencyRequirement {
+    /// The depended-on package's name, as the ecosystem resolves it.
+    ///
+    /// A Cargo dependency renamed with `package = "…"` reports the real name,
+    /// not the table key it was declared under.
+    pub package: String,
+    /// The declared requirement, verbatim, e.g. `^1.0`.
+    pub requirement: String,
+}
+
 /// The manifest operations momo needs.
 ///
 /// A manifest belongs to one Package: [`ManifestSync::locate`] is rooted at
@@ -115,6 +134,23 @@ pub trait ManifestSync {
     /// version may place one at the shared workspace root rather than at
     /// `manifest`.
     fn write(&self, manifest: &Path, version: &Version) -> Result<ManifestPlan, ManifestError>;
+
+    /// The dependencies `manifest` declares, each with its version requirement.
+    ///
+    /// Read-only, and deliberately partial: a dependency declared without a
+    /// version — a `path`- or `git`-only entry — constrains nothing momo could
+    /// break, so it is omitted rather than reported as satisfied. A dependency
+    /// whose requirement is inherited from a shared workspace root
+    /// (`workspace = true`) is resolved to the root's requirement.
+    fn dependencies(&self, manifest: &Path) -> Result<Vec<DependencyRequirement>, ManifestError>;
+
+    /// Whether `version` satisfies `requirement`.
+    ///
+    /// `None` when the requirement's syntax is not one this ecosystem can
+    /// evaluate. A caller must not treat that as satisfied: momo reports an
+    /// edge it could not read as *not checked*, never as satisfied, so this
+    /// never returns `Some(true)` for a range it does not understand.
+    fn satisfied(&self, requirement: &str, version: &Version) -> Option<bool>;
 }
 
 /// The domain errors a caller must be able to match on.

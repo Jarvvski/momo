@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use semver::Version;
 
 use crate::domain::manifest::{
-    ManifestError, ManifestPlan, ManifestSync, ManifestWrite, SkipReason,
+    DependencyRequirement, ManifestError, ManifestPlan, ManifestSync, ManifestWrite, SkipReason,
 };
 
 use json::JsonError;
@@ -82,6 +82,21 @@ impl ManifestSync for NodeManifest {
         }
 
         Ok(plan)
+    }
+
+    /// The dependencies `package.json` declares.
+    ///
+    /// Not read yet: the cascade evaluates Cargo ranges only and reports a Node
+    /// dependent as unchecked without consulting this. An empty list therefore
+    /// means *not checked*, never "no dependencies".
+    fn dependencies(&self, _manifest: &Path) -> Result<Vec<DependencyRequirement>, ManifestError> {
+        Ok(Vec::new())
+    }
+
+    /// npm ranges are not evaluated yet, so no Node requirement is ever reported
+    /// satisfied.
+    fn satisfied(&self, _requirement: &str, _version: &Version) -> Option<bool> {
+        None
     }
 }
 

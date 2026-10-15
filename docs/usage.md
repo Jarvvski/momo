@@ -122,7 +122,25 @@ Unreleased
 $ momo --all release
 ```
 
-There is no cascading: releasing a package does not bump its dependents.
+There is no cascading yet: releasing a package does not bump its dependents. What momo does do is *report* — `status` and `release`/`candidate` (human and JSON) carry a `cascade` array per package, naming each dependent edge the new version would leave unsatisfied:
+
+```console
+$ momo status
+Unreleased
+
+  cargo:a
+    Breaking
+      - Change the API
+    → next: 0.2.0
+    cascade: cargo:b requires cargo:a ^0.1.0 — unsatisfied at 0.2.0
+
+  cargo:b
+    → next: 0.0.0
+```
+
+Each entry is `{ dependent, dependency, requirement, target, satisfied }`. `satisfied` is `false` for a range momo read and found unsatisfied, and `null` for an edge it could not check: a Node/uv/Go dependent, for which there is no manifest reader yet, or a requirement whose syntax momo does not recognise. It is never `true` — a satisfied edge is simply absent. Only Cargo ranges are checked for now; the graph comes from `mise tasks graph`, so an edge mise does not infer is not reported at all.
+
+The report says what the run *would leave*, not what a cascade would fix. With `-p cargo:a` only `cargo:a` is planned, and the report still shows `cargo:b`'s unsatisfied range; with `--all`, `cargo:b` is planned only when it has its own unreleased changes. So cascade mostly *reports* until the rewrite lands — momo never edits a dependent's range.
 
 ## Task-environment integration
 

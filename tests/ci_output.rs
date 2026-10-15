@@ -91,7 +91,8 @@ fn status_format_json_emits_the_documented_shape() {
           "text": "Add a shiny thing"
         }
       ],
-      "unversioned": []
+      "unversioned": [],
+      "cascade": []
     }
   ]
 }
@@ -408,7 +409,14 @@ fn status_format_json_matches_the_documented_contract() {
     let package = &packages[0];
     assert_keys(
         package,
-        &["name", "current", "next", "changes", "unversioned"],
+        &[
+            "name",
+            "current",
+            "next",
+            "changes",
+            "unversioned",
+            "cascade",
+        ],
     );
     assert_eq!(package["name"], "proj");
     assert_eq!(package["current"], serde_json::Value::Null);
@@ -454,6 +462,7 @@ fn release_format_json_matches_the_documented_contract() {
             "manifest",
             "skipped",
             "consumed",
+            "cascade",
         ],
     );
     assert_eq!(package["name"], "proj");
@@ -505,6 +514,7 @@ fn candidate_format_json_matches_the_documented_contract() {
             "manifest",
             "skipped",
             "consumed",
+            "cascade",
         ],
     );
     assert_eq!(package["name"], "proj");
