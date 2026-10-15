@@ -37,8 +37,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: mise run check
 
-  # `rust-version` declares the MSRV, but every other leg builds with the pinned
-  # toolchain in rust-toolchain.toml. This one builds with the declared floor
+  # `rust-version` declares the MSRV, but every other leg builds with the
+  # toolchain pinned in mise.toml. This one builds with the declared floor
   # itself, so the number stays honest: raising the pin without raising
   # `rust-version` cannot strand the floor, and a dependency that lifts its own
   # MSRV past it fails here.
@@ -56,8 +56,8 @@ jobs:
           echo "version=$msrv" >> "$GITHUB_OUTPUT"
       - name: Install the declared MSRV
         run: rustup toolchain install "${{ steps.msrv.outputs.version }}" --profile minimal
-      # `+<msrv>` overrides the pinned rust-toolchain.toml, so this compiles with
-      # the floor rather than the pin.
+      # `+<msrv>` builds with the declared floor rather than the pinned
+      # toolchain the other legs use.
       - run: cargo +${{ steps.msrv.outputs.version }} check --locked --all-targets
 
   # Branch protection requires a status check named exactly `check`, but a
