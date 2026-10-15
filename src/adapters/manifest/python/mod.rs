@@ -19,8 +19,15 @@
 //!
 //! `setup.cfg` (INI) and `setup.py` (code) are out of scope: a project whose
 //! only manifest is one of those stays a silent skip.
+//!
+//! Dependency ranges are read and evaluated by [`requirement`]: a PEP 508
+//! requirement string from `[project].dependencies`, and Poetry's
+//! `[tool.poetry.dependencies]`. A requirement momo cannot evaluate is
+//! *not checked* rather than assumed satisfied, and a range is rewritten only
+//! when it is a single-term form momo understands.
 
 mod pep440;
+mod requirement;
 #[cfg(test)]
 mod roundtrip;
 
@@ -29,8 +36,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::domain::manifest::{
-    DependencyRequirement, ManifestEdits, ManifestError, ManifestPlan, ManifestSync, ManifestWrite,
-    SkipReason,
+    DependencyRangeEdit, DependencyRequirement, ManifestEdits, ManifestError, ManifestPlan,
+    ManifestSync, ManifestWrite, SkipReason,
 };
 use semver::Version;
 use toml_edit::{DocumentMut, Item};
@@ -57,23 +64,34 @@ impl ManifestSync for PythonManifest {
         manifest: &Path,
         edits: &ManifestEdits,
     ) -> Result<ManifestPlan, ManifestError> {
-        let Some(version) = &edits.version else {
-            // PEP 440 ranges are not rewritten yet, so an edits value carrying
-            // no version has nothing for this adapter to write.
+        if edits.version.is_none() && edits.ranges.is_empty() {
             return Ok(ManifestPlan::default());
-        };
+        }
         let text = toml::read(manifest)?;
+        let mut doc = toml::parse(&text, manifest)?;
+        let mut plan = ManifestPlan::default();
+        let mut changed = false;
 
-        Ok(match set_version(&text, manifest, version)? {
-            Resolved::Write { path, text } => ManifestPlan {
-                writes: vec![ManifestWrite { path, text }],
-                ..ManifestPlan::default()
-            },
-            Resolved::Skip { path, reason } => ManifestPlan {
-                skipped: vec![(path, reason)],
-                ..ManifestPlan::default()
-            },
-        })
+        if let Some(version) = &edits.version {
+            match apply_version(&mut doc, manifest, version)? {
+                Applied::Write => changed = true,
+                Applied::Skip { path, reason } => plan.skipped.push((path, reason)),
+            }
+        }
+        for edit in &edits.ranges {
+            if widen_range(&mut doc, edit) {
+                plan.ranges.push(edit.clone());
+                changed = true;
+            }
+        }
+
+        if changed {
+            plan.writes.push(ManifestWrite {
+                path: manifest.to_path_buf(),
+                text: toml::preserve_line_endings(&text, doc.to_string()),
+            });
+        }
+        Ok(plan)
     }
 
     fn write(&self, manifest: &Path, edits: &ManifestEdits) -> Result<ManifestPlan, ManifestError> {
@@ -90,24 +108,89 @@ impl ManifestSync for PythonManifest {
 
     /// The dependencies `pyproject.toml` declares.
     ///
-    /// Not read yet: the cascade evaluates Cargo ranges only and reports a
-    /// Python dependent as unchecked without consulting this. An empty list
-    /// therefore means *not checked*, never "no dependencies".
-    fn dependencies(&self, _manifest: &Path) -> Result<Vec<DependencyRequirement>, ManifestError> {
-        Ok(Vec::new())
+    /// Two layouts are read: PEP 621 `[project].dependencies` (PEP 508
+    /// requirement strings) and Poetry's `[tool.poetry.dependencies]`. A
+    /// requirement without a version specifier — a bare name, a direct URL, a
+    /// `path`/`git` table — constrains nothing momo could break, so it is
+    /// omitted rather than reported as satisfied. Poetry's `python` key names
+    /// the interpreter, not a package, so it is omitted too.
+    fn dependencies(&self, manifest: &Path) -> Result<Vec<DependencyRequirement>, ManifestError> {
+        let text = toml::read(manifest)?;
+        let doc = toml::parse(&text, manifest)?;
+        let mut requirements = Vec::new();
+
+        if let Some(dependencies) = doc
+            .get("project")
+            .and_then(|project| project.get("dependencies"))
+            .and_then(Item::as_array)
+        {
+            for element in dependencies.iter() {
+                let Some(text) = element.as_str() else {
+                    continue;
+                };
+                if let Some(parsed) = requirement::parse_requirement(text) {
+                    requirements.push(DependencyRequirement {
+                        package: parsed.name,
+                        requirement: parsed.specifier,
+                    });
+                }
+            }
+        }
+
+        if let Some(dependencies) = doc
+            .get("tool")
+            .and_then(|tool| tool.get("poetry"))
+            .and_then(|poetry| poetry.get("dependencies"))
+            .and_then(Item::as_table_like)
+        {
+            for (name, item) in dependencies.iter() {
+                // `python` names the interpreter requirement, not a package.
+                if name == "python" {
+                    continue;
+                }
+                let Some(requirement) = poetry_specifier(item) else {
+                    continue;
+                };
+                requirements.push(DependencyRequirement {
+                    package: name.to_owned(),
+                    requirement,
+                });
+            }
+        }
+
+        Ok(requirements)
     }
 
-    /// PEP 440 ranges are not evaluated yet, so no Python requirement is ever
-    /// reported satisfied.
-    fn satisfied(&self, _requirement: &str, _version: &Version) -> Option<bool> {
-        None
+    /// Whether `version` satisfies the PEP 440 or Poetry constraint
+    /// `requirement`.
+    ///
+    /// `None` when the constraint is not one momo evaluates, so an edge it
+    /// cannot read is reported as *not checked*, never as satisfied.
+    fn satisfied(&self, requirement: &str, version: &Version) -> Option<bool> {
+        requirement::satisfied(requirement, version)
     }
 
-    /// PEP 440 ranges are not rewritten yet, so no Python requirement is ever
-    /// widened.
-    fn widen(&self, _requirement: &str, _target: &Version) -> Option<String> {
-        None
+    /// Widen a PEP 440 or Poetry constraint to admit `target`, preserving its
+    /// operator form.
+    fn widen(&self, requirement: &str, target: &Version) -> Option<String> {
+        requirement::widen(requirement, target)
     }
+}
+
+/// The specifier a `[tool.poetry.dependencies]` value declares.
+///
+/// A Poetry dependency is either a bare specifier (`acme = "^1.2"`) or a table
+/// holding one under `version`. A table with no `version` — a `path`, `git` or
+/// `url` entry — carries no requirement and is omitted, as is an array of
+/// per-environment tables momo cannot evaluate.
+fn poetry_specifier(item: &Item) -> Option<String> {
+    if let Some(specifier) = item.as_str() {
+        return Some(specifier.to_owned());
+    }
+    item.as_table_like()?
+        .get("version")?
+        .as_str()
+        .map(str::to_owned)
 }
 
 /// The outcome of resolving one manifest against a Version.
@@ -131,18 +214,49 @@ enum Resolved {
 
 /// Render `text` with every version scalar set to `version`.
 ///
+/// A thin wrapper over [`apply_version`] for the tests and the round-trips; the
+/// render path applies the version and any range edits to one document.
+fn set_version(text: &str, manifest: &Path, version: &Version) -> Result<Resolved, ManifestError> {
+    let mut doc = toml::parse(text, manifest)?;
+    match apply_version(&mut doc, manifest, version)? {
+        Applied::Write => Ok(Resolved::Write {
+            path: manifest.to_path_buf(),
+            text: toml::preserve_line_endings(text, doc.to_string()),
+        }),
+        Applied::Skip { path, reason } => Ok(Resolved::Skip { path, reason }),
+    }
+}
+
+/// What applying a Version to a parsed document produced.
+enum Applied {
+    /// At least one version scalar was rewritten.
+    Write,
+    /// Nothing was written, and why.
+    Skip {
+        /// The manifest momo considered.
+        path: PathBuf,
+        /// Why it was left alone.
+        reason: SkipReason,
+    },
+}
+
+/// Apply `version` to every version scalar `doc` declares.
+///
 /// [`SkipReason::Dynamic`] when the version is computed elsewhere,
 /// [`SkipReason::NoVersion`] when no version scalar exists, and
 /// [`SkipReason::AlreadyCurrent`] when every scalar already holds `version`.
 /// [`ManifestError::Conflict`] when a static scalar sits beside a dynamic
 /// declaration, and when `version` has no PEP 440 form to write.
-fn set_version(text: &str, manifest: &Path, version: &Version) -> Result<Resolved, ManifestError> {
-    let mut doc = toml::parse(text, manifest)?;
-    let sites = version_sites(&doc);
+fn apply_version(
+    doc: &mut DocumentMut,
+    manifest: &Path,
+    version: &Version,
+) -> Result<Applied, ManifestError> {
+    let sites = version_sites(doc);
 
-    if let Some(backend) = dynamic_backend(&doc) {
+    if let Some(backend) = dynamic_backend(doc) {
         if sites.is_empty() {
-            return Ok(Resolved::Skip {
+            return Ok(Applied::Skip {
                 path: manifest.to_path_buf(),
                 reason: SkipReason::Dynamic(backend.to_string()),
             });
@@ -157,7 +271,7 @@ fn set_version(text: &str, manifest: &Path, version: &Version) -> Result<Resolve
     }
 
     if sites.is_empty() {
-        return Ok(Resolved::Skip {
+        return Ok(Applied::Skip {
             path: manifest.to_path_buf(),
             reason: SkipReason::NoVersion,
         });
@@ -170,21 +284,93 @@ fn set_version(text: &str, manifest: &Path, version: &Version) -> Result<Resolve
 
     let mut changed = false;
     for site in sites {
-        if let Some(item) = site.item_mut(&mut doc) {
+        if let Some(item) = site.item_mut(doc) {
             changed |= toml::set_string(item, &target);
         }
     }
     if !changed {
-        return Ok(Resolved::Skip {
+        return Ok(Applied::Skip {
             path: manifest.to_path_buf(),
             reason: SkipReason::AlreadyCurrent,
         });
     }
 
-    Ok(Resolved::Write {
-        path: manifest.to_path_buf(),
-        text: toml::preserve_line_endings(text, doc.to_string()),
-    })
+    Ok(Applied::Write)
+}
+
+/// Widen the requirement `edit` names in `doc`, in place.
+///
+/// The requirement is declared either as a PEP 508 string in
+/// `[project].dependencies` or as a Poetry specifier in
+/// `[tool.poetry.dependencies]`; every declaration holding exactly the
+/// requirement momo read is rewritten. Returns whether the document changed:
+/// `false` when the form is not one momo rewrites, or no declaration holds it.
+fn widen_range(doc: &mut DocumentMut, edit: &DependencyRangeEdit) -> bool {
+    let Some(widened) = requirement::widen(&edit.requirement, &edit.target) else {
+        return false;
+    };
+    widen_poetry(doc, edit, &widened) | widen_project(doc, edit, &widened)
+}
+
+/// Widen a Poetry `[tool.poetry.dependencies]` declaration of `edit`'s package.
+///
+/// Each level is reached through `as_table_like_mut` rather than `Item::get_mut`
+/// directly: the latter inserts an `Item::None` placeholder for a missing key,
+/// which would render as a spurious empty table.
+fn widen_poetry(doc: &mut DocumentMut, edit: &DependencyRangeEdit, widened: &str) -> bool {
+    let Some(dependencies) = doc
+        .get_mut("tool")
+        .and_then(Item::as_table_like_mut)
+        .and_then(|tool| tool.get_mut("poetry"))
+        .and_then(Item::as_table_like_mut)
+        .and_then(|poetry| poetry.get_mut("dependencies"))
+        .and_then(Item::as_table_like_mut)
+    else {
+        return false;
+    };
+    let Some(item) = dependencies.get_mut(&edit.name) else {
+        return false;
+    };
+    if item.as_str() == Some(edit.requirement.as_str()) {
+        return toml::set_string(item, widened);
+    }
+    let Some(version) = item
+        .as_table_like_mut()
+        .and_then(|table| table.get_mut("version"))
+    else {
+        return false;
+    };
+    if version.as_str() == Some(edit.requirement.as_str()) {
+        return toml::set_string(version, widened);
+    }
+    false
+}
+
+/// Widen a PEP 508 `[project].dependencies` declaration of `edit`'s package.
+fn widen_project(doc: &mut DocumentMut, edit: &DependencyRangeEdit, widened: &str) -> bool {
+    let Some(dependencies) = doc
+        .get_mut("project")
+        .and_then(Item::as_table_like_mut)
+        .and_then(|project| project.get_mut("dependencies"))
+        .and_then(Item::as_array_mut)
+    else {
+        return false;
+    };
+    let mut changed = false;
+    for element in dependencies.iter_mut() {
+        let Some(text) = element.as_str() else {
+            continue;
+        };
+        let Some(parsed) = requirement::parse_requirement(text) else {
+            continue;
+        };
+        if parsed.name != edit.name || parsed.specifier != edit.requirement {
+            continue;
+        }
+        let updated = format!("{}{}{}", parsed.prefix, widened, parsed.suffix);
+        changed |= toml::set_value(element, &updated);
+    }
+    changed
 }
 
 /// A key that holds a version scalar momo owns.
@@ -550,6 +736,217 @@ version = \"0.1.0\"
         assert_eq!(
             updated(original, &version("1.2.3")),
             "[project]\nname = \"acme\"\nversion = \"1.2.3\""
+        );
+    }
+
+    /// The requirements `text` declares, read from `manifest`.
+    fn requirements(text: &str) -> Vec<DependencyRequirement> {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = dir.path().join("pyproject.toml");
+        fs::write(&path, text).expect("seed the manifest");
+        PythonManifest
+            .dependencies(&path)
+            .expect("read the dependencies")
+    }
+
+    /// The edits that widen `name`'s `requirement` to admit `target`.
+    fn widening(name: &str, requirement: &str, target: &str) -> ManifestEdits {
+        ManifestEdits {
+            version: None,
+            ranges: vec![DependencyRangeEdit {
+                name: name.to_owned(),
+                requirement: requirement.to_owned(),
+                target: version(target),
+            }],
+        }
+    }
+
+    /// Render `edits` against a manifest seeded on disk with `text`.
+    fn rendered(text: &str, edits: &ManifestEdits) -> ManifestPlan {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let path = dir.path().join("pyproject.toml");
+        fs::write(&path, text).expect("seed the manifest");
+        PythonManifest
+            .render(&path, edits)
+            .expect("render the manifest")
+    }
+
+    #[test]
+    fn a_pep_508_requirement_reports_its_name_and_specifier() {
+        let text = "\
+[project]
+name = \"acme\"
+dependencies = [\"acme>=1.2,<2\", \"other[extra]~=3.4\", \"bare\", \"direct @ https://x/y.whl\"]
+";
+        assert_eq!(
+            requirements(text),
+            vec![
+                DependencyRequirement {
+                    package: "acme".to_owned(),
+                    requirement: ">=1.2,<2".to_owned(),
+                },
+                DependencyRequirement {
+                    package: "other".to_owned(),
+                    requirement: "~=3.4".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_poetry_dependency_reports_its_specifier() {
+        let text = "\
+[tool.poetry.dependencies]
+python = \"^3.11\"
+acme = \"^1.2\"
+other = { version = \"~2.0\", optional = true }
+local = { path = \"../local\" }
+";
+        assert_eq!(
+            requirements(text),
+            vec![
+                DependencyRequirement {
+                    package: "acme".to_owned(),
+                    requirement: "^1.2".to_owned(),
+                },
+                DependencyRequirement {
+                    package: "other".to_owned(),
+                    requirement: "~2.0".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_requirement_is_matched_with_pep_440_semantics() {
+        let python = PythonManifest;
+        assert_eq!(python.satisfied(">=1.2,<2", &version("1.5.0")), Some(true));
+        assert_eq!(python.satisfied(">=1.2,<2", &version("2.0.0")), Some(false));
+        assert_eq!(python.satisfied("~=1.4", &version("1.9.0")), Some(true));
+        assert_eq!(python.satisfied("^1.2", &version("2.0.0")), Some(false));
+        assert_eq!(python.satisfied("not a specifier", &version("1.0.0")), None);
+    }
+
+    #[test]
+    fn a_python_range_is_widened_by_preserving_its_operator() {
+        let python = PythonManifest;
+        for (requirement, expected) in [
+            ("^1.2", "^2.0.0"),
+            ("~1.2", "~2.0.0"),
+            (">=1.2", ">=2.0.0"),
+            ("==1.2.3", "==2.0.0"),
+        ] {
+            assert_eq!(
+                python.widen(requirement, &version("2.0.0")).as_deref(),
+                Some(expected),
+                "`{requirement}` widened wrongly"
+            );
+        }
+        for requirement in ["*", ">=1.2,<2", "!=1.2.3", "==1.2.*"] {
+            assert_eq!(
+                python.widen(requirement, &version("2.0.0")),
+                None,
+                "`{requirement}` was rewritten instead of refused"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pep_508_requirement_is_widened_in_place_and_keeps_its_marker() {
+        let original = "\
+[project]
+name = \"b\"
+version = \"0.1.0\"
+dependencies = [\"acme[extra]>=0.1.0 ; python_version < \\\"3.12\\\"\"]
+";
+        let plan = rendered(original, &widening("acme", ">=0.1.0", "0.2.0"));
+
+        assert_eq!(plan.writes.len(), 1, "{plan:?}");
+        let text = &plan.writes[0].text;
+        // The specifier is re-anchored; the name, extras and marker survive.
+        assert!(text.contains("acme[extra]>=0.2.0"), "{text}");
+        assert!(text.contains("python_version <"), "{text}");
+        assert!(!text.contains(">=0.1.0"), "{text}");
+        assert_eq!(plan.ranges.len(), 1, "{plan:?}");
+    }
+
+    #[test]
+    fn a_poetry_requirement_is_widened_in_place() {
+        let original = "\
+[tool.poetry]
+name = \"b\"
+version = \"0.1.0\"
+
+[tool.poetry.dependencies]
+acme = { version = \"^0.1.0\", optional = true }
+";
+        let plan = rendered(original, &widening("acme", "^0.1.0", "0.2.0"));
+
+        assert_eq!(plan.writes.len(), 1, "{plan:?}");
+        assert!(
+            plan.writes[0]
+                .text
+                .contains("acme = { version = \"^0.2.0\", optional = true }"),
+            "{plan:?}"
+        );
+        assert_eq!(plan.ranges.len(), 1, "{plan:?}");
+    }
+
+    #[test]
+    fn a_version_and_a_range_compose_into_one_write() {
+        let original = "\
+[project]
+name = \"b\"
+version = \"0.1.0\"
+dependencies = [\"acme>=0.1.0\"]
+";
+        let edits = ManifestEdits {
+            version: Some(version("0.2.0")),
+            ranges: widening("acme", ">=0.1.0", "0.2.0").ranges,
+        };
+        let plan = rendered(original, &edits);
+
+        assert_eq!(plan.writes.len(), 1, "{plan:?}");
+        assert_eq!(
+            plan.writes[0].text,
+            "\
+[project]
+name = \"b\"
+version = \"0.2.0\"
+dependencies = [\"acme>=0.2.0\"]
+"
+        );
+    }
+
+    #[test]
+    fn an_unwritable_requirement_leaves_the_manifest_untouched() {
+        let original = "[project]\ndependencies = [\"acme>=0.1.0,<0.2.0\"]\n";
+        let plan = rendered(original, &widening("acme", ">=0.1.0,<0.2.0", "0.2.0"));
+
+        assert!(plan.writes.is_empty(), "{plan:?}");
+        assert!(plan.ranges.is_empty(), "{plan:?}");
+    }
+
+    #[test]
+    fn widening_creates_no_spurious_table() {
+        // `[tool.uv.sources]` makes `tool` present but `poetry` absent; reaching
+        // into it must not leave an empty `poetry = {}` behind.
+        let original = "\
+[project]
+name = \"ui\"
+version = \"0.1.0\"
+dependencies = [\"acme==0.0.1\"]
+
+[tool.uv.sources]
+acme = { workspace = true }
+";
+        let plan = rendered(original, &widening("acme", "==0.0.1", "0.1.0"));
+
+        let text = &plan.writes[0].text;
+        assert!(text.contains("acme==0.1.0"), "{text}");
+        assert!(
+            !text.contains("poetry"),
+            "a spurious table was created: {text}"
         );
     }
 }

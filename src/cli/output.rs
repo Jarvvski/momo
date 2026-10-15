@@ -56,11 +56,11 @@ fn render(cli: &Cli, report: &impl Report) -> String {
 
 /// One dependent edge a Release would leave with an unsatisfied requirement.
 ///
-/// Reported, never fixed — the rewrite is a later change. `satisfied` is
-/// `false` for a requirement momo read and found unsatisfied at `target`, and
-/// `null` for one it could not check: a Node/uv/Go dependent, or a requirement
-/// whose syntax momo does not recognise. It is never `true` — a satisfied edge
-/// is not reported, so an absent entry is the satisfied case.
+/// `satisfied` is `false` for a requirement momo read and found unsatisfied at
+/// `target`, and `null` for one it could not check: a dependent whose provider
+/// has no manifest adapter, a requirement whose syntax momo does not recognise,
+/// or a manifest it could not read. It is never `true` — a satisfied edge is
+/// not reported, so an absent entry is the satisfied case.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Cascade {
     /// The dependent Package, e.g. `cargo:b`.
@@ -103,7 +103,7 @@ impl Cascade {
     /// something momo checked.
     fn unchecked_reason(&self) -> &'static str {
         match self.dependent.split_once(':').map(|(provider, _)| provider) {
-            Some("cargo") | None => "not checked",
+            Some("cargo" | "node" | "uv" | "go") | None => "not checked",
             Some(_) => "unsupported ecosystem, not checked",
         }
     }

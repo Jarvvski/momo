@@ -1,8 +1,9 @@
-//! Manifest adapters: the Rust `Cargo.toml`, the Node `package.json` and the
-//! Python `pyproject.toml`, each implementing a port from
+//! Manifest adapters: the Rust `Cargo.toml`, the Node `package.json`, the
+//! Python `pyproject.toml` and the Go `go.mod`, each implementing a port from
 //! [`crate::domain::manifest`].
 
 mod cargo;
+mod go;
 mod node;
 mod python;
 mod toml;
@@ -11,6 +12,7 @@ mod toml;
 mod roundtrip;
 
 pub use cargo::CargoManifest;
+pub use go::GoManifest;
 pub use node::NodeManifest;
 pub use python::PythonManifest;
 
@@ -25,15 +27,16 @@ use semver::Version;
 /// The [`ManifestSync`] adapter for `package`, chosen by its ecosystem.
 ///
 /// The ecosystem is the Package identity's prefix — `cargo:momo` is a Cargo
-/// package, `node:@acme/ui` a Node one, `uv:acme` a Python one. A single-package
-/// repo carries no prefix, so every ecosystem's conventional manifest is probed
-/// ([`Probe`]). `None` when the Package's ecosystem has no adapter yet, so a
-/// Release skips manifest sync.
+/// package, `node:@acme/ui` a Node one, `uv:acme` a Python one, `go:example.com/acme`
+/// a Go module. A single-package repo carries no prefix, so every ecosystem's
+/// conventional manifest is probed ([`Probe`]). `None` when the Package's
+/// ecosystem has no adapter yet, so a Release skips manifest sync.
 pub fn for_package(package: &Package) -> Option<Box<dyn ManifestSync>> {
     match provider(package.identity()) {
         Some("cargo") => Some(Box::new(CargoManifest)),
         Some("node") => Some(Box::new(NodeManifest)),
         Some("uv") => Some(Box::new(PythonManifest)),
+        Some("go") => Some(Box::new(GoManifest)),
         None => Some(Box::new(Probe::new())),
         Some(_) => None,
     }
@@ -48,10 +51,10 @@ fn provider(identity: &str) -> Option<&str> {
 ///
 /// A single-package repo carries no ecosystem prefix, so the manifest on disk
 /// decides — each adapter is asked for its conventional manifest and the first
-/// one present wins (Cargo before Node before Python, so a repo holding more
-/// than one syncs its `Cargo.toml`). A configured `manifest` override names the
-/// file directly; the adapter whose conventional manifest it is owns it, and
-/// failing that the first adapter to accept it does.
+/// one present wins (Cargo before Node before Python before Go, so a repo
+/// holding more than one syncs its `Cargo.toml`). A configured `manifest`
+/// override names the file directly; the adapter whose conventional manifest it
+/// is owns it, and failing that the first adapter to accept it does.
 struct Probe {
     /// The adapters probed, in order.
     adapters: Vec<Box<dyn ManifestSync>>,
@@ -65,6 +68,7 @@ impl Probe {
                 Box::new(CargoManifest),
                 Box::new(NodeManifest),
                 Box::new(PythonManifest),
+                Box::new(GoManifest),
             ],
         }
     }
@@ -187,6 +191,25 @@ mod tests {
         let package = Package::from_identity("uv:acme", "packages/acme");
         let sync = for_package(&package).expect("uv has an adapter");
         assert_eq!(sync.locate(Path::new("/nope"), None), None);
+    }
+
+    #[test]
+    fn a_go_package_gets_the_go_adapter() {
+        let package = Package::from_identity("go:example.com/acme/api", "api");
+        let sync = for_package(&package).expect("go has an adapter");
+        assert_eq!(sync.locate(Path::new("/nope"), None), None);
+    }
+
+    #[test]
+    fn a_single_package_repo_is_probed_for_go() {
+        let dir = TempDir::new().expect("temp dir");
+        fs::write(dir.path().join("go.mod"), "module example.com/x\n").expect("seed the manifest");
+
+        let sync = for_package(&Package::single("proj")).expect("a probe");
+        assert_eq!(
+            sync.locate(dir.path(), None),
+            Some(dir.path().join("go.mod"))
+        );
     }
 
     #[test]

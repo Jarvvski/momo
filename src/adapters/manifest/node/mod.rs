@@ -1,11 +1,18 @@
 //! The Node manifest adapter: `package.json`, edited by byte span.
 //!
-//! momo rewrites only the top-level `version` string value, spliced in place by
-//! [`json::set_version`]. Nothing is re-rendered, so indentation, key order, the
-//! newline style and whether the file ends in a newline survive byte-for-byte.
-//! Keying on the exact top-level key `version` leaves `packageManager`,
-//! `engines`, `publishConfig` and any `version` nested in `dependencies` or
+//! momo rewrites only the top-level `version` string value and the string
+//! values of a dependency's range, each spliced in place by [`json::splice`].
+//! Nothing is re-rendered, so indentation, key order, the newline style and
+//! whether the file ends in a newline survive byte-for-byte. Keying on the
+//! exact top-level key `version` leaves `packageManager`, `engines`,
+//! `publishConfig` and any `version` nested in `dependencies` or
 //! `devDependencies` untouched by construction.
+//!
+//! npm ranges are read and evaluated by [`range`], a small hand-rolled
+//! evaluator that refuses what it does not understand: a protocol entry
+//! (`workspace:`, `file:`, `git:`, an `npm:` alias) is omitted from the
+//! dependencies momo reports, and a range it cannot parse is *not checked*
+//! rather than assumed satisfied.
 //!
 //! A Node lockfile (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`,
 //! `bun.lockb`) embeds the package's version and lives at the workspace root,
@@ -13,11 +20,13 @@
 //! possibly stale and left for the package manager to refresh — never rewritten.
 
 mod json;
+mod range;
 
 #[cfg(test)]
 mod roundtrip;
 
 use std::fs;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use semver::Version;
@@ -31,6 +40,18 @@ use json::JsonError;
 
 /// The conventional Node manifest name.
 const MANIFEST: &str = "package.json";
+
+/// The dependency tables npm resolves, by the name each is declared under.
+///
+/// Every one is scanned, because mise's project graph reports an edge for a
+/// dependency declared in any of them — a `devDependencies` entry is as much an
+/// edge as a `dependencies` one.
+const DEPENDENCY_TABLES: [&str; 4] = [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+];
 
 /// The lockfiles a Node package manager maintains, in reporting order.
 const LOCKFILES: [&str; 5] = [
@@ -58,27 +79,52 @@ impl ManifestSync for NodeManifest {
         manifest: &Path,
         edits: &ManifestEdits,
     ) -> Result<ManifestPlan, ManifestError> {
-        let Some(version) = &edits.version else {
-            // npm ranges are not rewritten yet, so an edits value carrying no
-            // version has nothing for this adapter to write.
+        if edits.version.is_none() && edits.ranges.is_empty() {
             return Ok(ManifestPlan::default());
-        };
+        }
         let text = read(manifest)?;
+        let mut plan = ManifestPlan::default();
+        let mut replacements: Vec<(Range<usize>, String)> = Vec::new();
 
-        Ok(match set_version(&text, manifest, version)? {
-            Resolved::Write { text } => ManifestPlan {
-                lockfiles: lockfiles(manifest),
-                writes: vec![ManifestWrite {
-                    path: manifest.to_path_buf(),
-                    text,
-                }],
-                ..ManifestPlan::default()
-            },
-            Resolved::Skip { reason } => ManifestPlan {
-                skipped: vec![(manifest.to_path_buf(), reason)],
-                ..ManifestPlan::default()
-            },
-        })
+        if let Some(version) = &edits.version {
+            match set_version(&text, manifest, version)? {
+                Resolved::Write { span } => replacements.push((span, version.to_string())),
+                Resolved::Skip { reason } => {
+                    plan.skipped.push((manifest.to_path_buf(), reason));
+                }
+            }
+        }
+
+        if !edits.ranges.is_empty() {
+            let entries = json::dependency_entries(&text, &DEPENDENCY_TABLES)
+                .map_err(|source| invalid(manifest, source))?;
+            for edit in &edits.ranges {
+                // A form momo cannot rewrite is left as the project wrote it and
+                // reported by `for_package`, never guessed at.
+                let Some(widened) = self.widen(&edit.requirement, &edit.target) else {
+                    continue;
+                };
+                let mut applied = false;
+                for entry in &entries {
+                    if entry.name == edit.name && entry.requirement == edit.requirement {
+                        replacements.push((entry.value.clone(), widened.clone()));
+                        applied = true;
+                    }
+                }
+                if applied {
+                    plan.ranges.push(edit.clone());
+                }
+            }
+        }
+
+        if !replacements.is_empty() {
+            plan.writes.push(ManifestWrite {
+                path: manifest.to_path_buf(),
+                text: json::splice(&text, &mut replacements),
+            });
+            plan.lockfiles = lockfiles(manifest);
+        }
+        Ok(plan)
     }
 
     fn write(&self, manifest: &Path, edits: &ManifestEdits) -> Result<ManifestPlan, ManifestError> {
@@ -95,22 +141,38 @@ impl ManifestSync for NodeManifest {
 
     /// The dependencies `package.json` declares.
     ///
-    /// Not read yet: the cascade evaluates Cargo ranges only and reports a Node
-    /// dependent as unchecked without consulting this. An empty list therefore
-    /// means *not checked*, never "no dependencies".
-    fn dependencies(&self, _manifest: &Path) -> Result<Vec<DependencyRequirement>, ManifestError> {
-        Ok(Vec::new())
+    /// Every npm dependency table is scanned. A protocol entry — `workspace:`,
+    /// `file:`, `link:`, `portal:`, `git:`/`github:` and friends, an `npm:`
+    /// alias, or a tarball URL — names *where* a dependency comes from, not
+    /// which versions are acceptable, so it is omitted rather than reported as
+    /// satisfied: it constrains nothing a Release could break. No npm range
+    /// contains a `:`.
+    fn dependencies(&self, manifest: &Path) -> Result<Vec<DependencyRequirement>, ManifestError> {
+        let text = read(manifest)?;
+        let entries = json::dependency_entries(&text, &DEPENDENCY_TABLES)
+            .map_err(|source| invalid(manifest, source))?;
+        Ok(entries
+            .into_iter()
+            .filter(|entry| !entry.requirement.contains(':'))
+            .map(|entry| DependencyRequirement {
+                package: entry.name,
+                requirement: entry.requirement,
+            })
+            .collect())
     }
 
-    /// npm ranges are not evaluated yet, so no Node requirement is ever reported
-    /// satisfied.
-    fn satisfied(&self, _requirement: &str, _version: &Version) -> Option<bool> {
-        None
+    /// Whether `version` satisfies the npm range `requirement`.
+    ///
+    /// `None` when the range is not one momo understands — a protocol entry, or
+    /// a grammar this evaluator refuses — so an edge it cannot read is reported
+    /// as *not checked*, never as satisfied.
+    fn satisfied(&self, requirement: &str, version: &Version) -> Option<bool> {
+        range::satisfied(requirement, version)
     }
 
-    /// npm ranges are not rewritten yet, so no Node requirement is ever widened.
-    fn widen(&self, _requirement: &str, _target: &Version) -> Option<String> {
-        None
+    /// Widen an npm range to admit `target`, preserving its operator form.
+    fn widen(&self, requirement: &str, target: &Version) -> Option<String> {
+        range::widen(requirement, target)
     }
 }
 
@@ -125,10 +187,10 @@ fn read(manifest: &Path) -> Result<String, ManifestError> {
 /// The outcome of resolving one `package.json` against a Version.
 #[derive(Debug, PartialEq, Eq)]
 enum Resolved {
-    /// The manifest's new text.
+    /// The byte span of the top-level `version` value to replace.
     Write {
-        /// The manifest's new text.
-        text: String,
+        /// The span of the value literal, quotes included.
+        span: Range<usize>,
     },
     /// Nothing to write, and why.
     Skip {
@@ -137,28 +199,23 @@ enum Resolved {
     },
 }
 
-/// Render `text` with its top-level `version` set to `version`.
+/// Locate `text`'s top-level `version` value, when momo should write `version`.
 ///
 /// `Resolved::Skip` when the manifest holds no version momo owns, or already
 /// carries `version` — in both cases there is nothing to write, and the reason
 /// says which.
 fn set_version(text: &str, manifest: &Path, version: &Version) -> Result<Resolved, ManifestError> {
-    if json::version_span(text)
-        .map_err(|source| invalid(manifest, source))?
-        .is_none()
-    {
+    let Some(span) = json::version_span(text).map_err(|source| invalid(manifest, source))? else {
         return Ok(Resolved::Skip {
             reason: SkipReason::NoVersion,
         });
-    }
-    match json::set_version(text, &version.to_string())
-        .map_err(|source| invalid(manifest, source))?
-    {
-        Some(text) => Ok(Resolved::Write { text }),
-        None => Ok(Resolved::Skip {
+    };
+    if json::inner(text, &span) == version.to_string() {
+        return Ok(Resolved::Skip {
             reason: SkipReason::AlreadyCurrent,
-        }),
+        });
     }
+    Ok(Resolved::Write { span })
 }
 
 /// Attribute a JSON scan failure to `manifest`.
@@ -196,6 +253,7 @@ fn lockfiles(manifest: &Path) -> Vec<PathBuf> {
 mod tests {
     use super::*;
 
+    use crate::domain::manifest::DependencyRangeEdit;
     use tempfile::TempDir;
 
     /// The manifest path the tests attribute errors to.
@@ -210,8 +268,30 @@ mod tests {
     /// The rendered text of a rewrite, panicking on a skip.
     fn updated(text: &str, version: &Version) -> String {
         match set_version(text, manifest(), version).expect("valid JSON") {
-            Resolved::Write { text } => text,
+            Resolved::Write { span } => json::splice(text, &mut [(span, version.to_string())]),
             Resolved::Skip { reason } => panic!("expected a write, got a skip: {reason}"),
+        }
+    }
+
+    /// The requirements `text` declares, read from `manifest`.
+    fn requirements(text: &str) -> Vec<DependencyRequirement> {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("package.json");
+        fs::write(&path, text).expect("seed the manifest");
+        NodeManifest
+            .dependencies(&path)
+            .expect("read the dependencies")
+    }
+
+    /// The edits that widen `name`'s `requirement` to admit `target`.
+    fn widening(name: &str, requirement: &str, target: &str) -> ManifestEdits {
+        ManifestEdits {
+            version: None,
+            ranges: vec![DependencyRangeEdit {
+                name: name.to_owned(),
+                requirement: requirement.to_owned(),
+                target: version(target),
+            }],
         }
     }
 
@@ -456,5 +536,157 @@ mod tests {
         fs::write(&manifest, "{}").expect("seed the manifest");
 
         assert!(lockfiles(&manifest).is_empty());
+    }
+
+    #[test]
+    fn every_dependency_table_is_read() {
+        let text = "{\n  \"dependencies\": {\"a\": \"^1.0.0\"},\n  \
+                    \"devDependencies\": {\"b\": \"~2.0.0\"},\n  \
+                    \"peerDependencies\": {\"c\": \"3.0.0\"},\n  \
+                    \"optionalDependencies\": {\"d\": \"*\"}\n}\n";
+
+        assert_eq!(
+            requirements(text),
+            vec![
+                DependencyRequirement {
+                    package: "a".to_owned(),
+                    requirement: "^1.0.0".to_owned(),
+                },
+                DependencyRequirement {
+                    package: "b".to_owned(),
+                    requirement: "~2.0.0".to_owned(),
+                },
+                DependencyRequirement {
+                    package: "c".to_owned(),
+                    requirement: "3.0.0".to_owned(),
+                },
+                DependencyRequirement {
+                    package: "d".to_owned(),
+                    requirement: "*".to_owned(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_protocol_entry_is_omitted_rather_than_reported() {
+        // A protocol entry constrains nothing momo could break, so it is not a
+        // requirement at all.
+        let text = "{\n  \"dependencies\": {\n    \
+                    \"local\": \"workspace:*\",\n    \
+                    \"file\": \"file:../other\",\n    \
+                    \"git\": \"github:acme/other\",\n    \
+                    \"alias\": \"npm:other@^1.0.0\",\n    \
+                    \"real\": \"^2.0.0\"\n  }\n}\n";
+
+        assert_eq!(
+            requirements(text),
+            vec![DependencyRequirement {
+                package: "real".to_owned(),
+                requirement: "^2.0.0".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_requirement_is_matched_with_npms_semantics() {
+        let node = NodeManifest;
+        assert_eq!(node.satisfied("^1.0.0", &version("1.5.0")), Some(true));
+        assert_eq!(node.satisfied("^1.0.0", &version("2.0.0")), Some(false));
+        assert_eq!(node.satisfied("~1.2", &version("1.3.0")), Some(false));
+        assert_eq!(
+            node.satisfied(">=1.0.0 <2.0.0", &version("1.5.0")),
+            Some(true)
+        );
+        assert_eq!(node.satisfied("*", &version("9.9.9")), Some(true));
+        assert_eq!(
+            node.satisfied("workspace:*", &version("1.0.0")),
+            None,
+            "a protocol entry is not a range"
+        );
+    }
+
+    #[test]
+    fn a_node_range_is_widened_by_preserving_its_operator() {
+        let node = NodeManifest;
+        for (requirement, expected) in [
+            ("^1.0.0", "^2.0.0"),
+            ("~1.2", "~2.0.0"),
+            ("1.2.3", "2.0.0"),
+            (">=1.0.0", ">=2.0.0"),
+        ] {
+            assert_eq!(
+                node.widen(requirement, &version("2.0.0")).as_deref(),
+                Some(expected),
+                "`{requirement}` widened wrongly"
+            );
+        }
+        for requirement in ["*", "1.x", ">1.0.0", "<2.0.0", "^1.0.0 || ^2.0.0"] {
+            assert_eq!(
+                node.widen(requirement, &version("2.0.0")),
+                None,
+                "`{requirement}` was rewritten instead of refused"
+            );
+        }
+    }
+
+    #[test]
+    fn a_range_is_widened_in_place_and_the_rest_of_the_file_survives() {
+        let original = "{\n  \"name\": \"@acme/ui\",\n  \"version\": \"0.1.0\",\n  \
+                        \"dependencies\": {\"a\": \"^0.1.0\"},\n  \
+                        \"scripts\": {\"a\": \"^0.1.0\"}\n}\n";
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("package.json");
+        fs::write(&path, original).expect("seed the manifest");
+
+        let plan = NodeManifest
+            .render(&path, &widening("a", "^0.1.0", "0.2.0"))
+            .expect("render the manifest");
+
+        assert_eq!(plan.writes.len(), 1, "{plan:?}");
+        assert_eq!(
+            plan.writes[0].text,
+            "{\n  \"name\": \"@acme/ui\",\n  \"version\": \"0.1.0\",\n  \
+             \"dependencies\": {\"a\": \"^0.2.0\"},\n  \
+             \"scripts\": {\"a\": \"^0.1.0\"}\n}\n"
+        );
+        assert_eq!(plan.ranges.len(), 1, "{plan:?}");
+    }
+
+    #[test]
+    fn a_version_and_a_range_compose_into_one_write() {
+        let original = "{\n  \"version\": \"0.1.0\",\n  \"dependencies\": {\"a\": \"^0.1.0\"}\n}\n";
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("package.json");
+        fs::write(&path, original).expect("seed the manifest");
+        let edits = ManifestEdits {
+            version: Some(version("0.2.0")),
+            ranges: widening("a", "^0.1.0", "0.2.0").ranges,
+        };
+
+        let plan = NodeManifest
+            .render(&path, &edits)
+            .expect("render the manifest");
+
+        assert_eq!(plan.writes.len(), 1, "{plan:?}");
+        assert_eq!(
+            plan.writes[0].text,
+            "{\n  \"version\": \"0.2.0\",\n  \"dependencies\": {\"a\": \"^0.2.0\"}\n}\n"
+        );
+    }
+
+    #[test]
+    fn an_unwritable_range_leaves_the_manifest_untouched() {
+        let original = "{\"version\": \"0.1.0\", \"dependencies\": {\"a\": \"1.x\"}}\n";
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("package.json");
+        fs::write(&path, original).expect("seed the manifest");
+
+        let plan = NodeManifest
+            .render(&path, &widening("a", "1.x", "2.0.0"))
+            .expect("render the manifest");
+
+        assert!(plan.writes.is_empty(), "{plan:?}");
+        assert!(plan.ranges.is_empty(), "{plan:?}");
     }
 }

@@ -138,7 +138,7 @@ Unreleased
     → next: 0.0.0
 ```
 
-Each entry is `{ dependent, dependency, requirement, target, satisfied }`. `satisfied` is `false` for a range momo read and found unsatisfied, and `null` for an edge it could not check: a Node/uv/Go dependent, for which there is no manifest reader yet, or a requirement whose syntax momo does not recognise. It is never `true` — a satisfied edge is simply absent. Only Cargo ranges are checked for now; the graph comes from `mise tasks graph`, so an edge mise does not infer is not reported at all.
+Each entry is `{ dependent, dependency, requirement, target, satisfied }`. `satisfied` is `false` for a range momo read and found unsatisfied, and `null` for an edge it could not check: a dependent whose provider has no manifest adapter, or a requirement whose syntax momo does not recognise. It is never `true` — a satisfied edge is simply absent. Cargo, Node, Python (`uv`) and Go dependents are all checked, each against its own range grammar; the graph comes from `mise tasks graph`, so an edge mise does not infer is not reported at all.
 
 ### Rewriting dependent ranges
 
@@ -160,9 +160,9 @@ The rewrite is **opt-in** (`--sync-ranges`, default off), so an existing run's o
 
 - **Only dependents already in the release set.** A dependent is rewritten only when it is being released in the same run, because that is a manifest momo was going to write anyway. A dependent with no unreleased Changes of its own keeps its range and stays in `cascade` — momo never manufactures a release for it.
 - **One file, one render.** The dependent's version scalar and its widened range are composed into a single write, so one never overwrites the other. A range inherited with `workspace = true` is rewritten in the workspace root's `[workspace.dependencies]`, where the requirement actually lives.
-- **Widen only, and never guess.** The requirement's operator is preserved and re-anchored at the new version (`^0.1.0` → `^0.2.0`). A form momo does not rewrite — a conjunction such as `>=1.0, <2.0`, or an upper bound — is left exactly as the project wrote it and reported in `cascade` instead.
+- **Widen only, and never guess.** The requirement's operator is preserved and re-anchored at the new version (`^0.1.0` → `^0.2.0`). A form momo does not rewrite — a Cargo conjunction such as `>=1.0, <2.0`, an npm `*`, a Python union, or a Go pin whose major changed — is left exactly as the project wrote it and reported in `cascade` instead.
 - **Never on `candidate`.** `^5.0.0` is not satisfied by `5.1.0-next.0`, so a prerelease would rewrite every internal range spuriously. A candidate bumps versions and reports ranges; only a release rewrites them.
-- **Cargo only for now.** A Node/uv/Go dependent is never rewritten, and a requirement momo cannot read is never guessed at.
+- **Each ecosystem's own grammar.** A Cargo range, an npm semver range, a PEP 440 or Poetry constraint and a Go pin are each read and rewritten by their own rules. A Node/uv/Go dependent is now rewritten where its form is one momo understands; a requirement momo cannot read is never guessed at.
 
 With `-p cargo:a` only `cargo:a` is planned, so nothing is rewritten even with the flag: the report still shows `cargo:b`'s unsatisfied range.
 

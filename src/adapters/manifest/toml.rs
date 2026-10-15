@@ -43,15 +43,23 @@ pub fn parse(text: &str, path: &Path) -> Result<DocumentMut, ManifestError> {
 /// `value`, or is not a scalar to replace, so a caller can tell an edit from a
 /// no-op.
 pub fn set_string(item: &mut Item, value: &str) -> bool {
-    if item.as_str() == Some(value) {
+    match item.as_value_mut() {
+        Some(current) => set_value(current, value),
+        None => false,
+    }
+}
+
+/// Replace a scalar `value` with the string `text`, keeping its decor.
+///
+/// The [`Value`] counterpart of [`set_string`], for editing an array element
+/// directly. Returns whether the value changed.
+pub fn set_value(value: &mut Value, text: &str) -> bool {
+    if value.as_str() == Some(text) {
         return false;
     }
-    let Some(current) = item.as_value_mut() else {
-        return false;
-    };
-    let decor = current.decor().clone();
-    *current = Value::from(value);
-    *current.decor_mut() = decor;
+    let decor = value.decor().clone();
+    *value = Value::from(text);
+    *value.decor_mut() = decor;
     true
 }
 

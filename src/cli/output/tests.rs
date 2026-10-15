@@ -373,9 +373,12 @@ fn status_json_reports_an_unchecked_cascade_entry_as_null() {
 
 #[test]
 fn status_human_names_the_cascade_after_the_next_version() {
+    // A `gem:` dependent has no adapter, so it reads as an unsupported
+    // ecosystem; a `node:` one is checked, so a missing requirement is simply
+    // "not checked".
     let report = status_with(vec![
         cascade("cargo:b", Some("^1.0"), Some(false)),
-        cascade("node:ui", None, None),
+        cascade("gem:ui", None, None),
         cascade("cargo:c", Some("nonsense"), None),
     ]);
 
@@ -383,7 +386,7 @@ fn status_human_names_the_cascade_after_the_next_version() {
         report.human(),
         "Unreleased\n\n  momo\n    current: —\n    → next: 0.0.0\n\
          \x20   cascade: cargo:b requires cargo:a ^1.0 — unsatisfied at 2.0.0\n\
-         \x20   cascade: node:ui requires cargo:a — unsupported ecosystem, not checked\n\
+         \x20   cascade: gem:ui requires cargo:a — unsupported ecosystem, not checked\n\
          \x20   cascade: cargo:c requires cargo:a nonsense — not checked\n"
     );
 }
