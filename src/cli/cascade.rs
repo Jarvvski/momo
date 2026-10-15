@@ -3,11 +3,11 @@
 //!
 //! Report first. For each Package being released, every dependency edge into it
 //! (from the workspace's inferred graph) is checked against the Version about to
-//! be minted. A Cargo dependent whose requirement the new Version does not
-//! satisfy is reported; an edge momo cannot read — a Node/uv/Go dependent, or a
-//! requirement whose syntax it does not recognise — is reported as *not checked*
-//! rather than silently dropped, because a silent omission would read as
-//! satisfied.
+//! be minted. A Cargo, Node, Python (uv) or Go dependent whose requirement the
+//! new Version does not satisfy is reported; an edge momo cannot read — a
+//! provider with no adapter, a requirement whose syntax it does not recognise,
+//! or a manifest it could not parse — is reported as *not checked* rather than
+//! silently dropped, because a silent omission would read as satisfied.
 //!
 //! The rewrite rides on the same read. A dependent that is *itself* in the
 //! release set has a manifest momo is going to write anyway, so the range that
@@ -79,9 +79,9 @@ impl RangeRewrites {
 ///
 /// `planned` is the whole release set — each Package with the Version it mints —
 /// because whether a range is rewritten depends on a *different* Package's
-/// target. Only Cargo requirements are rewritten; a Node/uv/Go dependent is left
-/// exactly as the project wrote it, and a requirement whose syntax momo does not
-/// recognise is never guessed at.
+/// target. Each ecosystem's adapter rewrites only the forms it understands: a
+/// requirement whose syntax momo does not recognise is left exactly as the
+/// project wrote it and reported by [`for_package`], never guessed at.
 pub fn range_rewrites(
     repo_root: &Path,
     workspace: &Workspace,
@@ -160,9 +160,9 @@ fn read(
     edge: &Edge,
     target: &Version,
 ) -> Reading {
-    // Only Cargo is checked for the first cut: a Node/uv/Go dependent declares
-    // its ranges in a grammar momo does not read yet, so the edge is reported
-    // unchecked rather than silently dropped.
+    // A provider momo has no adapter for — a `gem:` dependent — declares its
+    // ranges in a grammar momo does not read, so the edge is reported unchecked
+    // rather than silently dropped.
     if !checks_requirements(dependent) {
         return Reading::Unreadable;
     }
@@ -287,17 +287,17 @@ fn package_of<'a>(workspace: &'a Workspace, id: &str) -> Option<&'a Package> {
 
 /// Whether momo evaluates `package`'s requirement ranges.
 ///
-/// Cargo only, for the first cut: a `uv:` or `node:` dependent declares its
-/// ranges in a grammar momo does not read yet, so its edges are reported
-/// unchecked. A bare identity is a single-package repo's own Package, which no
-/// dependency edge reaches.
+/// Cargo, Node, Python (`uv`) and Go: each has an adapter that reads its
+/// manifest and evaluates its requirement grammar. A provider with no adapter —
+/// a `gem:` dependent — is reported unchecked. A bare identity is a
+/// single-package repo's own Package, which no dependency edge reaches.
 fn checks_requirements(package: &Package) -> bool {
     matches!(
         package
             .identity()
             .split_once(':')
             .map(|(provider, _)| provider),
-        Some("cargo") | None
+        Some("cargo" | "node" | "uv" | "go") | None
     )
 }
 
@@ -369,6 +369,97 @@ mod tests {
         )
     }
 
+    /// A scratch repo with `packages/b/package.json` declaring `requirement` on
+    /// `@acme/a`.
+    fn node_repo(requirement: &str) -> (TempDir, PathBuf) {
+        let dir = TempDir::new().expect("temp dir");
+        let member = dir.path().join("packages/b");
+        fs::create_dir_all(&member).expect("create the member dir");
+        fs::write(
+            member.join("package.json"),
+            format!(
+                "{{\n  \"name\": \"@acme/b\",\n  \"version\": \"0.1.0\",\n  \
+                 \"dependencies\": {{ \"@acme/a\": \"{requirement}\" }}\n}}\n"
+            ),
+        )
+        .expect("seed the dependent manifest");
+        (dir, member)
+    }
+
+    /// A two-package Node workspace whose `b` depends on `a`.
+    fn node_workspace(root: &Path) -> Workspace {
+        workspace(
+            root,
+            vec![
+                project("node:@acme/a", "packages/a"),
+                project("node:@acme/b", "packages/b"),
+            ],
+            vec![Edge::new("node:@acme/b", "node:@acme/a", None)],
+        )
+    }
+
+    /// A scratch repo with `packages/ui/pyproject.toml` declaring `specifier`
+    /// on `acme`.
+    fn python_repo(specifier: &str) -> (TempDir, PathBuf) {
+        let dir = TempDir::new().expect("temp dir");
+        let member = dir.path().join("packages/ui");
+        fs::create_dir_all(&member).expect("create the member dir");
+        fs::write(
+            member.join("pyproject.toml"),
+            format!(
+                "[project]\nname = \"ui\"\nversion = \"0.1.0\"\n\
+                 dependencies = [\"acme{specifier}\"]\n"
+            ),
+        )
+        .expect("seed the dependent manifest");
+        (dir, member)
+    }
+
+    /// A two-package Python workspace whose `ui` depends on `acme`.
+    fn python_workspace(root: &Path) -> Workspace {
+        workspace(
+            root,
+            vec![
+                project("uv:acme", "packages/acme"),
+                project("uv:ui", "packages/ui"),
+            ],
+            vec![Edge::new("uv:ui", "uv:acme", None)],
+        )
+    }
+
+    /// A scratch repo with `api2/go.mod` requiring `example.com/acme/api` at
+    /// `requirement`.
+    fn go_repo(requirement: &str) -> (TempDir, PathBuf) {
+        let dir = TempDir::new().expect("temp dir");
+        let member = dir.path().join("api2");
+        fs::create_dir_all(&member).expect("create the member dir");
+        fs::write(
+            member.join("go.mod"),
+            format!(
+                "module example.com/acme/api2\n\ngo 1.22\n\n\
+                 require example.com/acme/api {requirement}\n"
+            ),
+        )
+        .expect("seed the dependent manifest");
+        (dir, member)
+    }
+
+    /// A two-module Go workspace whose `api2` depends on `api`.
+    fn go_workspace(root: &Path) -> Workspace {
+        workspace(
+            root,
+            vec![
+                project("go:example.com/acme/api", "api"),
+                project("go:example.com/acme/api2", "api2"),
+            ],
+            vec![Edge::new(
+                "go:example.com/acme/api2",
+                "go:example.com/acme/api",
+                None,
+            )],
+        )
+    }
+
     #[test]
     fn an_unsatisfied_cargo_range_is_reported() {
         let (dir, _) = cargo_repo("=0.0.1");
@@ -397,49 +488,82 @@ mod tests {
     }
 
     #[test]
-    fn a_non_cargo_dependent_is_reported_unchecked() {
-        let dir = TempDir::new().expect("temp dir");
-        let workspace = workspace(
-            dir.path(),
-            vec![
-                project("node:@acme/a", "packages/a"),
-                project("node:@acme/b", "packages/b"),
-            ],
-            vec![Edge::new("node:@acme/b", "node:@acme/a", None)],
-        );
+    fn an_unsatisfied_node_range_is_reported_with_its_requirement() {
+        let (dir, _) = node_repo("^0.1.0");
+        let workspace = node_workspace(dir.path());
         let released = &workspace.packages()[0];
 
-        let entries = for_package(dir.path(), &workspace, released, &Version::new(0, 1, 0));
+        // `^0.1.0` admits `0.1.x`, not `0.2.0`.
+        let entries = for_package(dir.path(), &workspace, released, &Version::new(0, 2, 0));
 
         assert_eq!(entries.len(), 1, "{entries:?}");
         assert_eq!(entries[0].dependent, "node:@acme/b");
-        assert_eq!(entries[0].requirement, None);
-        assert_eq!(
-            entries[0].satisfied, None,
-            "an unchecked edge was reported as satisfied"
-        );
+        assert_eq!(entries[0].requirement.as_deref(), Some("^0.1.0"));
+        assert_eq!(entries[0].satisfied, Some(false));
     }
 
     #[test]
-    fn a_python_dependent_is_reported_unchecked() {
-        // A `uv:` dependent has a manifest adapter, but its PEP 440 ranges are
-        // not evaluated yet — the edge must not disappear as though satisfied.
-        let dir = TempDir::new().expect("temp dir");
-        let workspace = workspace(
-            dir.path(),
-            vec![
-                project("uv:acme", "packages/acme"),
-                project("uv:ui", "packages/ui"),
-            ],
-            vec![Edge::new("uv:ui", "uv:acme", None)],
-        );
+    fn a_satisfied_node_range_is_absent() {
+        let (dir, _) = node_repo("^0.2.0");
+        let workspace = node_workspace(dir.path());
         let released = &workspace.packages()[0];
 
-        let entries = for_package(dir.path(), &workspace, released, &Version::new(0, 1, 0));
+        let entries = for_package(dir.path(), &workspace, released, &Version::new(0, 2, 0));
+
+        assert!(entries.is_empty(), "{entries:?}");
+    }
+
+    #[test]
+    fn an_unsatisfied_python_range_is_reported_with_its_requirement() {
+        let (dir, _) = python_repo(">=0.1.0,<0.2.0");
+        let workspace = python_workspace(dir.path());
+        let released = &workspace.packages()[0];
+
+        let entries = for_package(dir.path(), &workspace, released, &Version::new(0, 2, 0));
 
         assert_eq!(entries.len(), 1, "{entries:?}");
         assert_eq!(entries[0].dependent, "uv:ui");
-        assert_eq!(entries[0].satisfied, None);
+        assert_eq!(entries[0].requirement.as_deref(), Some(">=0.1.0,<0.2.0"));
+        assert_eq!(entries[0].satisfied, Some(false));
+    }
+
+    #[test]
+    fn a_satisfied_python_range_is_absent() {
+        let (dir, _) = python_repo(">=0.1.0");
+        let workspace = python_workspace(dir.path());
+        let released = &workspace.packages()[0];
+
+        let entries = for_package(dir.path(), &workspace, released, &Version::new(0, 2, 0));
+
+        assert!(entries.is_empty(), "{entries:?}");
+    }
+
+    #[test]
+    fn a_go_dependent_is_reported_with_its_pinned_version() {
+        // The pin `v0.1.0` is a different major from the target `1.0.0`, which
+        // is a different module path, so the edge is unsatisfied.
+        let (dir, _) = go_repo("v0.1.0");
+        let workspace = go_workspace(dir.path());
+        let released = &workspace.packages()[0];
+
+        let entries = for_package(dir.path(), &workspace, released, &Version::new(1, 0, 0));
+
+        assert_eq!(entries.len(), 1, "{entries:?}");
+        assert_eq!(entries[0].dependent, "go:example.com/acme/api2");
+        assert_eq!(entries[0].requirement.as_deref(), Some("v0.1.0"));
+        assert_eq!(entries[0].satisfied, Some(false));
+    }
+
+    #[test]
+    fn a_satisfied_go_pin_is_absent() {
+        // `v0.2.0` keeps the pinned major and is at least `v0.1.0`.
+        let (dir, _) = go_repo("v0.1.0");
+        let workspace = go_workspace(dir.path());
+        let released = &workspace.packages()[0];
+
+        let entries = for_package(dir.path(), &workspace, released, &Version::new(0, 2, 0));
+
+        assert!(entries.is_empty(), "{entries:?}");
     }
 
     #[test]
@@ -536,15 +660,35 @@ mod tests {
     }
 
     #[test]
-    fn a_non_cargo_dependent_is_never_rewritten() {
+    fn a_node_dependent_gets_its_range_widened() {
+        let (dir, _) = node_repo("^0.1.0");
+        let workspace = node_workspace(dir.path());
+        let a = &workspace.packages()[0];
+        let b = &workspace.packages()[1];
+        let (target_a, target_b) = (Version::new(0, 2, 0), Version::new(0, 1, 1));
+
+        let mut rewrites =
+            range_rewrites(dir.path(), &workspace, &[(a, &target_a), (b, &target_b)]);
+
+        assert_eq!(
+            rewrites.take("node:@acme/b"),
+            vec![DependencyRangeEdit {
+                name: "@acme/a".to_owned(),
+                requirement: "^0.1.0".to_owned(),
+                target: Version::new(0, 2, 0),
+            }]
+        );
+    }
+
+    #[test]
+    fn an_unsupported_ecosystem_is_never_rewritten() {
+        // A `gem:` dependent has no adapter, so it is reported unchecked by
+        // `for_package` and staged by no rewrite.
         let dir = TempDir::new().expect("temp dir");
         let workspace = workspace(
             dir.path(),
-            vec![
-                project("node:@acme/a", "packages/a"),
-                project("node:@acme/b", "packages/b"),
-            ],
-            vec![Edge::new("node:@acme/b", "node:@acme/a", None)],
+            vec![project("gem:a", "gems/a"), project("gem:b", "gems/b")],
+            vec![Edge::new("gem:b", "gem:a", None)],
         );
         let a = &workspace.packages()[0];
         let b = &workspace.packages()[1];
@@ -553,7 +697,7 @@ mod tests {
         let mut rewrites =
             range_rewrites(dir.path(), &workspace, &[(a, &target_a), (b, &target_b)]);
 
-        assert!(rewrites.take("node:@acme/b").is_empty());
+        assert!(rewrites.take("gem:b").is_empty());
     }
 
     #[test]

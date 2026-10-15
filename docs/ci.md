@@ -139,9 +139,9 @@ A lockfile the package manager maintains (`Cargo.lock`, `pnpm-lock.yaml`) is nev
 
 - `dependent` depends on `dependency` — the package being released — declaring `requirement`.
 - `target` is the version the released package would mint.
-- `satisfied` is `false` when momo read the range and the target does not match it, and `null` when it could not check the edge: a Node/uv/Go dependent (no manifest reader yet), a requirement whose syntax momo does not recognise, or a manifest it could not read. It is **never `true`** — a satisfied edge is simply absent, so an empty array means either no dependents or every one satisfied.
+- `satisfied` is `false` when momo read the range and the target does not match it, and `null` when it could not check the edge: a dependent whose provider has no manifest adapter (a `gem:` package), a requirement whose syntax momo does not recognise, or a manifest it could not read. It is **never `true`** — a satisfied edge is simply absent, so an empty array means either no dependents or every one satisfied.
 
-Only Cargo ranges are checked for now. The edges come from `mise tasks graph`, so a dependency mise does not infer is not reported at all — an empty array is not a promise that nothing will break.
+Cargo, Node, Python (`uv`) and Go dependents are checked, each against its own grammar: Cargo's caret/`~`/`=`/`>=`/`*` forms, npm's semver ranges (caret, tilde, exact, `*`/`x`, comparators, hyphen ranges and `||` unions), PEP 440 and Poetry's caret/tilde constraints, and a Go pin — satisfied when the target keeps the pinned major and is at least it, since a new major is a different module path. A protocol entry that constrains nothing (`workspace:`, `file:`, `link:`, `git:`/`github:`, an `npm:` alias) is omitted rather than reported. The edges come from `mise tasks graph`, so a dependency mise does not infer is not reported at all — an empty array is not a promise that nothing will break.
 
 ### Dependency ranges
 
@@ -158,7 +158,7 @@ Only Cargo ranges are checked for now. The edges come from `mise tasks graph`, s
 
 - `requirement` is what the dependent declared before the rewrite; `target` is the version the requirement was widened to admit.
 - The array is attached to the package whose release *caused* the rewrite — the `dependency` — and is empty unless the run passed `--sync-ranges`.
-- Only dependents already in the release set are rewritten; the rest stay in `cascade`. Only Cargo ranges are rewritten, only the operator's form is preserved (`^0.1.0` → `^0.2.0`), and a requirement momo cannot rewrite is left alone and reported in `cascade`. A `candidate` never rewrites a range.
+- Only dependents already in the release set are rewritten; the rest stay in `cascade`. Each ecosystem's adapter rewrites only the forms it understands, preserving the operator's form (`^0.1.0` → `^0.2.0` in Cargo, npm or Poetry, `>=1.2` → `>=2.0.0`, a Go pin `v0.1.0` → `v0.2.0`), and a requirement momo cannot rewrite is left alone and reported in `cascade`. A `candidate` never rewrites a range.
 
 ### `tag` (`--format json`)
 

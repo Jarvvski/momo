@@ -43,27 +43,83 @@ pub(crate) fn version_span(text: &str) -> Result<Option<Range<usize>>, JsonError
     Ok(span)
 }
 
-/// `text` with the top-level `"version"` value set to `version`.
+/// One declaration in a dependency table: the dependency's name, the byte span
+/// of its string value (quotes included), and the value's text.
+#[derive(Debug)]
+pub(crate) struct Dependency {
+    /// The dependency's name, as the table key spells it.
+    pub(crate) name: String,
+    /// The byte span of the value literal, quotes included.
+    pub(crate) value: Range<usize>,
+    /// The value's text, without its quotes.
+    pub(crate) requirement: String,
+}
+
+/// Every dependency declaration in `text`'s `tables`, in document order.
 ///
-/// `None` when `text` holds no version momo owns (see [`version_span`]) or the
-/// version is already `version` — nothing to write. Every byte outside the
-/// value's own span is copied through unchanged.
-pub(crate) fn set_version(text: &str, version: &str) -> Result<Option<String>, JsonError> {
-    let Some(span) = version_span(text)? else {
-        return Ok(None);
-    };
-    if inner(text, &span) == version {
-        return Ok(None);
+/// Only the named top-level tables are read, and only their string values: a
+/// nested object or a non-string value is not a requirement momo can read. The
+/// whole document is validated, so a malformed `package.json` is reported
+/// rather than half-read.
+pub(crate) fn dependency_entries(
+    text: &str,
+    tables: &[&str],
+) -> Result<Vec<Dependency>, JsonError> {
+    let mut scanner = Scanner::new(text);
+    scanner.skip_ws();
+    scanner.expect(b'{', "expected a top-level object")?;
+    scanner.skip_ws();
+    let mut entries = Vec::new();
+    if scanner.peek() == Some(b'}') {
+        scanner.bump();
+        return Ok(entries);
     }
-    let mut updated = String::with_capacity(text.len() + version.len());
-    updated.push_str(&text[..span.start + 1]);
-    updated.push_str(version);
-    updated.push_str(&text[span.end - 1..]);
-    Ok(Some(updated))
+    loop {
+        scanner.skip_ws();
+        let key = scanner.string()?;
+        scanner.skip_ws();
+        scanner.expect(b':', "expected `:`")?;
+        scanner.skip_ws();
+        if tables.contains(&inner(text, &key)) {
+            scanner.dependency_object(&mut entries)?;
+        } else {
+            scanner.skip_value()?;
+        }
+        scanner.skip_ws();
+        match scanner.peek() {
+            Some(b',') => scanner.bump(),
+            Some(b'}') => {
+                scanner.bump();
+                break;
+            }
+            _ => return Err(scanner.error("expected `,` or `}`")),
+        }
+    }
+    scanner.skip_ws();
+    if !scanner.at_end() {
+        return Err(scanner.error("unexpected trailing content"));
+    }
+    Ok(entries)
+}
+
+/// `text` with the text between each span's quotes replaced by its string.
+///
+/// A span covers a whole string literal, quotes included, so only the bytes
+/// between them change and the quotes survive. Spans are applied from the last
+/// to the first, so an earlier span's offsets stay valid as a later one changes
+/// length; they must be disjoint, which a top-level `version` value and the
+/// dependency values always are.
+pub(crate) fn splice(text: &str, edits: &mut [(Range<usize>, String)]) -> String {
+    edits.sort_by_key(|(span, _)| std::cmp::Reverse(span.start));
+    let mut updated = text.to_owned();
+    for (span, value) in edits.iter() {
+        updated.replace_range(span.start + 1..span.end - 1, value);
+    }
+    updated
 }
 
 /// The text between a string literal's quotes.
-fn inner<'a>(text: &'a str, span: &Range<usize>) -> &'a str {
+pub(crate) fn inner<'a>(text: &'a str, span: &Range<usize>) -> &'a str {
     &text[span.start + 1..span.end - 1]
 }
 
@@ -205,6 +261,46 @@ impl<'a> Scanner<'a> {
         }
     }
 
+    /// Validate and consume an object of dependency declarations, recording
+    /// the span of each string value. A non-string value is a declaration momo
+    /// cannot read, so it is validated and skipped.
+    fn dependency_object(&mut self, entries: &mut Vec<Dependency>) -> Result<(), JsonError> {
+        self.expect(b'{', "expected `{`")?;
+        self.skip_ws();
+        if self.peek() == Some(b'}') {
+            self.bump();
+            return Ok(());
+        }
+        loop {
+            self.skip_ws();
+            let key = self.string()?;
+            self.skip_ws();
+            self.expect(b':', "expected `:`")?;
+            self.skip_ws();
+            let name = inner(self.text, &key).to_owned();
+            if self.peek() == Some(b'"') {
+                let value = self.string()?;
+                let requirement = inner(self.text, &value).to_owned();
+                entries.push(Dependency {
+                    name,
+                    value,
+                    requirement,
+                });
+            } else {
+                self.skip_value()?;
+            }
+            self.skip_ws();
+            match self.peek() {
+                Some(b',') => self.bump(),
+                Some(b'}') => {
+                    self.bump();
+                    return Ok(());
+                }
+                _ => return Err(self.error("expected `,` or `}`")),
+            }
+        }
+    }
+
     /// Validate and consume an array.
     fn skip_array(&mut self) -> Result<(), JsonError> {
         self.expect(b'[', "expected `[`")?;
@@ -305,6 +401,18 @@ mod tests {
     /// The inner text of a located span, without its quotes.
     fn value<'a>(text: &'a str, span: &Range<usize>) -> &'a str {
         inner(text, span)
+    }
+
+    /// `text` with its top-level `version` set to `version`, or `None` when
+    /// there is nothing to write.
+    fn set_version(text: &str, version: &str) -> Result<Option<String>, JsonError> {
+        let Some(span) = version_span(text)? else {
+            return Ok(None);
+        };
+        if inner(text, &span) == version {
+            return Ok(None);
+        }
+        Ok(Some(splice(text, &mut [(span, version.to_owned())])))
     }
 
     #[test]
@@ -455,6 +563,59 @@ mod tests {
             set_version("{\"name\": \"ui\"}", "1.2.3").expect("valid JSON"),
             None
         );
+    }
+
+    #[test]
+    fn dependency_entries_read_every_dependency_table() {
+        let text = "{\n  \"name\": \"ui\",\n  \"dependencies\": {\"a\": \"^1.0.0\"},\n  \
+                    \"devDependencies\": {\"b\": \"~2.0.0\"},\n  \
+                    \"peerDependencies\": {\"c\": \"3.0.0\"},\n  \
+                    \"optionalDependencies\": {\"d\": \"*\"},\n  \
+                    \"scripts\": {\"e\": \"^9.0.0\"}\n}\n";
+        let entries = dependency_entries(
+            text,
+            &[
+                "dependencies",
+                "devDependencies",
+                "peerDependencies",
+                "optionalDependencies",
+            ],
+        )
+        .expect("valid JSON");
+
+        let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
+        assert_eq!(names, ["a", "b", "c", "d"]);
+        assert_eq!(entries[0].requirement, "^1.0.0");
+        assert_eq!(entries[3].requirement, "*");
+    }
+
+    #[test]
+    fn a_non_string_dependency_is_skipped() {
+        let text = "{\"dependencies\": {\"a\": {\"version\": \"^1.0.0\"}, \"b\": \"^2.0.0\"}}";
+        let entries = dependency_entries(text, &["dependencies"]).expect("valid JSON");
+        assert_eq!(entries.len(), 1, "{entries:?}");
+        assert_eq!(entries[0].name, "b");
+    }
+
+    #[test]
+    fn a_splice_replaces_only_the_named_spans() {
+        let text = "{\n  \"version\": \"1.0.0\",\n  \"dependencies\": {\"a\": \"^1.0.0\"}\n}\n";
+        let mut edits = Vec::new();
+        let version = version_span(text).expect("valid JSON").expect("a version");
+        edits.push((version, "2.0.0".to_owned()));
+        let entries = dependency_entries(text, &["dependencies"]).expect("valid JSON");
+        edits.push((entries[0].value.clone(), "^2.0.0".to_owned()));
+
+        assert_eq!(
+            splice(text, &mut edits),
+            "{\n  \"version\": \"2.0.0\",\n  \"dependencies\": {\"a\": \"^2.0.0\"}\n}\n"
+        );
+    }
+
+    #[test]
+    fn a_malformed_dependency_object_is_rejected() {
+        let text = "{\"dependencies\": {\"a\": \"^1.0.0\",}}";
+        assert!(dependency_entries(text, &["dependencies"]).is_err());
     }
 
     use proptest::prelude::*;
