@@ -3,10 +3,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use time::Date;
 
 use crate::cli::atomic;
+use crate::cli::error::CliError;
 use crate::cli::recording;
 use crate::cli::version::{release_base, source};
 use crate::domain::changelog::Links;
@@ -118,13 +119,11 @@ fn prepare(
     // Unreleased section would be dropped without ever being promoted, so
     // refuse rather than silently discard it.
     if config.recording == Recording::Fragments && changelog.has_unreleased() {
-        let path = package.changelog(repo_root, config);
-        bail!(
-            "{} holds an Unreleased section, but this package records changes as fragments; \
-             move those entries into {} as fragments, or set recording = \"changelog\"",
-            path.display(),
-            config.changes_dir.display(),
-        );
+        return Err(CliError::UnversionedSection {
+            path: package.changelog(repo_root, config),
+            changes_dir: config.changes_dir.clone(),
+        }
+        .into());
     }
     // A bullet under `### Changed` (or a Keep-a-Changelog sibling momo cannot
     // read) is Unreleased content momo is failing to version. A mint would

@@ -7,6 +7,7 @@
 pub mod change;
 pub mod changelog;
 pub mod config;
+pub mod diagnostic;
 pub mod graph;
 pub mod manifest;
 pub mod package;

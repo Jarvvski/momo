@@ -25,6 +25,7 @@ use semver::Version;
 use time::Date;
 
 use crate::domain::change::Change;
+use crate::domain::diagnostic::impl_coded;
 use crate::domain::remote::Remote;
 use crate::domain::version::cmp_version_rank;
 
@@ -61,9 +62,7 @@ pub enum ChangelogError {
     /// The Unreleased body holds bullets under a Keep-a-Changelog heading momo
     /// cannot read, so a mint would silently under-version them.
     #[error(
-        "error[momo.changelog.unversioned-section]: `### {heading}` has {entries} {noun} momo cannot \
-         version (line {line})\n  fix: move them under `### Breaking`/`### Added`/`### Fixed`, or \
-         — if they are not versioned changes — out of a Keep-a-Changelog heading momo reads",
+        "`### {heading}` has {entries} {noun} momo cannot version (line {line})",
         noun = plural(*entries)
     )]
     UnreadSection {
@@ -79,6 +78,20 @@ pub enum ChangelogError {
 /// "entry" for one, "entries" otherwise — the count in an error message.
 fn plural(count: usize) -> &'static str {
     if count == 1 { "entry" } else { "entries" }
+}
+
+impl_coded! {
+    ChangelogError {
+        ChangelogError::DuplicateUnreleased { .. } => (
+            "momo.changelog.duplicate-unreleased",
+            fix = "remove the duplicate `## [Unreleased]` heading",
+        ),
+        ChangelogError::UnreadSection { .. } => (
+            "momo.changelog.unversioned-section",
+            fix = "move them under `### Breaking`/`### Added`/`### Fixed`, or — if they are not \
+                   versioned changes — out of a Keep-a-Changelog heading momo reads",
+        ),
+    }
 }
 
 /// The line ending a changelog uses, reapplied to every line momo writes.

@@ -16,6 +16,8 @@ use std::time::Duration;
 
 use semver::Version;
 
+use crate::domain::diagnostic::impl_coded;
+
 /// How [`TaskEnvironment::plan`] reconciles momo's wrappers with the disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallMode {
@@ -155,6 +157,18 @@ pub enum TaskEnvError {
         #[source]
         source: GraphError,
     },
+}
+
+impl_coded! {
+    TaskEnvError {
+        TaskEnvError::Unknown { .. } => ("momo.taskenv.unknown", fix = "use `mise`"),
+        TaskEnvError::Read { .. } => ("momo.error.unclassified"),
+        TaskEnvError::Write { .. } => ("momo.error.unclassified"),
+        TaskEnvError::Remove { .. } => ("momo.error.unclassified"),
+        TaskEnvError::Operation { .. } => ("momo.error.unclassified"),
+        TaskEnvError::Timeout { .. } => ("momo.error.unclassified"),
+        TaskEnvError::Graph { .. } => ("momo.error.unclassified"),
+    }
 }
 
 /// Why the project graph could not be read.

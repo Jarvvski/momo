@@ -44,7 +44,8 @@ Unreleased
   proj
     current: 0.1.0
     → next: 0.1.0
-error: nothing unreleased
+error[momo.release.nothing-unreleased]: nothing unreleased
+  fix: record a change with `momo add`, `momo fix` or `momo break`
 $ echo $?
 1
 ```
@@ -150,6 +151,33 @@ Only Cargo ranges are checked for now. The edges come from `mise tasks graph`, s
 ```
 
 `tag` is the package's namespaced tag name, prefix included; `name` identifies which package it names.
+
+## Errors
+
+A failed run is structured too. Every error carries a stable code — the full
+catalog is [errors.md](errors.md) — and `--format json` renders it as one
+document on **stdout**, with a non-zero exit code:
+
+```json
+{
+  "error": {
+    "code": "momo.version.stale-candidate",
+    "message": "the cut candidate `1.1.0-rc.1` is stale: the changes now imply `2.0.0`",
+    "fix": "cut a new candidate for `2.0.0` (`momo candidate`)",
+    "url": "https://github.com/Jarvvski/momo/blob/main/docs/errors.md#momo-version-stale-candidate",
+    "context": []
+  }
+}
+```
+
+`context` holds the outer `.context(...)` chain, outermost first, and is empty
+for a top-level refusal. Branch on `code`, never on the prose. Without
+`--format json` the same error is `error[<code>]: <message>` on stderr, plus an
+indented `fix:` line. `--output` is never written on failure.
+
+One nuance: `status --check --format json` renders its report first and the error
+document second, because the gate is evaluated after the report. A consumer
+should read the report's `unreleased` field and treat the exit code as the gate.
 
 ## A release job
 

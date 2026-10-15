@@ -29,13 +29,23 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
+use crate::cli::Format;
+use crate::cli::diagnostic::diagnose;
+
 /// Parse the process arguments and run the requested verb.
 pub fn run() -> ExitCode {
     let cli = cli::Cli::parse();
     match cli::commands::run(&cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("error: {err:#}");
+            // A failed run still honours `--format`: a machine consumer gets
+            // the structured error on stdout, a human gets it on stderr. The
+            // exit code is non-zero either way, and `--output` is never written.
+            let diagnostic = diagnose(&err);
+            match cli.format.unwrap_or_default() {
+                Format::Human => eprintln!("{}", diagnostic.human()),
+                Format::Json => print!("{}", diagnostic.json()),
+            }
             ExitCode::FAILURE
         }
     }

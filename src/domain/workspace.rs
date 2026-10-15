@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::domain::config::Config;
+use crate::domain::diagnostic::impl_coded;
 use crate::domain::graph::DependencyGraph;
 use crate::domain::package::Package;
 
@@ -23,6 +24,15 @@ pub enum WorkspaceError {
         /// The fully-qualified identities that collide, sorted.
         identities: Vec<String>,
     },
+}
+
+impl_coded! {
+    WorkspaceError {
+        WorkspaceError::DuplicateSlug { .. } => (
+            "momo.workspace.duplicate-slug",
+            fix = "give one package a distinct `slug` override",
+        ),
+    }
 }
 
 /// What a command targets when neither `--package` nor `--all` is given.
@@ -66,6 +76,30 @@ pub enum SelectionError {
         /// The directory that matched nothing.
         cwd: PathBuf,
     },
+}
+
+impl_coded! {
+    SelectionError {
+        SelectionError::Unknown { .. } => (
+            "momo.selection.unknown",
+            fix = "check the package name with `momo status --all`",
+        ),
+        SelectionError::Conflicting => (
+            "momo.selection.conflicting",
+            fix = "pass either `--all` or `-p <package>`, not both",
+        ),
+        SelectionError::Ambiguous { candidates, .. } => (
+            "momo.selection.ambiguous",
+            fix = format!(
+                "pass a fully-qualified package name, one of: {}",
+                candidates.join(", "),
+            ),
+        ),
+        SelectionError::NotInPackage { .. } => (
+            "momo.selection.not-in-package",
+            fix = "run from inside a package, or pass `-p <package>`/`--all`",
+        ),
+    }
 }
 
 /// The Packages a repo holds, and the dependency graph discovery produced.

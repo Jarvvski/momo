@@ -3,6 +3,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use crate::domain::diagnostic::impl_coded;
 use crate::domain::slug::slugify;
 
 /// The classification of a Change — one of `break`, `add`, `fix`.
@@ -100,6 +101,18 @@ impl FromStr for Kind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("a change needs some text")]
 pub struct EmptyChange;
+
+impl_coded! {
+    UnknownKind {
+        UnknownKind { .. } => ("momo.change.unknown-kind", fix = "use `break`, `add` or `fix`"),
+    }
+}
+
+impl_coded! {
+    EmptyChange {
+        EmptyChange => ("momo.change.empty-text", fix = "give the change some text"),
+    }
+}
 
 /// One recorded unit of work, classified by exactly one Kind.
 #[derive(Debug, Clone, PartialEq, Eq)]

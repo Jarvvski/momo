@@ -1,6 +1,7 @@
 use super::*;
 
 use crate::domain::change::Kind;
+use crate::domain::diagnostic::Coded;
 
 fn change(kind: Kind, text: &str) -> Change {
     Change::new(kind, text)
@@ -270,14 +271,15 @@ fn reject_unread_names_the_first_offending_section() {
         }
     );
     let message = err.to_string();
+    assert_eq!(err.code(), "momo.changelog.unversioned-section");
     assert!(
-        message.contains("momo.changelog.unversioned-section"),
-        "{message}"
+        err.fix()
+            .is_some_and(|fix| fix.contains("### Breaking") && fix.contains("### Fixed")),
+        "the fix is missing: {err:?}",
     );
     assert!(message.contains("`### Changed`"), "{message}");
     assert!(message.contains("1 entry"), "{message}");
     assert!(message.contains("(line 5)"), "{message}");
-    assert!(message.contains("fix:"), "{message}");
 }
 
 #[test]

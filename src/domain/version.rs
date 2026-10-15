@@ -4,6 +4,7 @@ use std::cmp::Ordering;
 use std::path::PathBuf;
 
 use crate::domain::change::{Change, Kind};
+use crate::domain::diagnostic::impl_coded;
 use crate::domain::vcs::{Vcs, VcsError};
 
 /// A semver version — the domain's [`Version`] type.
@@ -296,6 +297,19 @@ pub enum RcFormatError {
     },
 }
 
+impl_coded! {
+    RcFormatError {
+        RcFormatError::Marker { .. } => (
+            "momo.config.invalid-rc-format",
+            fix = "use a template with exactly one `{n}`, e.g. `-rc.{n}`",
+        ),
+        RcFormatError::Invalid { .. } => (
+            "momo.config.invalid-rc-format",
+            fix = "use a template that renders to a valid pre-release, e.g. `-rc.{n}`",
+        ),
+    }
+}
+
 /// Errors that can occur resolving a Version.
 #[derive(Debug, thiserror::Error)]
 pub enum VersionError {
@@ -346,6 +360,26 @@ pub enum VersionError {
         /// The Release target the changes now imply.
         target: Version,
     },
+}
+
+impl_coded! {
+    VersionError {
+        VersionError::Read { .. } => ("momo.error.unclassified"),
+        VersionError::Invalid { path, .. } => (
+            "momo.version.invalid",
+            fix = format!(
+                "write a semver version (e.g. `1.2.3`) into `{}`",
+                path.display(),
+            ),
+        ),
+        VersionError::Write { .. } => ("momo.error.unclassified"),
+        VersionError::Vcs(_) => ("momo.error.unclassified"),
+        VersionError::Overflow { .. } => ("momo.error.unclassified"),
+        VersionError::StaleCandidate { target, .. } => (
+            "momo.version.stale-candidate",
+            fix = format!("cut a new candidate for `{target}` (`momo candidate`)"),
+        ),
+    }
 }
 
 #[cfg(test)]

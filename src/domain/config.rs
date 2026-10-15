@@ -24,6 +24,7 @@ use std::time::Duration;
 
 use toml_edit::{DocumentMut, Item, Table, value};
 
+use crate::domain::diagnostic::impl_coded;
 use crate::domain::remote::Remote;
 use crate::domain::version::RcFormatError;
 
@@ -346,6 +347,42 @@ pub enum ConfigError {
         /// The value that could not be used.
         value: String,
     },
+}
+
+impl_coded! {
+    ConfigError {
+        ConfigError::Toml(_) => ("momo.config.invalid-toml", fix = "fix the TOML syntax in `momo.toml`"),
+        ConfigError::WrongType { key, expected } => (
+            "momo.config.wrong-type",
+            fix = format!("set `{key}` to a {expected}"),
+        ),
+        ConfigError::InvalidValue { key, expected, .. } => (
+            "momo.config.invalid-value",
+            fix = format!("set `{key}` to one of: {expected}"),
+        ),
+        ConfigError::UnknownKey { key } => (
+            "momo.config.unknown-key",
+            fix = format!("remove `{key}`, or check the recognised keys in the configuration docs"),
+            url = "https://github.com/Jarvvski/momo/blob/main/docs/configuration.md",
+        ),
+        ConfigError::EmptyPath { key } => ("momo.config.empty-path", fix = format!("give `{key}` a path")),
+        ConfigError::InvalidPath { key, .. } => (
+            "momo.config.invalid-path",
+            fix = format!("set `{key}` to a relative path inside the project"),
+        ),
+        ConfigError::InvalidRemote { key, .. } => (
+            "momo.config.invalid-remote",
+            fix = format!("set `{key}` to a URL like `https://github.com/owner/repo`"),
+        ),
+        ConfigError::InvalidRcFormat { .. } => (
+            "momo.config.invalid-rc-format",
+            fix = "use a template with exactly one `{n}`, e.g. `-rc.{n}`",
+        ),
+        ConfigError::InvalidSeconds { key, .. } => (
+            "momo.config.invalid-seconds",
+            fix = format!("set `{key}` to a positive whole number of seconds"),
+        ),
+    }
 }
 
 impl From<toml_edit::TomlError> for ConfigError {

@@ -3,8 +3,9 @@
 use std::cmp::Ordering;
 use std::path::Path;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 
+use crate::cli::error::CliError;
 use crate::cli::version::FileVersionSource;
 use crate::domain::config::Config;
 use crate::domain::package::Package;
@@ -48,10 +49,7 @@ pub fn tag(
     if let Some(latest) = vcs.latest_tag(&prefix)?
         && version.cmp_precedence(&latest) == Ordering::Less
     {
-        bail!(
-            "the version file holds `{version}`, which is older than the newest tag `{latest}`; \
-             run `momo release` to advance it before tagging"
-        );
+        return Err(CliError::StaleLedger { version, latest }.into());
     }
 
     let message = format!("Release {version}");

@@ -12,9 +12,10 @@ use crate::domain::config::Config;
 use crate::domain::package::Package;
 use crate::domain::taskenv::TaskEnvError;
 use crate::domain::workspace::{DefaultTarget, Workspace};
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 
 use crate::cli::Cli;
+use crate::cli::error::CliError;
 
 /// A repo's Packages, plus why a configured monorepo's graph could not be read.
 ///
@@ -104,7 +105,10 @@ pub fn select<'a>(
 ) -> Result<Vec<&'a Package>> {
     if let Some(err) = &discovery.unavailable {
         if cli.package.is_some() || cli.all {
-            bail!("package discovery failed ({err}); cannot resolve `-p`/`--all`");
+            return Err(CliError::DiscoveryFailed {
+                detail: err.to_string(),
+            }
+            .into());
         }
         eprintln!(
             "warning: package discovery unavailable ({err}); treating this as a single-package repo"

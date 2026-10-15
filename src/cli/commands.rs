@@ -20,12 +20,13 @@ use std::path::{Path, PathBuf};
 use crate::domain::taskenv::{InstallMode, InstallPlan, TaskEnvironment};
 use crate::domain::vcs::Vcs;
 use crate::domain::workspace::DefaultTarget;
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::CommandFactory;
 use clap_complete::{Shell, generate};
 use semver::Version;
 use time::Date;
 
+use crate::cli::error::CliError;
 use crate::domain::change::{Change, Kind};
 use crate::domain::config::{Config, Recording};
 use crate::domain::package::Package;
@@ -102,7 +103,11 @@ fn reject_output_flags(cli: &Cli) -> Result<()> {
         (cli.output.is_some(), "--output"),
     ] {
         if present {
-            bail!("`{flag}` is not supported by `momo {}`", cli.command);
+            return Err(CliError::UnsupportedFlag {
+                flag,
+                verb: cli.command.to_string(),
+            }
+            .into());
         }
     }
     Ok(())
@@ -200,7 +205,7 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
     output::emit(cli, &report)?;
 
     if check && !report.unreleased() {
-        bail!("nothing unreleased");
+        return Err(CliError::NothingUnreleased.into());
     }
     Ok(())
 }
@@ -255,7 +260,7 @@ fn release(cli: &Cli) -> Result<()> {
             .push(release_package(package.identity(), outcome, cascade));
     }
     if report.packages.is_empty() {
-        bail!("nothing unreleased to release");
+        return Err(CliError::NothingToRelease.into());
     }
 
     // One report, one `emit`: emitting per Package would concatenate N JSON
@@ -312,7 +317,7 @@ fn candidate(cli: &Cli) -> Result<()> {
             .push(release_package(package.identity(), outcome, cascade));
     }
     if report.packages.is_empty() {
-        bail!("nothing unreleased to release");
+        return Err(CliError::NothingToRelease.into());
     }
     output::emit(cli, &report)
 }
@@ -327,7 +332,7 @@ fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
     let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
     let Some(vcs) = detect_vcs(&root, &config) else {
-        bail!("no VCS detected — nothing to tag");
+        return Err(CliError::NoVcs.into());
     };
     let explicit = cli.package.is_some();
 
@@ -340,7 +345,7 @@ fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
             release::tag(&root, &config, package, vcs.as_ref(), rev, cli.dry_run)?
         else {
             if explicit {
-                bail!("nothing to tag: run `momo release` first");
+                return Err(CliError::NothingToTag.into());
             }
             continue;
         };
@@ -351,7 +356,7 @@ fn tag(cli: &Cli, rev: Option<&str>) -> Result<()> {
         });
     }
     if report.packages.is_empty() {
-        bail!("nothing to tag: run `momo release` first");
+        return Err(CliError::NothingToTag.into());
     }
     output::emit(cli, &report)
 }
@@ -503,7 +508,7 @@ fn init(cli: &Cli, version: Option<&Version>) -> Result<()> {
     }
 
     if path.exists() {
-        bail!("{} already exists; refusing to overwrite", path.display());
+        return Err(CliError::InitExists { path }.into());
     }
 
     fs::write(&path, config.to_string()).with_context(|| format!("writing {}", path.display()))?;
