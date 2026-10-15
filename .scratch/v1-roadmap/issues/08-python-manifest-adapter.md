@@ -1,7 +1,7 @@
 # 08: Python `pyproject.toml` manifest adapter
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Points: 13
 Bucket: Ecosystem manifest adapters
 Severity: medium

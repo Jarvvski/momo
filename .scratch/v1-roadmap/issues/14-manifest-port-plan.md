@@ -1,7 +1,7 @@
 # 14: Generalise `ManifestSync` to a plan
 
 Type: refactor
-Status: ready-for-agent
+Status: resolved
 Points: 11
 Bucket: Ecosystem manifest adapters
 Severity: medium

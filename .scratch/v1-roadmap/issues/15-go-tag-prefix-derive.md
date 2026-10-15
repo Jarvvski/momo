@@ -1,7 +1,7 @@
 # 15: Derive the Go tag prefix; per-package override
 
 Type: task
-Status: ready-for-human
+Status: resolved
 Points: 11
 Bucket: Ecosystem manifest adapters
 Severity: medium

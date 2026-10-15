@@ -1,7 +1,7 @@
 # 10: jdx CLI citizenship — `version`, help examples, `--json`, thesis
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Points: 13
 Bucket: jdx ecosystem fit
 Severity: low

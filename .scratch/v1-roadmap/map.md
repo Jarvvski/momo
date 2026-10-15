@@ -1,7 +1,7 @@
 # momo v1 — roadmap effort
 
 Type: map
-Status: active
+Status: resolved
 
 The v1 roadmap: features, correctness fixes and posture changes synthesised from
 five investigator reports — a competitive teardown, the mise/jdx ecosystem, the
@@ -32,24 +32,24 @@ only priority mechanism, and the ranking in this map is derived from them.
 
 ## Scoring matrix
 
-| # | Ticket | Pts | N | E | V | Status | Blocked by |
-|---|--------|:---:|:-:|:-:|:-:|--------|-----------|
-| 01 | [Option philosophy + freeze the config surface](issues/01-option-philosophy-freeze.md) | 17 | 4 | 5 | 4 | ready-for-human | — |
-| 02 | [Refuse to mint from unread changelog sections](issues/02-refuse-unread-changelog-sections.md) | 16 | 3 | 3 | 5 | ready-for-agent | — |
-| 03 | [Consume the workspace-graph fields](issues/03-workspace-graph-fields.md) | 16 | 4 | 4 | 4 | ready-for-agent | — |
-| 04 | [Node `package.json` manifest adapter](issues/04-node-manifest-adapter.md) | 14 | 1 | 3 | 5 | ready-for-agent | 14 |
-| 05 | [Publish GitHub artifact attestations](issues/05-github-attestations.md) | 14 | 2 | 4 | 4 | ready-for-agent | — |
-| 06 | [Warn on an unresolvable Go tag prefix](issues/06-go-tag-prefix-warn.md) | 14 | 3 | 5 | 3 | ready-for-agent | — |
-| 07 | [Cascade: rewrite dependent ranges](issues/07-cascade-rewrite-ranges.md) | 13 | 1 | 2 | 5 | ready-for-agent | 03, 14 |
-| 08 | [Python `pyproject.toml` manifest adapter](issues/08-python-manifest-adapter.md) | 13 | 1 | 4 | 4 | ready-for-agent | 14 |
-| 09 | [Make `status` the blessed path; pin zero-config](issues/09-status-blessed-path.md) | 13 | 2 | 5 | 3 | ready-for-agent | — |
-| 10 | [jdx CLI citizenship: `version`, help examples, `--json`](issues/10-jdx-cli-citizenship.md) | 13 | 2 | 5 | 3 | ready-for-agent | — |
-| 11 | [State the release opinions](issues/11-state-release-opinions.md) | 13 | 3 | 4 | 3 | ready-for-human | — |
-| 12 | [Cascade: report unsatisfied dependent ranges](issues/12-cascade-report-ranges.md) | 12 | 1 | 3 | 4 | ready-for-agent | 03 |
-| 13 | [Teaching errors](issues/13-teaching-errors.md) | 12 | 2 | 2 | 4 | ready-for-agent | — |
-| 14 | [Generalise `ManifestSync` to a plan](issues/14-manifest-port-plan.md) | 11 | 1 | 4 | 3 | ready-for-agent | — |
-| 15 | [Derive the Go tag prefix; per-package override](issues/15-go-tag-prefix-derive.md) | 11 | 2 | 3 | 3 | ready-for-human | — |
-| 16 | [Shell completions](issues/16-shell-completions.md) | 10 | 2 | 4 | 2 | ready-for-agent | 10 |
+| # | Ticket | Pts | N | E | V | Status | Landed |
+|---|--------|:---:|:-:|:-:|:-:|--------|--------|
+| 01 | [Option philosophy + freeze the config surface](issues/01-option-philosophy-freeze.md) | 17 | 4 | 5 | 4 | resolved | [#93](https://github.com/Jarvvski/momo/pull/93) |
+| 02 | [Refuse to mint from unread changelog sections](issues/02-refuse-unread-changelog-sections.md) | 16 | 3 | 3 | 5 | resolved | [#95](https://github.com/Jarvvski/momo/pull/95) |
+| 03 | [Consume the workspace-graph fields](issues/03-workspace-graph-fields.md) | 16 | 4 | 4 | 4 | resolved | [#88](https://github.com/Jarvvski/momo/pull/88) |
+| 04 | [Node `package.json` manifest adapter](issues/04-node-manifest-adapter.md) | 14 | 1 | 3 | 5 | resolved | [#100](https://github.com/Jarvvski/momo/pull/100) |
+| 05 | [Publish GitHub artifact attestations](issues/05-github-attestations.md) | 14 | 2 | 4 | 4 | resolved | [#91](https://github.com/Jarvvski/momo/pull/91) |
+| 06 | [Warn on an unresolvable Go tag prefix](issues/06-go-tag-prefix-warn.md) | 14 | 3 | 5 | 3 | resolved | [#89](https://github.com/Jarvvski/momo/pull/89) |
+| 07 | [Cascade: rewrite dependent ranges](issues/07-cascade-rewrite-ranges.md) | 13 | 1 | 2 | 5 | resolved | [#104](https://github.com/Jarvvski/momo/pull/104) |
+| 08 | [Python `pyproject.toml` manifest adapter](issues/08-python-manifest-adapter.md) | 13 | 1 | 4 | 4 | resolved | [#99](https://github.com/Jarvvski/momo/pull/99) |
+| 09 | [Make `status` the blessed path; pin zero-config](issues/09-status-blessed-path.md) | 13 | 2 | 5 | 3 | resolved | [#94](https://github.com/Jarvvski/momo/pull/94) |
+| 10 | [jdx CLI citizenship: `version`, help examples, `--json`](issues/10-jdx-cli-citizenship.md) | 13 | 2 | 5 | 3 | resolved | [#96](https://github.com/Jarvvski/momo/pull/96) |
+| 11 | [State the release opinions](issues/11-state-release-opinions.md) | 13 | 3 | 4 | 3 | resolved | [#92](https://github.com/Jarvvski/momo/pull/92) |
+| 12 | [Cascade: report unsatisfied dependent ranges](issues/12-cascade-report-ranges.md) | 12 | 1 | 3 | 4 | resolved | [#101](https://github.com/Jarvvski/momo/pull/101) |
+| 13 | [Teaching errors](issues/13-teaching-errors.md) | 12 | 2 | 2 | 4 | resolved | [#103](https://github.com/Jarvvski/momo/pull/103) |
+| 14 | [Generalise `ManifestSync` to a plan](issues/14-manifest-port-plan.md) | 11 | 1 | 4 | 3 | resolved | [#97](https://github.com/Jarvvski/momo/pull/97) |
+| 15 | [Derive the Go tag prefix; per-package override](issues/15-go-tag-prefix-derive.md) | 11 | 2 | 3 | 3 | resolved | [#98](https://github.com/Jarvvski/momo/pull/98) |
+| 16 | [Shell completions](issues/16-shell-completions.md) | 10 | 2 | 4 | 2 | resolved | [#102](https://github.com/Jarvvski/momo/pull/102) |
 | 17 | [Promote `.momo/version` to a version authority](issues/17-version-authority-side-manifest.md) | — | 1 | — | 1 | wontfix | — |
 
 ## Buckets
@@ -67,11 +67,12 @@ drive order.
 
 ## Frontier and gating
 
-Initial frontier — open, unblocked, in points order: **01, 02, 03, 05, 06, 09, 10,
-11, 13, 14, 15**. Gated behind a prerequisite: 04 (→14), 07 (→03,14), 08 (→14),
-12 (→03), 16 (→10).
+**Every ticket is resolved** — 01–16 landed, 17 `wontfix`. The initial frontier was
+**01, 02, 03, 05, 06, 09, 10, 11, 13, 14, 15**, with 04 (→14), 07 (→03,14), 08
+(→14), 12 (→03) and 16 (→10) gated behind a prerequisite. The dependency order
+held: 14 landed before 04/08/07/12, 03 before 12/07, and 10 before 16.
 
-Suggested landing groups, coherent and reviewable:
+The landing groups, in the order they landed:
 
 | Group | Tickets | Theme |
 |-------|---------|-------|
@@ -81,6 +82,18 @@ Suggested landing groups, coherent and reviewable:
 | D | 13, 02 | Trust: error codes, then the changelog refusal that rides them |
 | E | 06 | Go tag-prefix warning (independent, free-standing) |
 | F | 05, 10, 16 | jdx fit: attestations, CLI citizenship, completions |
+
+## Landed
+
+The effort merged as **#88–#105** on `main` (per the table above), with #90
+carrying the tickets themselves and #105 the changelog and ADR housekeeping.
+
+Two gaps the effort deliberately left open, neither scheduled here:
+
+- **Cascade coverage.** Only Cargo requirements are evaluated: a Node, uv or Go
+  dependent is reported *not checked*, never silently satisfied.
+- **Ticket 05's attestation** is only exercised by a real release dispatch, which
+  has not been cut.
 
 ## Rejected and deferred
 

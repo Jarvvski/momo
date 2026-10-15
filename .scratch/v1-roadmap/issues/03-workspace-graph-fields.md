@@ -1,7 +1,7 @@
 # 03: Consume the workspace-graph fields
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Points: 16
 Bucket: Monorepo release engine
 Severity: medium

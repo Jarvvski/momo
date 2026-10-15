@@ -1,7 +1,7 @@
 # 02: Refuse to mint from unread changelog sections
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Points: 16
 Bucket: Trust & correctness
 Severity: high

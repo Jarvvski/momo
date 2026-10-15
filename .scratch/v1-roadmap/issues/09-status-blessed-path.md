@@ -1,7 +1,7 @@
 # 09: Make `status` the blessed path; pin zero-config
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Points: 13
 Bucket: Opinionated posture
 Severity: low

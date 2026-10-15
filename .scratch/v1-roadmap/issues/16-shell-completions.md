@@ -1,7 +1,7 @@
 # 16: Shell completions
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Points: 10
 Bucket: jdx ecosystem fit
 Severity: low

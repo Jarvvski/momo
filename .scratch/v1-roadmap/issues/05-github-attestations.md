@@ -1,7 +1,7 @@
 # 05: Publish GitHub artifact attestations and verify in the installer
 
 Type: task
-Status: ready-for-agent
+Status: resolved
 Points: 14
 Bucket: jdx ecosystem fit
 Severity: medium
