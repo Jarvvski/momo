@@ -556,20 +556,29 @@ fn a_dry_run_release_writes_nothing() {
 fn a_dry_run_release_leaves_no_new_directory_behind() {
     let dir = TempDir::new().expect("temp dir");
     let root = dir.path();
-    // Changelog mode: nothing pre-creates `.momo`, so the version file's
-    // directory is the only thing staging would add.
-    let seeded = "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- Add a thing\n";
-    fs::write(root.join("CHANGELOG.md"), seeded).expect("seed the changelog");
+    // A two-level Changelog path: staging creates both `docs/release` and its
+    // ancestor `docs`, so discard must remove both. The Fragment's `.momo` tree
+    // already exists and must survive.
+    let config = Config {
+        changelog: PathBuf::from("docs/release/CHANGELOG.md"),
+        ..fragments()
+    };
+    fragment(root, "add-a-thing.md", "Add a thing");
 
-    release(root, &Config::default(), &package(), None, date(), true)
+    release(root, &config, &package(), None, date(), true)
         .expect("dry-run release")
         .expect("something to release");
 
     assert!(
-        !root.join(".momo").exists(),
-        "the dry run left a `.momo` directory behind"
+        !root.join("docs").exists(),
+        "the dry run left a `docs` directory behind"
     );
-    assert_eq!(read(root, "CHANGELOG.md"), seeded);
+    assert!(
+        !root.join("docs/release").exists(),
+        "the dry run left a `docs/release` directory behind"
+    );
+    assert!(!root.join(".momo/version").exists());
+    assert!(root.join(".momo/changes/add-a-thing.md").exists());
 }
 
 #[test]

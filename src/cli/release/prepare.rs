@@ -307,8 +307,15 @@ impl Staged {
             && !parent.as_os_str().is_empty()
             && !parent.exists()
         {
+            // `create_dir_all` may make several levels; record every one that is
+            // missing now, deepest first, so discard can remove them all.
+            let missing: Vec<PathBuf> = parent
+                .ancestors()
+                .take_while(|dir| !dir.as_os_str().is_empty() && !dir.exists())
+                .map(Path::to_path_buf)
+                .collect();
             fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
-            self.created.push(parent.to_path_buf());
+            self.created.extend(missing);
         }
         let temp = atomic::stage(target, contents)
             .with_context(|| format!("writing {}", target.display()))?;
@@ -337,7 +344,11 @@ impl Staged {
         for (temp, _) in &self.writes {
             let _ = fs::remove_file(temp);
         }
-        for dir in &self.created {
+        // Deepest first: an ancestor can only be removed once the directories
+        // `create_dir_all` made beneath it are gone.
+        let mut created = self.created;
+        created.sort_by_key(|dir| std::cmp::Reverse(dir.components().count()));
+        for dir in created {
             let _ = fs::remove_dir(dir);
         }
     }
@@ -346,4 +357,33 @@ impl Staged {
 /// The Release Candidate suffix template from the configuration.
 fn rc_format(config: &Config) -> &str {
     config.rc_format.as_deref().unwrap_or(DEFAULT_RC_FORMAT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use tempfile::TempDir;
+
+    /// Discard removes every directory staging created, deepest first, so two
+    /// targets that nest under one shared new ancestor leave nothing behind.
+    #[test]
+    fn discard_removes_a_shared_new_ancestor() {
+        let dir = TempDir::new().expect("temp dir");
+        let root = dir.path();
+        let mut staged = Staged::default();
+        staged
+            .add(&root.join("docs/release/CHANGELOG.md"), "changelog")
+            .expect("stage the changelog");
+        staged
+            .add(&root.join("docs/api/openapi.json"), "spec")
+            .expect("stage the spec");
+
+        staged.discard();
+
+        assert!(
+            !root.join("docs").exists(),
+            "a shared ancestor survived discard"
+        );
+    }
 }
