@@ -59,15 +59,22 @@ impl<R: CommandRunner> Vcs for JjVcs<R> {
     }
 
     fn remote(&self) -> Result<Option<String>, VcsError> {
-        // `jj git remote list` prints one `<name> <url>` line per remote.
+        // `jj git remote list` prints one `<name> <url>` line per remote,
+        // appending ` (push: <url>)` when a remote's push URL differs from its
+        // fetch URL. Only the first field after the name is the URL; anything
+        // after it is annotation, not part of the remote.
         let args = ["git", "remote", "list"];
         let output = require_success("jj", &args, self.jj(&args)?)?;
         let mut first = None;
         for line in output.stdout.lines() {
-            let Some((name, url)) = line.split_once(' ') else {
+            let mut fields = line.split_whitespace();
+            let Some(name) = fields.next() else {
                 continue;
             };
-            let url = url.trim().to_owned();
+            let Some(url) = fields.next() else {
+                continue;
+            };
+            let url = url.to_owned();
             if name == "origin" {
                 return Ok(Some(url));
             }
@@ -213,6 +220,21 @@ mod tests {
         assert_eq!(
             adapter(runner).remote().unwrap().as_deref(),
             Some("git@github.com:Jarvvski/momo.git")
+        );
+    }
+
+    #[test]
+    fn remote_ignores_the_push_annotation() {
+        // jj appends ` (push: <url>)` when a remote's push URL differs from
+        // its fetch URL; only the fetch URL is the remote's URL.
+        let runner = FakeRunner::new().ok(
+            "jj",
+            &["git", "remote", "list"],
+            "origin https://github.com/foo/bar.git (push: git@github.com:me/bar.git)\n",
+        );
+        assert_eq!(
+            adapter(runner).remote().unwrap().as_deref(),
+            Some("https://github.com/foo/bar.git")
         );
     }
 
