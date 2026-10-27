@@ -10,10 +10,8 @@ use std::path::{Path, PathBuf};
 
 use toml_edit::{DocumentMut, Item};
 
+use super::CONF_D_DIRS;
 use super::CONFIG_FILES;
-
-/// The `conf.d` directories mise reads in a directory, relative to it.
-const CONF_D_DIRS: [&str; 3] = ["mise/conf.d", ".mise/conf.d", ".config/mise/conf.d"];
 
 /// Whether the mise configuration in scope at `root` declares a monorepo root
 /// (`monorepo_root = true`).
