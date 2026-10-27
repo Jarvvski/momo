@@ -27,3 +27,12 @@ pub(crate) const CONFIG_FILES: [&str; 11] = [
     ".config/mise/config.toml",
     ".config/mise/config.local.toml",
 ];
+
+/// The `conf.d` directories mise reads in a directory, relative to that
+/// directory.
+///
+/// A directory holding a `*.toml` fragment in one of these is configured even
+/// when no [`CONFIG_FILES`] name is present. Shared by detection ([`detect`])
+/// and the monorepo check ([`is_monorepo`]) so both agree on which
+/// configurations mise would read.
+pub(crate) const CONF_D_DIRS: [&str; 3] = ["mise/conf.d", ".mise/conf.d", ".config/mise/conf.d"];
