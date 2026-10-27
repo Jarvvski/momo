@@ -1,7 +1,7 @@
 # 12: `momo.toml` is written non-atomically
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: cli/config, cli/commands
 Verified: yes — read at the cited lines

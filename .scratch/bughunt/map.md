@@ -11,9 +11,27 @@ Fourteen tickets under `issues/`, each carrying its `Status:`, `Severity:`, `Are
 
 ## Status roll-up
 
-- **ready-for-agent:** 01, 02, 03, 04, 06, 07, 08, 09, 10, 11, 12, 13 (12)
-- **ready-for-human:** 05 (needs a ruling: refuse vs namespace)
-- **needs-triage:** 14 (reported, not reproduced)
+Eleven of the fourteen are fixed and landed, each on its own branch and PR, run by a solo sub-agent in its own jj workspace:
+
+| Ticket | Fix | PR |
+|--------|-----|----|
+| 01 | Create the changelog's parent directory when recording | #118 |
+| 02 | Report an inherited Cargo rename under its real package | #120 |
+| 03 | Compare Python specifiers with PEP 440's ordering key | #119 |
+| 04 | Fix the Poetry caret upper bound for `^0` and `^0.0` | #117 |
+| 06 | Parse the jj remote URL without its push annotation | #121 |
+| 08 | Point error doc links at the anchor GitHub generates | #122 |
+| 09 | Do not leave a generated `momo.toml` behind when a change fails | #123 |
+| 10 | Remove every directory release staging created on discard | #124 |
+| 11 | Reject tag names `git check-ref-format` rejects | #125 |
+| 12 | Write `momo.toml` atomically | #127 |
+| 13 | Detect a mise config that lives only under `conf.d` | #126 |
+
+Open, awaiting a human ruling:
+
+- **05** (`ready-for-human`) — two Packages in one directory share a changelog and ledger; refuse vs namespace.
+- **07** (`ready-for-human`) — `init --version` in a monorepo: seed every Package, or refuse the ambiguity.
+- **14** (`needs-triage`) — the one finding not reproduced by hand.
 
 ## Grouping into PRs
 

@@ -1,7 +1,7 @@
 # 04: Poetry caret `^0` and `^0.0` compute the wrong upper bound
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: adapters/manifest/python
 Verified: yes — read at the cited lines; compared with poetry-core's `next_breaking`

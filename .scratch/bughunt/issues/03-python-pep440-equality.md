@@ -1,7 +1,7 @@
 # 03: Python exact-match specifiers ignore PEP 440's insignificant trailing zeros
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: adapters/manifest/python
 Verified: yes — read at the cited lines; compared with `packaging`'s ordering key

@@ -1,7 +1,7 @@
 # 11: Tag-name validation misses two `git check-ref-format` rules
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: adapters/vcs/tags
 Verified: yes — compared with `git check-ref-format`

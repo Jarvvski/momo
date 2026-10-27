@@ -1,7 +1,7 @@
 # 09: A failed `momo add` still writes a generated `momo.toml`
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: cli/commands
 Verified: yes — reproduced with the built binary
