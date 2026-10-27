@@ -133,18 +133,15 @@ fn completions(shell: Shell) -> Result<()> {
 
 /// Record one Change in the store the configuration selects.
 ///
-/// A write command creates `momo.toml` on first use; with `--dry-run` nothing
-/// is written at all.
+/// A write command creates `momo.toml` on first use, but only once the Change
+/// has landed: a run that fails leaves no generated config behind. With
+/// `--dry-run` nothing is written at all.
 fn record(cli: &Cli, kind: Kind, text: &str) -> Result<()> {
     let root = project_root()?;
     let config = config::load(&root)?;
     let discovery = workspace::load(&root, &config)?;
     let packages = workspace::select(&discovery, cli, DefaultTarget::Cwd)?;
     let change = Change::try_new(kind, text).with_context(|| format!("recording `{kind}`"))?;
-
-    if !cli.dry_run {
-        ensure_config(&root)?;
-    }
 
     for package in packages {
         let path = recording::record(&root, &config, package, &change, cli.dry_run)?;
@@ -153,6 +150,13 @@ fn record(cli: &Cli, kind: Kind, text: &str) -> Result<()> {
         } else {
             println!("wrote {}", path.display());
         }
+    }
+
+    // The config is created only once every Change has landed: a run that fails
+    // while recording must leave the tree untouched, exactly as a rejected
+    // Change does, so a generated `momo.toml` never outlives a failed run.
+    if !cli.dry_run {
+        ensure_config(&root)?;
     }
     Ok(())
 }

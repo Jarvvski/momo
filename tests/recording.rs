@@ -172,6 +172,20 @@ fn a_duplicate_unreleased_section_is_refused_naming_the_line() {
 }
 
 #[test]
+fn a_failed_record_leaves_no_generated_config() {
+    let dir = TempDir::new().expect("temp dir");
+    let seeded = "# Changelog\n\n## [Unreleased]\n\n- one\n\n## [Unreleased]\n\n- two\n";
+    fs::write(dir.path().join("CHANGELOG.md"), seeded).expect("seed the changelog");
+
+    momo(&dir).args(["add", "a thing"]).assert().failure();
+
+    assert!(
+        !dir.path().join("momo.toml").exists(),
+        "a record that failed at runtime created the config"
+    );
+}
+
+#[test]
 fn fragments_mode_writes_one_fragment_per_change() {
     let dir = TempDir::new().expect("temp dir");
     seed_recording(&dir, "fragments");
