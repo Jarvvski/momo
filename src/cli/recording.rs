@@ -57,6 +57,13 @@ pub fn record(
             };
             changelog.record(change.clone());
             if !dry_run {
+                if let Some(parent) = path
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("creating {}", parent.display()))?;
+                }
                 atomic::write(&path, &changelog.render())
                     .with_context(|| format!("writing {}", path.display()))?;
             }
@@ -320,5 +327,44 @@ mod tests {
         let changes = read_fragments(dir.path()).expect("read the fragments");
 
         assert_eq!(changes, vec![Change::new(Kind::Add, "Add a thing")]);
+    }
+
+    #[test]
+    fn recording_creates_a_nested_changelog_directory() {
+        let repo = TempDir::new().expect("temp dir");
+        let config = Config {
+            changelog: PathBuf::from("docs/CHANGELOG.md"),
+            ..Config::default()
+        };
+        let package = Package::single("demo");
+        let change = Change::new(Kind::Add, "Add a thing");
+
+        let path =
+            record(repo.path(), &config, &package, &change, false).expect("record the change");
+
+        assert_eq!(path, repo.path().join("docs/CHANGELOG.md"));
+        let text = fs::read_to_string(&path).expect("read the changelog");
+        assert!(text.contains("Add a thing"), "{text}");
+    }
+
+    #[test]
+    fn a_dry_run_creates_no_nested_changelog_directory() {
+        let repo = TempDir::new().expect("temp dir");
+        let config = Config {
+            changelog: PathBuf::from("docs/CHANGELOG.md"),
+            ..Config::default()
+        };
+        let package = Package::single("demo");
+        let change = Change::new(Kind::Add, "Add a thing");
+
+        let path =
+            record(repo.path(), &config, &package, &change, true).expect("preview the change");
+
+        assert_eq!(path, repo.path().join("docs/CHANGELOG.md"));
+        assert!(!path.exists(), "the dry run wrote the changelog");
+        assert!(
+            !path.parent().expect("a parent").exists(),
+            "the dry run created the directory"
+        );
     }
 }
