@@ -332,17 +332,25 @@ fn prefix(candidate: &Pep440Version, operand: &Pep440Version, len: usize) -> boo
 }
 
 /// The exclusive upper bound of a caret constraint, e.g. `^1.2.3` → `2`.
+///
+/// An omitted segment is not an explicit zero. A release of length 1 (`^0`) has
+/// no minor, so it breaks at the next major; length 2 (`^0.0`) has no patch, so
+/// it breaks at the next minor; only a full `^0.0.0` breaks at the next patch.
+/// This mirrors poetry-core's `next_breaking`.
 fn caret_upper(version: &Pep440Version) -> Pep440Version {
     let release = version.release();
     let major = release.first().copied().unwrap_or(0);
-    let minor = release.get(1).copied().unwrap_or(0);
-    if major > 0 {
-        Pep440Version::from_release(vec![major + 1])
-    } else if minor > 0 {
-        Pep440Version::from_release(vec![0, minor + 1])
-    } else {
-        Pep440Version::from_release(vec![0, 0, release.get(2).copied().unwrap_or(0) + 1])
+    let minor = release.get(1).copied();
+    if major > 0 || minor.is_none() {
+        return Pep440Version::from_release(vec![major + 1]);
     }
+    let minor = minor.unwrap_or(0);
+    let patch = release.get(2).copied();
+    if minor > 0 || patch.is_none() {
+        return Pep440Version::from_release(vec![0, minor + 1]);
+    }
+    let patch = patch.unwrap_or(0);
+    Pep440Version::from_release(vec![0, 0, patch + 1])
 }
 
 /// The exclusive upper bound of a tilde constraint, e.g. `~1.2.3` → `1.3`.
@@ -434,6 +442,18 @@ mod tests {
         assert_eq!(satisfies("~1", "2.0.0"), Some(false));
         assert_eq!(satisfies("1.2.*", "1.2.9"), Some(true));
         assert_eq!(satisfies("*", "9.9.9"), Some(true));
+    }
+
+    #[test]
+    fn a_caret_on_a_zero_major_breaks_at_the_written_precision() {
+        // `^0` omits the minor, so it breaks at the next major, not the next
+        // patch; `^0.0` omits the patch, so it breaks at the next minor.
+        assert_eq!(satisfies("^0", "0.9.9"), Some(true));
+        assert_eq!(satisfies("^0", "1.0.0"), Some(false));
+        assert_eq!(satisfies("^0.0", "0.0.9"), Some(true));
+        assert_eq!(satisfies("^0.0", "0.1.0"), Some(false));
+        // A fully written `^0.0.0` still breaks at the next patch.
+        assert_eq!(satisfies("^0.0.0", "0.0.1"), Some(false));
     }
 
     #[test]
