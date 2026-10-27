@@ -197,7 +197,7 @@ fn a_failing_run_reports_a_structured_error_on_stdout() {
     assert!(
         error["url"]
             .as_str()
-            .is_some_and(|url| url.ends_with("#momo-release-nothing-unreleased")),
+            .is_some_and(|url| url.ends_with("#momoreleasenothing-unreleased")),
         "{value}"
     );
     assert_eq!(error["context"], serde_json::json!([]));
