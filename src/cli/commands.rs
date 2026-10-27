@@ -13,7 +13,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -599,7 +598,7 @@ fn init(cli: &Cli, version: Option<&Version>) -> Result<()> {
         return Err(CliError::InitExists { path }.into());
     }
 
-    fs::write(&path, config.to_string()).with_context(|| format!("writing {}", path.display()))?;
+    config::write(&root, &config.to_string())?;
     println!("wrote {}", path.display());
 
     if let Some(version) = version {
@@ -724,7 +723,7 @@ fn ensure_config(root: &Path) -> Result<()> {
         return Ok(());
     }
     let config = Config::default();
-    fs::write(&path, config.to_string()).with_context(|| format!("writing {}", path.display()))?;
+    config::write(root, &config.to_string())?;
     Ok(())
 }
 
