@@ -407,6 +407,16 @@ mod tests {
     }
 
     #[test]
+    fn an_exact_match_ignores_insignificant_trailing_zeros() {
+        // PEP 440 reads `1.2` and `1.2.0` as the same version, so an exact
+        // match against either admits the other, and `!=` rejects it.
+        assert_eq!(satisfies("==1.2", "1.2.0"), Some(true));
+        assert_eq!(satisfies("==1.2.0", "1.2.0"), Some(true));
+        assert_eq!(satisfies("!=1.2", "1.2.0"), Some(false));
+        assert_eq!(satisfies("1.2", "1.2.0"), Some(true));
+    }
+
+    #[test]
     fn a_compatible_release_admits_the_same_prefix() {
         assert_eq!(satisfies("~=1.4.2", "1.4.9"), Some(true));
         assert_eq!(satisfies("~=1.4.2", "1.5.0"), Some(false));

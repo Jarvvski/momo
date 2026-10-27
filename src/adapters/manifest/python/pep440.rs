@@ -96,7 +96,7 @@ fn classify(head: &str) -> Option<(&'static str, Option<u64>)> {
 /// semver target. The comparison follows PEP 440's ordering key — epoch,
 /// release (trailing zeros insignificant), then pre, post, dev and local — so
 /// `~=1.2` and `==1.2.*` mean what `pip` means by them.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub(crate) struct Pep440Version {
     /// The epoch (`N!`), `0` when absent.
     epoch: u64,
@@ -324,6 +324,21 @@ fn take_number(text: &str) -> (Option<u64>, &str) {
     }
 }
 
+/// PEP 440's equality, read from the ordering key rather than the fields.
+///
+/// The release's trailing zeros are insignificant, so `1.2` and `1.2.0` are the
+/// same version. A structural `PartialEq` would disagree with [`Ord`] — `cmp`
+/// reporting `Equal` while `==` reported `false`, breaking the contract that
+/// callers (and [`Ord`] itself) rely on. Comparing through `cmp` keeps the two
+/// in step, so an exact-match specifier treats `1.2` and `1.2.0` alike.
+impl PartialEq for Pep440Version {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for Pep440Version {}
+
 /// PEP 440's ordering key, applied segment by segment.
 impl Ord for Pep440Version {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
@@ -460,6 +475,17 @@ mod tests {
     fn build_metadata_becomes_a_lowercased_local_version() {
         assert_eq!(rendered("1.2.3+Build.1"), "1.2.3+build.1");
         assert_eq!(rendered("1.2.0-rc.1+Build"), "1.2.0rc1+build");
+    }
+
+    #[test]
+    fn equality_follows_the_ordering_key() {
+        let short = Pep440Version::parse("1.2").expect("a version");
+        let padded = Pep440Version::parse("1.2.0").expect("a version");
+        assert_eq!(short.cmp(&padded), std::cmp::Ordering::Equal);
+        assert_eq!(short, padded);
+
+        let next = Pep440Version::parse("1.2.1").expect("a version");
+        assert_ne!(short, next);
     }
 
     #[test]
