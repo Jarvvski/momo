@@ -8,6 +8,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::cli::atomic;
 use crate::domain::config::{Config, ConfigOverrides};
 use anyhow::{Context, Result};
 
@@ -52,6 +53,17 @@ pub fn load(root: &Path) -> Result<Config> {
     Ok(config)
 }
 
+/// Write `contents` to the project's `momo.toml` under `root`, atomically.
+///
+/// Every `momo.toml` write goes through here so a crash or a full disk
+/// mid-write cannot leave a torn TOML behind: [`atomic::write`] stages the whole
+/// file beside the target and renames it into place, so a reader sees the whole
+/// old file or the whole new one.
+pub fn write(root: &Path, contents: &str) -> Result<()> {
+    let path = root.join(CONFIG_FILE);
+    atomic::write(&path, contents).with_context(|| format!("writing {}", path.display()))
+}
+
 /// Record the chosen task environment in the project's `momo.toml`.
 ///
 /// `name` of `None` clears the key (used by `--uninstall`). The file is created
@@ -83,6 +95,37 @@ pub fn record_task_env(root: &Path, name: Option<&str>) -> Result<()> {
     if updated == existing {
         return Ok(());
     }
-    fs::write(&path, updated).with_context(|| format!("writing {}", path.display()))?;
+    write(root, &updated)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use tempfile::TempDir;
+
+    #[test]
+    fn write_replaces_the_config_atomically_and_leaves_no_temporary_behind() {
+        let root = TempDir::new().expect("temp dir");
+        fs::write(root.path().join(CONFIG_FILE), "old\n").expect("seed the config");
+
+        write(root.path(), "new\n").expect("write the config");
+
+        assert_eq!(
+            fs::read_to_string(root.path().join(CONFIG_FILE)).expect("read the config"),
+            "new\n"
+        );
+        let names: Vec<String> = fs::read_dir(root.path())
+            .expect("read the root")
+            .map(|entry| {
+                entry
+                    .expect("a directory entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(names, [CONFIG_FILE]);
+    }
 }
