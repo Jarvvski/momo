@@ -1,7 +1,7 @@
 # 10: A `--dry-run` release can leave ancestor directories behind
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: cli/release
 Verified: yes — read at the cited lines

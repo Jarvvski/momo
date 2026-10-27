@@ -1,7 +1,7 @@
 # 07: `init --version` seeds a ledger monorepo Packages never read
 
 Type: bug
-Status: ready-for-agent
+Status: ready-for-human
 Severity: medium
 Area: cli/commands, cli/version
 Verified: yes — read at the cited lines

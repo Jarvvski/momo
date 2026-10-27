@@ -1,7 +1,7 @@
 # 13: A mise config that lives only under `conf.d` is not detected
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: low
 Area: adapters/taskenv
 Verified: yes — reproduced against real mise

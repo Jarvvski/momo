@@ -1,7 +1,7 @@
 # 08: Every error's docs URL points at a GitHub anchor that does not exist
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: cli/diagnostic, docs
 Verified: yes — reproduced against the live GitHub rendering

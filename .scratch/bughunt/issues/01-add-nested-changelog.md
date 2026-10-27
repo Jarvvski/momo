@@ -1,7 +1,7 @@
 # 01: `momo add` cannot record into a nested changelog path
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: cli/recording
 Verified: yes — reproduced with the built binary

@@ -1,7 +1,7 @@
 # 06: jj remote parsing swallows the `(push: …)` annotation
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: adapters/vcs/jj
 Verified: yes — reproduced with jj 0.46.0

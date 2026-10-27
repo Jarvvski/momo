@@ -1,7 +1,7 @@
 # 02: A workspace-inherited dependency rename is reported under the wrong package
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: adapters/manifest/cargo
 Verified: yes — read at the cited lines; confirmed against Cargo's inheritance rules
