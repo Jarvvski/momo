@@ -189,7 +189,7 @@ document on **stdout**, with a non-zero exit code:
     "code": "momo.version.stale-candidate",
     "message": "the cut candidate `1.1.0-rc.1` is stale: the changes now imply `2.0.0`",
     "fix": "cut a new candidate for `2.0.0` (`momo candidate`)",
-    "url": "https://github.com/Jarvvski/momo/blob/main/docs/errors.md#momo-version-stale-candidate",
+    "url": "https://github.com/Jarvvski/momo/blob/main/docs/errors.md#momoversionstale-candidate",
     "context": []
   }
 }

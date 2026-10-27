@@ -72,7 +72,7 @@ pub fn diagnose(err: &AnyhowError) -> Diagnostic {
             (UNCLASSIFIED, message, None, None)
         }
     };
-    let url = url.or_else(|| Some(format!("{DOCS_BASE}#{}", code.replace('.', "-"))));
+    let url = url.or_else(|| Some(format!("{DOCS_BASE}#{}", code.replace('.', ""))));
 
     Diagnostic {
         code,
@@ -252,7 +252,7 @@ mod tests {
         assert_eq!(
             diagnostic.url.as_deref(),
             Some(
-                "https://github.com/Jarvvski/momo/blob/main/docs/errors.md#momo-release-nothing-unreleased"
+                "https://github.com/Jarvvski/momo/blob/main/docs/errors.md#momoreleasenothing-unreleased"
             ),
         );
         assert_eq!(
@@ -307,9 +307,7 @@ mod tests {
         assert!(diagnostic.fix.is_none());
         assert_eq!(
             diagnostic.url.as_deref(),
-            Some(
-                "https://github.com/Jarvvski/momo/blob/main/docs/errors.md#momo-error-unclassified"
-            ),
+            Some("https://github.com/Jarvvski/momo/blob/main/docs/errors.md#momoerrorunclassified"),
         );
     }
 
