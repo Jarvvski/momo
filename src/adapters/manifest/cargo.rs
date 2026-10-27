@@ -107,20 +107,17 @@ impl ManifestSync for CargoManifest {
 ///
 /// The three dependency tables and every `[target.<cfg>.<kind>]` variant are
 /// scanned. A dependency renamed with `package = "…"` is reported under its real
-/// name, and a `workspace = true` inheritance is resolved against the workspace
-/// root. A dependency with no version — a `path`- or `git`-only entry — carries
-/// no requirement and is omitted.
+/// name — including one that inherits the rename from the workspace root — and a
+/// `workspace = true` inheritance is resolved against that root. A dependency
+/// with no version — a `path`- or `git`-only entry — carries no requirement and
+/// is omitted.
 fn read_dependencies(doc: &DocumentMut, manifest: &Path) -> Vec<DependencyRequirement> {
     let mut requirements = Vec::new();
     for table in dependency_tables(doc) {
         for (key, item) in table.iter() {
-            let Some(requirement) = entry_requirement(manifest, key, item) else {
-                continue;
-            };
-            requirements.push(DependencyRequirement {
-                package: entry_package(key, item),
-                requirement,
-            });
+            if let Some(requirement) = entry_dependency(manifest, key, item) {
+                requirements.push(requirement);
+            }
         }
     }
     requirements
@@ -153,15 +150,26 @@ fn collect_dependency_tables<'a>(table: &'a dyn TableLike, tables: &mut Vec<&'a 
     }
 }
 
-/// The version requirement `item` declares for the dependency named `key`.
+/// The dependency `item` declares under the key `key`, resolved to the package
+/// name and requirement Cargo sees.
 ///
-/// `None` when the dependency carries no version — a `path`- or `git`-only
-/// entry, or a `workspace = true` whose shared requirement cannot be resolved.
-fn entry_requirement(manifest: &Path, key: &str, item: &Item) -> Option<String> {
+/// An inherited entry (`workspace = true`) takes both from the workspace root's
+/// `[workspace.dependencies]`, where a `package = "…"` rename lives — Cargo
+/// forbids one on the member's own entry. `None` when the dependency carries no
+/// version — a `path`- or `git`-only entry, or an inheritance whose shared
+/// requirement cannot be resolved.
+fn entry_dependency(manifest: &Path, key: &str, item: &Item) -> Option<DependencyRequirement> {
     if is_inherited(item) {
-        return inherited_requirement(manifest, key);
+        let inherited = inherited(manifest, key)?;
+        return Some(DependencyRequirement {
+            package: inherited.package,
+            requirement: inherited.requirement,
+        });
     }
-    requirement_of(item)
+    Some(DependencyRequirement {
+        package: entry_package(key, item),
+        requirement: requirement_of(item)?,
+    })
 }
 
 /// Whether `item` inherits its requirement from the workspace root.
@@ -192,15 +200,28 @@ fn entry_package(key: &str, item: &Item) -> String {
         .to_owned()
 }
 
-/// The workspace dependency `key` inherits: the root manifest, its text, and
-/// the shared requirement.
+/// A `[workspace.dependencies]` entry a member inherits: where it lives and what
+/// it resolves to.
+struct Inherited {
+    /// The workspace root manifest declaring the entry.
+    root: PathBuf,
+    /// The real package name: the root entry's `package`, or its key.
+    package: String,
+    /// The shared requirement.
+    requirement: String,
+}
+
+/// The workspace dependency `key` inherits: the root manifest declaring it, the
+/// package it resolves to, and the shared requirement.
 ///
 /// Cargo resolves the shared requirement against the workspace root's
 /// `[workspace.dependencies]`. The search starts at the member's own directory,
-/// so a root that is also a package resolves against itself. `None` when no
-/// ancestor declares the key — there is no requirement momo can read, and none
-/// it could rewrite.
-fn inherited(member: &Path, key: &str) -> Option<(PathBuf, String, String)> {
+/// so a root that is also a package resolves against itself. A `package = "…"`
+/// rename lives here rather than on the member's entry, which Cargo forbids it
+/// on, so the name is read from the same root entry as the requirement. `None`
+/// when no ancestor declares the key — there is no requirement momo can read,
+/// and none it could rewrite.
+fn inherited(member: &Path, key: &str) -> Option<Inherited> {
     for ancestor in member.parent()?.ancestors() {
         let candidate = ancestor.join(MANIFEST);
         let Ok(text) = fs::read_to_string(&candidate) else {
@@ -209,21 +230,23 @@ fn inherited(member: &Path, key: &str) -> Option<(PathBuf, String, String)> {
         let Ok(doc) = text.parse::<DocumentMut>() else {
             continue;
         };
-        if let Some(requirement) = doc
+        let Some(entry) = doc
             .get("workspace")
             .and_then(|workspace| workspace.get("dependencies"))
             .and_then(|dependencies| dependencies.get(key))
-            .and_then(requirement_of)
-        {
-            return Some((candidate, text, requirement));
-        }
+        else {
+            continue;
+        };
+        let Some(requirement) = requirement_of(entry) else {
+            continue;
+        };
+        return Some(Inherited {
+            root: candidate,
+            package: entry_package(key, entry),
+            requirement,
+        });
     }
     None
-}
-
-/// The requirement a `workspace = true` dependency inherits from its root.
-fn inherited_requirement(member: &Path, key: &str) -> Option<String> {
-    inherited(member, key).map(|(_, _, requirement)| requirement)
 }
 
 /// The workspace roots and `[workspace.dependencies]` keys that declare the
@@ -231,6 +254,8 @@ fn inherited_requirement(member: &Path, key: &str) -> Option<String> {
 ///
 /// A dependency can appear in more than one table, and a member can declare
 /// both an inherited and a direct entry for one package, so this is a list.
+/// The package name is resolved from the root entry — where an inherited
+/// `package = "…"` rename lives — so a renamed dependency still matches `edit`.
 /// Only declarations whose inherited requirement matches `edit` are returned —
 /// the rest are a different range momo was not asked to touch.
 fn inherited_sites(
@@ -241,13 +266,14 @@ fn inherited_sites(
     let mut sites = Vec::new();
     for table in dependency_tables(doc) {
         for (key, item) in table.iter() {
-            if !is_inherited(item) || entry_package(key, item) != edit.name {
+            if !is_inherited(item) {
                 continue;
             }
-            if let Some((root, _, requirement)) = inherited(member, key)
-                && requirement == edit.requirement
-            {
-                sites.push((root, key.to_owned()));
+            let Some(inherited) = inherited(member, key) else {
+                continue;
+            };
+            if inherited.package == edit.name && inherited.requirement == edit.requirement {
+                sites.push((inherited.root, key.to_owned()));
             }
         }
     }
@@ -1043,6 +1069,29 @@ remote = { git = \"https://example.com/remote.git\" }
     }
 
     #[test]
+    fn an_inherited_renamed_dependency_reports_its_real_package_name() {
+        // Cargo forbids `package` on the member's `workspace = true` entry, so
+        // the rename lives on the root entry — the name must come from there,
+        // not from the member's key, or a cascade filtering on the real name
+        // drops the edge.
+        let (_dir, _root, member, member_text) = workspace(
+            "[workspace]\nmembers = [\"crates/b\"]\n\n\
+             [workspace.dependencies]\n\
+             foo = { path = \"crates/a\", version = \"^0.1.0\", package = \"acme\" }\n",
+            "[package]\nname = \"b\"\nversion = \"0.1.0\"\n\n\
+             [dependencies]\nfoo = { workspace = true }\n",
+        );
+
+        assert_eq!(
+            requirements(&member_text, &member),
+            vec![DependencyRequirement {
+                package: "acme".to_owned(),
+                requirement: "^0.1.0".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
     fn an_unresolvable_inherited_dependency_is_omitted() {
         let text = "[dependencies]\na = { workspace = true }\n";
         // No ancestor manifest declares `[workspace.dependencies]`, so there is
@@ -1312,6 +1361,32 @@ a = \"^0.9.0\"
             write.text,
             "# the workspace\n[workspace]\nmembers = [\"crates/a\"]\n\n\
              [workspace.dependencies]\na = { path = \"crates/a\", version = \"=0.2.0\" } # shared\n"
+        );
+    }
+
+    #[test]
+    fn an_inherited_renamed_requirement_is_widened_in_the_workspace_root() {
+        // The rewrite keys off the real package name, so an inherited rename
+        // must resolve to `acme` for the edit naming `acme` to fire at all.
+        let (_dir, root, member, _member_text) = workspace(
+            "[workspace]\nmembers = [\"crates/b\"]\n\n\
+             [workspace.dependencies]\n\
+             foo = { path = \"crates/a\", version = \"=0.1.0\", package = \"acme\" }\n",
+            "[package]\nname = \"b\"\nversion = \"0.1.0\"\n\n\
+             [dependencies]\nfoo = { workspace = true }\n",
+        );
+
+        let plan = CargoManifest
+            .render(&member, &widening("acme", "=0.1.0", "0.2.0"))
+            .expect("render the manifest");
+
+        let write = only_write(&plan);
+        assert_eq!(write.path, root, "the member's own manifest was targeted");
+        assert_eq!(
+            write.text,
+            "[workspace]\nmembers = [\"crates/b\"]\n\n\
+             [workspace.dependencies]\n\
+             foo = { path = \"crates/a\", version = \"=0.2.0\", package = \"acme\" }\n"
         );
     }
 
