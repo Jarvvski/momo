@@ -31,10 +31,11 @@ pub(crate) fn checked_tag_name(prefix: &str, version: &Version) -> Result<String
 /// Whether `name` is usable as the final component of a `refs/tags/<name>` ref.
 ///
 /// Mirrors `git check-ref-format` for a tag: no control characters, space, or
-/// `~ ^ : ? * [ \`; no `..`, `@{`, `//`, or leading/trailing `/`; no trailing
-/// `.` or `.lock`. A leading `-` is additionally rejected even though the full
-/// ref accepts it, because the name is passed to `git tag` as an argument and
-/// git would parse `-1.2.3` as an option.
+/// `~ ^ : ? * [ \`; no `..`, `@{`, `//`, or leading/trailing `/`; no path
+/// component that begins with `.` or ends with `.lock`. A leading `-` is
+/// additionally rejected even though the full ref accepts it, because the name
+/// is passed to `git tag` as an argument and git would parse `-1.2.3` as an
+/// option.
 pub(crate) fn is_valid_ref_name(name: &str) -> bool {
     if name.is_empty()
         || name.starts_with('-')
@@ -45,6 +46,14 @@ pub(crate) fn is_valid_ref_name(name: &str) -> bool {
         || name.contains("..")
         || name.contains("//")
         || name.contains("@{")
+    {
+        return false;
+    }
+    // The whole-name checks above only catch a `.` or `.lock` at the very
+    // ends; git rejects either on any path component.
+    if name
+        .split('/')
+        .any(|component| component.starts_with('.') || component.ends_with(".lock"))
     {
         return false;
     }
@@ -189,8 +198,27 @@ mod tests {
             assert!(is_valid_ref_name(name), "{name} should be valid");
         }
         for name in [
-            "", "-1.2.3", "v 1", "v1..2", "v1.lock", "v1.", "/v1", "v1/", "v1//2", "v1~2", "v1^2",
-            "v1:2", "v1?2", "v1*2", "v1[2]", "v1\\2", "v1@{2}", "v1\t2",
+            "",
+            "-1.2.3",
+            "v 1",
+            "v1..2",
+            "v1.lock",
+            "v1.",
+            "/v1",
+            "v1/",
+            "v1//2",
+            "v1~2",
+            "v1^2",
+            "v1:2",
+            "v1?2",
+            "v1*2",
+            "v1[2]",
+            "v1\\2",
+            "v1@{2}",
+            "v1\t2",
+            "a/.b/c",
+            "release.lock/x",
+            ".1.2.3",
         ] {
             assert!(!is_valid_ref_name(name), "{name} should be rejected");
         }
