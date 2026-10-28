@@ -60,7 +60,7 @@ jobs:
           # with GITHUB_TOKEN would be rejected.
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN || github.token }}
-      - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
         with:
           # Rustup components live outside mise's cached data directory.
           cache: false
@@ -161,7 +161,7 @@ jobs:
         with:
           # On a dispatch the release commit is tagged; build exactly that.
           ref: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', needs.prepare.outputs.version) || '' }}
-      - uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
         with:
           cache: false
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
