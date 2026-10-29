@@ -89,7 +89,7 @@ tag_prefix = "api/v"         # override the derived tag prefix, used verbatim
 
 The value written is the semver the tag carries, rendered the way the ecosystem spells it. `rc_format` (and the tag) stay semver-shaped; the adapter translates at the boundary, so a Python `pyproject.toml` holds the **PEP 440** form — the tag `v1.2.0-rc.1` writes `version = "1.2.0rc1"`. A pre-release with no PEP 440 spelling (anything but alpha, beta or a release candidate) is an error, never a silently different version.
 
-For Python, `[project].version` (PEP 621) and `[tool.poetry].version` are both rewritten when both are present, so a Poetry 2 migration never leaves one stale. A project whose version is computed elsewhere — `[project].dynamic = ["version"]`, setuptools-scm, setuptools dynamic, hatch-vcs, poetry-dynamic-versioning — is skipped with the backend named, because the tag *is* the version there; a static scalar beside a dynamic declaration is a conflict. `setup.cfg` and `setup.py` are not supported.
+For Python, `[project].version` (PEP 621) and `[tool.poetry].version` are both rewritten when both are present, so a Poetry 2 migration never leaves one stale. A project whose version is computed elsewhere — `[project].dynamic = ["version"]`, setuptools-scm, setuptools dynamic, hatch-vcs, poetry-dynamic-versioning — is skipped with the backend named, because the tag *is* the version there; a static scalar beside a dynamic declaration is a conflict, except for `poetry-dynamic-versioning`, whose declaration requires a placeholder scalar and so is skipped rather than refused. `setup.cfg` and `setup.py` are not supported.
 
 ## Precedence
 
