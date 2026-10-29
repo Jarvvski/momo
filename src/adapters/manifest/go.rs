@@ -13,9 +13,8 @@
 //! when the target is at least it and the two share a module path, meaning
 //! majors 0 and 1 count as one path while majors ≥ 2 must match exactly. A
 //! target in a different module path is reported as unsatisfied — the fix is
-//! an import-path change, not a pin bump — while `widen` bumps the pin to the
-//! target for the cases where that is what the project wants. The adapter is
-//! read-only, so the cascade reports a Go edge but never rewrites it.
+//! an import-path change, not a pin bump. The adapter is read-only, so `widen`
+//! refuses and the cascade reports a Go edge but never rewrites it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -87,17 +86,12 @@ impl ManifestSync for GoManifest {
         )
     }
 
-    /// Bump the pin to `target`.
+    /// A Go pin is reported, never rewritten.
     ///
-    /// Go has no range to preserve, so the rewrite is the target's Go version.
-    /// The result is verified to admit `target` before it is returned.
-    fn widen(&self, requirement: &str, target: &Version) -> Option<String> {
-        parse_version(requirement)?;
-        let widened = format!("v{target}");
-        match self.satisfied(&widened, target) {
-            Some(true) => Some(widened),
-            _ => None,
-        }
+    /// Go has no range to widen and the adapter writes nothing, so there is no
+    /// rewrite to offer: `None` leaves the unsatisfied edge in `cascade`.
+    fn widen(&self, _requirement: &str, _target: &Version) -> Option<String> {
+        None
     }
 }
 
@@ -280,25 +274,11 @@ replace example.com/other => ../other
     }
 
     #[test]
-    fn a_pin_is_widened_to_the_target() {
+    fn a_pin_is_reported_but_never_widened() {
         let go = GoManifest;
-        assert_eq!(
-            go.widen("v0.1.0", &version("0.2.0")).as_deref(),
-            Some("v0.2.0")
-        );
-        assert_eq!(
-            go.widen("v1.2.3", &version("1.3.0")).as_deref(),
-            Some("v1.3.0")
-        );
+        assert_eq!(go.widen("v0.1.0", &version("0.2.0")), None);
+        assert_eq!(go.widen("v1.2.3", &version("1.3.0")), None);
         assert_eq!(go.widen("not a version", &version("1.0.0")), None);
-    }
-
-    #[test]
-    fn a_widened_pin_admits_its_target() {
-        let go = GoManifest;
-        let target = version("0.2.0");
-        let widened = go.widen("v0.1.0", &target).expect("a widen");
-        assert_eq!(go.satisfied(&widened, &target), Some(true));
     }
 
     #[test]
