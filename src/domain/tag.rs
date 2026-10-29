@@ -13,7 +13,7 @@
 //! prefix is major-agnostic. [`go_major_warning`] words the one thing Go
 //! requires of the path itself.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::domain::package::Package;
 use crate::domain::version::Version;
@@ -28,9 +28,8 @@ fn module_name(identity: &str) -> &str {
     identity.split_once(':').map_or(identity, |(_, name)| name)
 }
 
-/// Whether `package` sits at the repository root.
-fn at_repo_root(package: &Package) -> bool {
-    let root = package.relative_root();
+/// Whether `root`, a repo-relative directory, is the repository root itself.
+fn at_repo_root(root: &Path) -> bool {
     root.as_os_str().is_empty() || root == Path::new(".")
 }
 
@@ -39,13 +38,55 @@ fn at_repo_root(package: &Package) -> bool {
 /// Go resolves a module version by the module's directory relative to the repo
 /// root: a submodule rooted at `R` is tagged `<R>/<base>`, and a module at the
 /// repo root is tagged `<base>` alone. The `/vN` major suffix lives in the
-/// module path, never in the tag, so the prefix is major-agnostic.
+/// module path, never in the tag, so the prefix is major-agnostic — see
+/// [`go_module_subdirectory`].
 fn go_resolvable_prefix(package: &Package, base: &str) -> String {
-    if at_repo_root(package) {
+    let subdirectory = go_module_subdirectory(package);
+    if at_repo_root(&subdirectory) {
         base.to_owned()
     } else {
-        format!("{}/{base}", package.relative_root().display())
+        format!("{}/{base}", subdirectory.display())
     }
+}
+
+/// The module subdirectory a Go tag is prefixed by: `package`'s directory with a
+/// trailing major-version component removed when the module path carries a
+/// matching `/vN` suffix.
+///
+/// The `/vN` in a module path is a naming convention, not a directory Go
+/// includes when resolving a tag. A module whose path is
+/// `example.com/acme/api/v2` and whose go.mod sits in `api/v2/` is tagged
+/// `api/v1.0.0`, not `api/v2/v1.0.0`; a root-level `v2` module is tagged
+/// `v1.0.0` alone.
+fn go_module_subdirectory(package: &Package) -> PathBuf {
+    let root = package.relative_root();
+    if at_repo_root(root) {
+        return PathBuf::new();
+    }
+    let major = go_module_path(package).and_then(go_major_suffix);
+    match (root.file_name().and_then(|name| name.to_str()), major) {
+        (Some(dir), Some(suffix)) if dir == suffix => {
+            root.parent().map_or_else(PathBuf::new, Path::to_path_buf)
+        }
+        _ => root.to_path_buf(),
+    }
+}
+
+/// The trailing major-version component of a Go module path, e.g. `v2` for
+/// `example.com/acme/api/v2`.
+///
+/// Go encodes major 2 and up in a module path as a trailing `/vN`. A `v0` or
+/// `v1` component is never written as a suffix, so it yields `None`.
+fn go_major_suffix(module_path: &str) -> Option<&str> {
+    let last = module_path.rsplit('/').next()?;
+    let major = last.strip_prefix('v')?;
+    if major.is_empty()
+        || major.starts_with('0')
+        || !major.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    (major != "1").then_some(last)
 }
 
 /// The prefix `package`'s versions are tagged under, given momo's `base`.
@@ -118,6 +159,36 @@ mod tests {
             "v"
         );
         assert_eq!(prefix(&Package::single("acme"), "v"), "v");
+    }
+
+    #[test]
+    fn a_go_module_in_a_major_subdirectory_drops_the_vn_from_its_prefix() {
+        let package = Package::from_identity("go:example.com/acme/api/v2", "api/v2");
+        assert_eq!(prefix(&package, "v"), "api/v");
+        assert_eq!(prefix(&package, "rel-"), "api/rel-");
+    }
+
+    #[test]
+    fn a_root_level_major_module_takes_the_base_alone() {
+        assert_eq!(
+            prefix(&Package::from_identity("go:example.com/acme/v2", "v2"), "v"),
+            "v"
+        );
+    }
+
+    #[test]
+    fn a_directory_that_does_not_match_the_module_major_is_kept() {
+        let package = Package::from_identity("go:example.com/acme/api/v2", "api");
+        assert_eq!(prefix(&package, "v"), "api/v");
+    }
+
+    #[test]
+    fn only_a_major_of_two_or_more_is_a_module_path_suffix() {
+        assert_eq!(go_major_suffix("example.com/acme/api"), None);
+        assert_eq!(go_major_suffix("example.com/acme/v1"), None);
+        assert_eq!(go_major_suffix("example.com/acme/v01"), None);
+        assert_eq!(go_major_suffix("example.com/acme/v2"), Some("v2"));
+        assert_eq!(go_major_suffix("example.com/acme/v10"), Some("v10"));
     }
 
     #[test]
