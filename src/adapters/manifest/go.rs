@@ -75,11 +75,15 @@ impl ManifestSync for GoManifest {
     /// `None` when the pin is not a Go version momo can read. The rule: the
     /// target must share the pin's module path — majors 0 and 1 are one path,
     /// majors ≥ 2 must match exactly — and be at least the pinned version.
+    ///
+    /// Comparison is by semver **precedence**, not `Version`'s total `Ord`:
+    /// Go ignores build metadata (`+incompatible`), so `v2.0.0+incompatible`
+    /// and `v2.0.0` name the same base version.
     fn satisfied(&self, requirement: &str, version: &Version) -> Option<bool> {
         let pinned = parse_version(requirement)?;
         Some(
             module_path_major(pinned.major) == module_path_major(version.major)
-                && *version >= pinned,
+                && version.cmp_precedence(&pinned).is_ge(),
         )
     }
 
@@ -242,6 +246,19 @@ replace example.com/other => ../other
         assert_eq!(go.satisfied("v0.1.0", &version("0.2.0")), Some(true));
         assert_eq!(go.satisfied("v1.4.0", &version("1.4.1")), Some(true));
         assert_eq!(go.satisfied("v1.4.0", &version("1.3.0")), Some(false));
+    }
+
+    #[test]
+    fn build_metadata_is_ignored_because_go_treats_the_base_as_equal() {
+        let go = GoManifest;
+        assert_eq!(
+            go.satisfied("v2.0.0+incompatible", &version("2.0.0")),
+            Some(true)
+        );
+        assert_eq!(
+            go.satisfied("v2.0.0", &version("2.0.0+incompatible")),
+            Some(true)
+        );
     }
 
     #[test]
