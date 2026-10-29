@@ -24,9 +24,25 @@ pub fn render(version: &Version) -> Result<String, Pep440Error> {
     }
     if !version.build.is_empty() {
         rendered.push('+');
-        rendered.push_str(&version.build.as_str().to_ascii_lowercase());
+        rendered.push_str(&local_version(version.build.as_str()));
     }
     Ok(rendered)
+}
+
+/// The PEP 440 local version for a semver build string.
+///
+/// PEP 440 lowercases a local version and folds its `-` and `_` separators to
+/// `.`, so `Build-1_x` normalises to `build.1.x`. semver's grammar admits only
+/// hyphens, so the `_` arm is defensive; it keeps the rendering in PEP 440's
+/// canonical form regardless of what the build string holds.
+fn local_version(build: &str) -> String {
+    build
+        .chars()
+        .map(|character| match character {
+            '-' | '_' => '.',
+            other => other.to_ascii_lowercase(),
+        })
+        .collect()
 }
 
 /// The PEP 440 pre-release segment for `pre`, e.g. `rc1`, `b2`, `a0`.
@@ -65,8 +81,9 @@ fn prerelease(pre: &Prerelease) -> Result<String, Pep440Error> {
 /// The PEP 440 kind and glued number for a pre-release's first segment.
 ///
 /// `alpha`/`a`, `beta`/`b`, and `rc`/`c`/`pre`/`preview` are the aliases PEP 440
-/// normalises; the first segment may carry the number glued on (`rc1`). `None`
-/// when the segment names no kind.
+/// normalises; the first segment may carry the number glued on (`rc1`). PEP 440
+/// is case-insensitive, so the aliases match regardless of case (`RC`, `Rc`).
+/// `None` when the segment names no kind.
 fn classify(head: &str) -> Option<(&'static str, Option<u64>)> {
     const ALIASES: [(&str, &str); 8] = [
         ("alpha", "a"),
@@ -79,12 +96,13 @@ fn classify(head: &str) -> Option<(&'static str, Option<u64>)> {
         ("b", "b"),
     ];
     ALIASES.iter().find_map(|(alias, kind)| {
-        if head == *alias {
+        let remainder = strip_ci(head, alias)?;
+        if remainder.is_empty() {
             return Some((*kind, None));
         }
-        head.strip_prefix(alias)
-            .filter(|digits| !digits.is_empty())
-            .and_then(|digits| digits.parse::<u64>().ok())
+        remainder
+            .parse::<u64>()
+            .ok()
             .map(|number| (*kind, Some(number)))
     })
 }
@@ -472,9 +490,25 @@ mod tests {
     }
 
     #[test]
+    fn an_uppercase_kind_is_recognised() {
+        assert_eq!(rendered("1.2.0-RC.1"), "1.2.0rc1");
+        assert_eq!(rendered("1.2.0-Rc.1"), "1.2.0rc1");
+        assert_eq!(rendered("1.2.0-ALPHA.1"), "1.2.0a1");
+        assert_eq!(rendered("1.2.0-Beta.2"), "1.2.0b2");
+        assert_eq!(rendered("1.2.0-PRE.1"), "1.2.0rc1");
+        assert_eq!(rendered("1.2.0-RC1"), "1.2.0rc1");
+    }
+
+    #[test]
     fn build_metadata_becomes_a_lowercased_local_version() {
         assert_eq!(rendered("1.2.3+Build.1"), "1.2.3+build.1");
         assert_eq!(rendered("1.2.0-rc.1+Build"), "1.2.0rc1+build");
+    }
+
+    #[test]
+    fn build_separators_become_dots() {
+        assert_eq!(rendered("1.2.3+build-1"), "1.2.3+build.1");
+        assert_eq!(local_version("Build-1_x"), "build.1.x");
     }
 
     #[test]
