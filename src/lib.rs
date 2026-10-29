@@ -38,11 +38,12 @@ pub fn run() -> ExitCode {
     match cli::commands::run(&cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            // A failed run still honours `--format`: a machine consumer gets
-            // the structured error on stdout, a human gets it on stderr. The
-            // exit code is non-zero either way, and `--output` is never written.
+            // A failed run still honours `--format` and its `--json`
+            // shorthand: a machine consumer gets the structured error on
+            // stdout, a human gets it on stderr. The exit code is non-zero
+            // either way, and `--output` is never written.
             let diagnostic = diagnose(&err);
-            match cli.format.unwrap_or_default() {
+            match cli.output_format() {
                 Format::Human => eprintln!("{}", diagnostic.human()),
                 Format::Json => print!("{}", diagnostic.json()),
             }

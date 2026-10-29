@@ -204,6 +204,24 @@ fn a_failing_run_reports_a_structured_error_on_stdout() {
 }
 
 #[test]
+fn the_json_shorthand_reports_a_failure_on_stdout() {
+    let dir = TempDir::new().expect("temp dir");
+    let proj = project(&dir);
+
+    // `--json` is the shorthand for `--format json`, so a failed run renders
+    // the same one error document on stdout — and nothing on stderr.
+    let assert = momo(&proj).args(["release", "--json"]).assert().failure();
+
+    let value = json(&String::from_utf8_lossy(&assert.get_output().stdout));
+    assert_eq!(value["error"]["code"], "momo.release.nothing-unreleased");
+    assert!(
+        assert.get_output().stderr.is_empty(),
+        "`release --json` also wrote to stderr: {}",
+        String::from_utf8_lossy(&assert.get_output().stderr),
+    );
+}
+
+#[test]
 fn a_failing_run_never_writes_output() {
     let dir = TempDir::new().expect("temp dir");
     let proj = project(&dir);
