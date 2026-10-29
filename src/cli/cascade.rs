@@ -539,18 +539,31 @@ mod tests {
     }
 
     #[test]
-    fn a_go_dependent_is_reported_with_its_pinned_version() {
-        // The pin `v0.1.0` is a different major from the target `1.0.0`, which
-        // is a different module path, so the edge is unsatisfied.
+    fn a_v0_to_v1_go_upgrade_shares_a_module_path_and_is_absent() {
+        // `v0` and `v1` share one unsuffixed module path, so a `v0.1.0` pin is
+        // satisfied by a `1.0.0` release — no false unsatisfied edge.
         let (dir, _) = go_repo("v0.1.0");
         let workspace = go_workspace(dir.path());
         let released = &workspace.packages()[0];
 
         let entries = for_package(dir.path(), &workspace, released, &Version::new(1, 0, 0));
 
+        assert!(entries.is_empty(), "{entries:?}");
+    }
+
+    #[test]
+    fn a_go_dependent_is_reported_with_its_pinned_version() {
+        // The pin `v1.4.0` and the target `2.0.0` are different module paths,
+        // so the edge is unsatisfied.
+        let (dir, _) = go_repo("v1.4.0");
+        let workspace = go_workspace(dir.path());
+        let released = &workspace.packages()[0];
+
+        let entries = for_package(dir.path(), &workspace, released, &Version::new(2, 0, 0));
+
         assert_eq!(entries.len(), 1, "{entries:?}");
         assert_eq!(entries[0].dependent, "go:example.com/acme/api2");
-        assert_eq!(entries[0].requirement.as_deref(), Some("v0.1.0"));
+        assert_eq!(entries[0].requirement.as_deref(), Some("v1.4.0"));
         assert_eq!(entries[0].satisfied, Some(false));
     }
 

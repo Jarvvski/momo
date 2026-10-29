@@ -6,11 +6,14 @@
 //! cascade's question: which modules this one `require`s, and whether a new
 //! Version satisfies the pin.
 //!
-//! Go has no ranges. A `require` names one exact version, and a new **major**
-//! is a *different module path* (`example.com/a/v2`), so momo's rule is: a pin
-//! is satisfied when the target keeps the pinned version's major and is at
-//! least it. A new major is therefore reported as unsatisfied — the fix is an
-//! import-path change, not a pin bump — while `widen` bumps the pin to the
+//! Go has no ranges. A `require` names one exact version, and semantic import
+//! versioning gives a module its `/vN` suffix only from major 2 onward — `v0`
+//! and `v1` share one unsuffixed path, so a `v0`→`v1` upgrade is a pin bump,
+//! not an import-path change. momo's rule is therefore: a pin is satisfied
+//! when the target is at least it and the two share a module path, meaning
+//! majors 0 and 1 count as one path while majors ≥ 2 must match exactly. A
+//! target in a different module path is reported as unsatisfied — the fix is
+//! an import-path change, not a pin bump — while `widen` bumps the pin to the
 //! target for the cases where that is what the project wants. The adapter is
 //! read-only, so the cascade reports a Go edge but never rewrites it.
 
@@ -70,11 +73,14 @@ impl ManifestSync for GoManifest {
     /// Whether `version` satisfies the pinned `requirement`.
     ///
     /// `None` when the pin is not a Go version momo can read. The rule: the
-    /// target must keep the pinned major — a new major is a different module
-    /// path — and be at least the pinned version.
+    /// target must share the pin's module path — majors 0 and 1 are one path,
+    /// majors ≥ 2 must match exactly — and be at least the pinned version.
     fn satisfied(&self, requirement: &str, version: &Version) -> Option<bool> {
         let pinned = parse_version(requirement)?;
-        Some(pinned.major == version.major && *version >= pinned)
+        Some(
+            module_path_major(pinned.major) == module_path_major(version.major)
+                && *version >= pinned,
+        )
     }
 
     /// Bump the pin to `target`.
@@ -89,6 +95,15 @@ impl ManifestSync for GoManifest {
             _ => None,
         }
     }
+}
+
+/// The module path a major selects.
+///
+/// Go's semantic import versioning appends a `/vN` suffix only from major 2
+/// onward, so majors 0 and 1 name one unsuffixed path while every major from 2
+/// up names its own.
+fn module_path_major(major: u64) -> u64 {
+    if major < 2 { 0 } else { major }
 }
 
 /// Read `manifest`, attributing a failure to its path.
@@ -230,10 +245,13 @@ replace example.com/other => ../other
     }
 
     #[test]
-    fn a_new_major_is_a_different_module_path_and_so_unsatisfied() {
+    fn only_major_two_or_greater_is_a_different_module_path() {
         let go = GoManifest;
         assert_eq!(go.satisfied("v1.4.0", &version("2.0.0")), Some(false));
-        assert_eq!(go.satisfied("v0.1.0", &version("1.0.0")), Some(false));
+        assert_eq!(go.satisfied("v2.0.0", &version("3.0.0")), Some(false));
+        // `v0` and `v1` share one unsuffixed module path.
+        assert_eq!(go.satisfied("v0.1.0", &version("1.0.0")), Some(true));
+        assert_eq!(go.satisfied("v1.4.0", &version("0.9.0")), Some(false));
     }
 
     #[test]
