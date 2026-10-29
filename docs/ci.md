@@ -158,7 +158,7 @@ Cargo, Node, Python (`uv`) and Go dependents are checked, each against its own g
 
 - `requirement` is what the dependent declared before the rewrite; `target` is the version the requirement was widened to admit.
 - The array is attached to the package whose release *caused* the rewrite — the `dependency` — and is empty unless the run passed `--sync-ranges`.
-- Only dependents already in the release set are rewritten; the rest stay in `cascade`. Each ecosystem's adapter rewrites only the forms it understands, preserving the operator's form (`^0.1.0` → `^0.2.0` in Cargo, npm or Poetry, `>=1.2` → `>=2.0.0`, a Go pin `v0.1.0` → `v0.2.0`), and a requirement momo cannot rewrite is left alone and reported in `cascade`. A `candidate` never rewrites a range.
+- Only dependents already in the release set are rewritten; the rest stay in `cascade`. Each ecosystem's adapter rewrites only the forms it understands, preserving the operator's form (`^0.1.0` → `^0.2.0` in Cargo, npm or Poetry, `>=1.2` → `>=2.0.0`), and a requirement momo cannot rewrite is left alone and reported in `cascade` — a Go pin is reported, never rewritten. A `candidate` never rewrites a range.
 
 ### `tag` (`--format json`)
 

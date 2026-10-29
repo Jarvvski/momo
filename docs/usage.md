@@ -162,7 +162,7 @@ The rewrite is **opt-in** (`--sync-ranges`, default off), so an existing run's o
 - **One file, one render.** The dependent's version scalar and its widened range are composed into a single write, so one never overwrites the other. A range inherited with `workspace = true` is rewritten in the workspace root's `[workspace.dependencies]`, where the requirement actually lives.
 - **Widen only, and never guess.** The requirement's operator is preserved and re-anchored at the new version (`^0.1.0` → `^0.2.0`). A form momo does not rewrite — a Cargo conjunction such as `>=1.0, <2.0`, an npm `*`, a Python union, or a Go pin whose major changed — is left exactly as the project wrote it and reported in `cascade` instead.
 - **Never on `candidate`.** `^5.0.0` is not satisfied by `5.1.0-next.0`, so a prerelease would rewrite every internal range spuriously. A candidate bumps versions and reports ranges; only a release rewrites them.
-- **Each ecosystem's own grammar.** A Cargo range, an npm semver range, a PEP 440 or Poetry constraint and a Go pin are each read and rewritten by their own rules. A Node/uv/Go dependent is now rewritten where its form is one momo understands; a requirement momo cannot read is never guessed at.
+- **Each ecosystem's own grammar.** A Cargo range, an npm semver range and a PEP 440 or Poetry constraint are each read and rewritten by their own rules; a Go pin is read and reported, never rewritten. A Node/uv dependent is now rewritten where its form is one momo understands; a requirement momo cannot read is never guessed at.
 
 With `-p cargo:a` only `cargo:a` is planned, so nothing is rewritten even with the flag: the report still shows `cargo:b`'s unsatisfied range.
 
