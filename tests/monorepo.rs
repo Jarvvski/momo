@@ -51,13 +51,21 @@ fn capture(cwd: &Path, program: &str, args: &[&str]) -> String {
 
 /// A two-crate Cargo workspace declared as a mise monorepo.
 fn monorepo(dir: &TempDir) {
+    cargo_monorepo(dir);
+    // A repo marker, so `project_root` resolves from a package directory too.
+    fs::write(dir.path().join("momo.toml"), "").expect("seed momo.toml");
+}
+
+/// The mise + Cargo sources of a two-crate monorepo, without `momo.toml`.
+///
+/// `init` scaffolds `momo.toml` itself and refuses to overwrite one, so a test
+/// driving `init` needs the tree before any config exists.
+fn cargo_monorepo(dir: &TempDir) {
     fs::write(
         dir.path().join("mise.toml"),
         "monorepo_root = true\n\n[monorepo]\nconfig_roots = [\"crates/*\"]\n",
     )
     .expect("seed mise.toml");
-    // A repo marker, so `project_root` resolves from a package directory too.
-    fs::write(dir.path().join("momo.toml"), "").expect("seed momo.toml");
     fs::write(
         dir.path().join("Cargo.toml"),
         "[workspace]\nmembers = [\"crates/*\"]\nresolver = \"2\"\n",
@@ -120,6 +128,45 @@ fn jj_repo(dir: &TempDir) {
         &["config", "set", "--repo", "user.email", "momo@example.com"],
     );
     fs::write(dir.path().join("a.txt"), "hi\n").expect("seed a tracked file");
+}
+
+#[test]
+fn init_version_seeds_every_packages_ledger() {
+    if !require_tool("mise") {
+        return;
+    }
+    let dir = TempDir::new().expect("temp dir");
+    cargo_monorepo(&dir);
+
+    momo(&dir)
+        .args(["init", "--version", "5.0.0"])
+        .assert()
+        .success();
+
+    // Each Package reads its own directory's ledger, so the seed must land
+    // there rather than at the repo root no Package reads.
+    for name in ["a", "b"] {
+        assert_eq!(
+            fs::read_to_string(dir.path().join(format!("crates/{name}/.momo/version")))
+                .expect("the package ledger was seeded"),
+            "5.0.0\n",
+            "cargo:{name} was not seeded"
+        );
+    }
+    assert!(
+        !dir.path().join(".momo/version").exists(),
+        "the seed landed at the repo root, where no Package reads it"
+    );
+
+    // And the seeded version is what a release would bump from.
+    let assert = momo(&dir)
+        .args(["-p", "cargo:a", "status", "--version-only"])
+        .assert()
+        .success();
+    assert_eq!(
+        String::from_utf8_lossy(&assert.get_output().stdout),
+        "5.0.0\n"
+    );
 }
 
 #[test]

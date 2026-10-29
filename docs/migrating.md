@@ -97,7 +97,7 @@ A few consequences worth internalising:
 - **GitHub releases are not a version source.** If your releases were created without tags, momo sees nothing. Create the tags (any commit will do — momo reads tag *names*, not their targets).
 - **Pre-releases are recognised and skipped as a base.** A repo mid-`-rc` adopts cleanly: `1.2.0-rc.2` is a tag momo knows, but the next release bumps from `1.1.0`, the last stable.
 - **Do not hand-write `.momo/version`.** It is the *pending-release ledger*, not a version source: `status` and `release` read tags, and `tag` reads the ledger. `tag` refuses a ledger older than your newest tag, so a stale hand-written file blocks tagging until the next release overwrites it.
-- **`momo init --version <x.y.z>` is for a VCS-less project.** With a repository present the tags already answer the question, so seeding the ledger is at best a no-op and at worst the stale-ledger case above.
+- **`momo init --version <x.y.z>` is for a VCS-less project.** With a repository present the tags already answer the question, so seeding the ledger is at best a no-op and at worst the stale-ledger case above. In a monorepo it seeds **every selected package's own ledger** (`.momo/version` under each package directory), because that is the one each package reads; the single-package case is unchanged, writing the root `.momo/version`.
 - **You cannot retro-tag with momo.** `momo tag` only tags what the ledger holds, so it will not recreate your existing release tags. Keep them as they are.
 
 ## 3. Your changelog: kept vs. changed
@@ -260,6 +260,8 @@ Each package carries an ecosystem identity (`cargo:momo`, `node:@acme/ui`) and a
 | Tags | `v1.2.3` | `cargo-momo-v1.2.3` |
 | Fragment store | `.momo/changes/` | `.momo/changes/cargo-momo/` |
 | Version ledger | `.momo/version` | `crates/momo/.momo/version` |
+
+A VCS-less monorepo seeds each package's ledger with `momo init --version <x.y.z>`, so every package starts above the `0.0.0` bootstrap baseline rather than just the repo root.
 
 ### The single-tag problem
 
