@@ -1,7 +1,7 @@
 # momo bug hunt — second sweep, 2026-10-29
 
 Type: map
-Status: open
+Status: resolved
 
 A second bug hunt over momo 0.7.1, covering the three corners the 2026-10-27 hunt
 left un-swept: the output/JSON contract and diagnostic rendering, the Python
@@ -21,21 +21,22 @@ and a `Verified:` line saying how the finding was confirmed.
 
 ## Status roll-up
 
-None fixed yet. Every ticket is `ready-for-agent`.
+All eleven are fixed and landed, each on its own branch and PR, run by a solo
+sub-agent in its own jj workspace.
 
-| Ticket | Area | Severity |
-|--------|------|----------|
-| 01 | `--json` ignored on the failure path | high |
-| 02 | human error line repeats an embedded source | medium |
-| 03 | writing a CRLF manifest corrupts multi-line strings | high |
-| 04 | `poetry-dynamic-versioning` aborts as a static/dynamic conflict | high |
-| 05 | PEP 440 rendering: uppercase kinds and build separators | medium |
-| 06 | PEP 508 requirement with a space before `[extras]` misparsed | medium |
-| 07 | Go tag prefix includes the major-version subdirectory | high |
-| 08 | `v0` and `v1` treated as different Go module paths | high |
-| 09 | Go satisfaction compares build metadata | medium |
-| 10 | the `/vN` warning's `+incompatible` claim, and `gopkg.in` | medium |
-| 11 | Go `widen` stages a rewrite the read-only adapter never writes | medium |
+| Ticket | Fix | PR |
+|--------|-----|----|
+| 01 | Honour the `--json` shorthand on the failure path | #138 |
+| 02 | Stop repeating a source the error message already names | #146 |
+| 03 | Stop corrupting multi-line strings when writing a CRLF manifest | #139 |
+| 04 | Skip a `poetry-dynamic-versioning` project instead of refusing it | #140 |
+| 05 | Render PEP 440 versions the way `packaging` normalises them | #147 |
+| 06 | Read a PEP 508 requirement whose extras follow a space | #143 |
+| 07 | Exclude the major-version subdirectory from a Go tag prefix | #141 |
+| 08 | Treat `v0` and `v1` as one Go module path | #137 |
+| 09 | Compare Go versions by precedence, ignoring build metadata | #142 |
+| 10 | Correct the Go major-version warning and its `gopkg.in` false positive | #145 |
+| 11 | Stop reporting a Go range rewrite the read-only adapter never writes | #144 |
 
 ## Grouping into PRs
 

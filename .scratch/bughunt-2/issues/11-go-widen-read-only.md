@@ -1,7 +1,7 @@
 # 11: Go `widen` stages a range rewrite the read-only adapter never writes
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: adapters/manifest/go, docs
 Verified: yes — code path confirmed; the docs claim checked against the adapter

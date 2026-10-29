@@ -1,7 +1,7 @@
 # 04: `poetry-dynamic-versioning` aborts the release as a static/dynamic conflict
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: adapters/manifest/python
 Verified: yes — code path confirmed; upstream behaviour confirmed against the plugin's README

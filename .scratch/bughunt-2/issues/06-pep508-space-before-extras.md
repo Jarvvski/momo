@@ -1,7 +1,7 @@
 # 06: A PEP 508 requirement with whitespace before `[extras]` is misparsed
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: adapters/manifest/python/requirement
 Verified: yes — code path confirmed against the PEP 508 grammar

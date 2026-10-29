@@ -1,7 +1,7 @@
 # 03: Writing a CRLF manifest corrupts multi-line strings
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: adapters/manifest/toml (shared by Cargo and Python)
 Verified: yes — reproduced with `toml_edit` 0.25 in a scratch crate
