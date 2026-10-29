@@ -1,7 +1,7 @@
 # 08: `v0` and `v1` are treated as different Go module paths
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: adapters/manifest/go, cli/cascade
 Verified: yes — code path confirmed against the Go Modules Reference

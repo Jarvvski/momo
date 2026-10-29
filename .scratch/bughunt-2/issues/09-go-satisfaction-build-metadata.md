@@ -1,7 +1,7 @@
 # 09: Go satisfaction compares build metadata
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: adapters/manifest/go
 Verified: yes — code path confirmed against `semver`'s `Ord`

@@ -1,7 +1,7 @@
 # 05: PEP 440 rendering refuses uppercase pre-release kinds and skips separator normalisation
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: adapters/manifest/python/pep440
 Verified: yes — code path confirmed against the PEP 440 grammar

@@ -1,7 +1,7 @@
 # 02: The human error line repeats a source already in its parent's message
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: cli/diagnostic
 Verified: yes — reproduced with the built binary

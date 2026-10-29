@@ -1,7 +1,7 @@
 # 01: `--json` is ignored on the failure path
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: cli/output, cli/diagnostic
 Verified: yes — reproduced with the built binary

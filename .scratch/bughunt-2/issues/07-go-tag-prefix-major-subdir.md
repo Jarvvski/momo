@@ -1,7 +1,7 @@
 # 07: A Go module in a major-version subdirectory gets a tag prefix that includes `vN`
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: high
 Area: domain/tag
 Verified: yes — reproduced end to end with real mise + momo

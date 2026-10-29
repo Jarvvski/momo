@@ -1,7 +1,7 @@
 # 10: The `/vN` warning's `+incompatible` claim is wrong, and `gopkg.in` warns falsely
 
 Type: bug
-Status: ready-for-agent
+Status: resolved
 Severity: medium
 Area: domain/tag
 Verified: yes — code path confirmed against the Go Modules Reference
