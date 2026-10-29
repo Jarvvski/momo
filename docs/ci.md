@@ -197,8 +197,10 @@ document on **stdout**, with a non-zero exit code:
 
 `context` holds the outer `.context(...)` chain, outermost first, and is empty
 for a top-level refusal. Branch on `code`, never on the prose. Without
-`--format json` the same error is `error[<code>]: <message>` on stderr, plus an
-indented `fix:` line. `--output` is never written on failure.
+`--format json` the same error is `error[<code>]: <explanation>` on stderr, where
+`<explanation>` is the whole error chain on one line — `<context>: <message>`,
+outermost first — plus an indented `fix:` line. `--output` is never written on
+failure.
 
 One nuance: `status --check --format json` renders its report first and the error
 document second, because the gate is evaluated after the report. A consumer

@@ -80,8 +80,27 @@ pub fn diagnose(err: &AnyhowError) -> Diagnostic {
         fix,
         url,
         context,
-        chain: format!("{err:#}"),
+        chain: human_chain(err),
     }
+}
+
+/// The human explanation: the error chain on one line, outermost first.
+///
+/// A thiserror message that interpolates `{source}` already names that source,
+/// so an element is skipped when the text accumulated so far already ends with
+/// it — otherwise the human line would print the same text twice.
+fn human_chain(err: &AnyhowError) -> String {
+    let mut chain = String::new();
+    for cause in err.chain() {
+        let cause = cause.to_string();
+        if chain.is_empty() {
+            chain = cause;
+        } else if !chain.ends_with(&cause) {
+            chain.push_str(": ");
+            chain.push_str(&cause);
+        }
+    }
+    chain
 }
 
 impl Diagnostic {
@@ -292,6 +311,51 @@ mod tests {
         assert!(
             diagnostic.context[0].contains("reading the latest tag"),
             "{diagnostic:?}",
+        );
+    }
+
+    #[test]
+    fn a_source_embedded_in_the_message_is_not_repeated() {
+        let source = "nope"
+            .parse::<semver::Version>()
+            .expect_err("`nope` is not a version");
+        let embedded = source.to_string();
+        let err = AnyhowError::from(VersionError::Invalid {
+            path: std::path::PathBuf::from(".momo/version"),
+            source,
+        });
+
+        let diagnostic = diagnose(&err);
+
+        assert_eq!(diagnostic.code, "momo.version.invalid");
+        let human = diagnostic.human();
+        assert_eq!(
+            human.lines().next().unwrap_or_default(),
+            format!(
+                "error[momo.version.invalid]: `.momo/version` does not contain a valid version: {embedded}"
+            ),
+        );
+        assert_eq!(human.matches(&embedded).count(), 1, "{human}");
+    }
+
+    #[test]
+    fn a_wrapper_source_named_by_its_message_is_not_repeated() {
+        let err = AnyhowError::from(VersionError::Vcs(VcsError::TagAlreadyExists {
+            tag: "v1.0.0".to_owned(),
+        }));
+
+        let diagnostic = diagnose(&err);
+
+        assert_eq!(diagnostic.code, "momo.vcs.tag-exists");
+        let human = diagnostic.human();
+        assert_eq!(
+            human.lines().next().unwrap_or_default(),
+            "error[momo.vcs.tag-exists]: reading the latest tag: tag `v1.0.0` already exists",
+        );
+        assert_eq!(
+            human.matches("tag `v1.0.0` already exists").count(),
+            1,
+            "{human}",
         );
     }
 
