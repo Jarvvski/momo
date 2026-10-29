@@ -11,7 +11,10 @@
 //! `[project].dynamic = ["version"]` and the setuptools-scm, setuptools
 //! dynamic, hatch-vcs and poetry-dynamic-versioning backends all mean the tag
 //! *is* the version, so writing a scalar would break the setup. A static scalar
-//! beside a dynamic declaration is a contradiction momo refuses to resolve.
+//! beside a dynamic declaration is a contradiction momo refuses to resolve —
+//! except for `poetry-dynamic-versioning`, whose declaration *requires* a static
+//! placeholder scalar, so the scalar beside it is the placeholder, not a second
+//! source of truth, and the project is still skipped.
 //!
 //! The value written is the PEP 440 form of the semver Version
 //! ([`pep440::render`]): the tag keeps its semver spelling (`v1.2.0-rc.1`) while
@@ -246,7 +249,8 @@ enum Applied {
 /// [`SkipReason::NoVersion`] when no version scalar exists, and
 /// [`SkipReason::AlreadyCurrent`] when every scalar already holds `version`.
 /// [`ManifestError::Conflict`] when a static scalar sits beside a dynamic
-/// declaration, and when `version` has no PEP 440 form to write.
+/// declaration that does not require one, and when `version` has no PEP 440
+/// form to write.
 fn apply_version(
     doc: &mut DocumentMut,
     manifest: &Path,
@@ -255,7 +259,10 @@ fn apply_version(
     let sites = version_sites(doc);
 
     if let Some(backend) = dynamic_backend(doc) {
-        if sites.is_empty() {
+        // A backend that requires a static placeholder — `poetry-dynamic-versioning`
+        // — is skipped even when a scalar is present: the scalar *is* the
+        // placeholder, so it is not a contradiction.
+        if sites.is_empty() || backend.requires_placeholder_scalar() {
             return Ok(Applied::Skip {
                 path: manifest.to_path_buf(),
                 reason: SkipReason::Dynamic(backend.to_string()),
@@ -427,10 +434,19 @@ fn is_scalar(item: Option<&Item>) -> bool {
 /// the VCS, a file, an attribute — so writing one would fight the setup. A
 /// project declares at most one; the first found wins.
 fn dynamic_backend(doc: &DocumentMut) -> Option<DynamicBackend> {
+    let tool = || doc.get("tool");
+    // `poetry-dynamic-versioning` is checked first: its PEP 621 mode also sets
+    // `[project].dynamic = ["version"]`, and it is the plugin (with its required
+    // placeholder) that computes the version, not bare PEP 621.
+    if tool()
+        .and_then(|tool| tool.get("poetry-dynamic-versioning"))
+        .is_some()
+    {
+        return Some(DynamicBackend::PoetryDynamic);
+    }
     if dynamic_version_list(doc) {
         return Some(DynamicBackend::Project);
     }
-    let tool = || doc.get("tool");
     if tool().and_then(|tool| tool.get("setuptools_scm")).is_some() {
         return Some(DynamicBackend::SetuptoolsScm);
     }
@@ -448,12 +464,6 @@ fn dynamic_backend(doc: &DocumentMut) -> Option<DynamicBackend> {
         .is_some()
     {
         return Some(DynamicBackend::Hatch);
-    }
-    if tool()
-        .and_then(|tool| tool.get("poetry-dynamic-versioning"))
-        .is_some()
-    {
-        return Some(DynamicBackend::PoetryDynamic);
     }
     None
 }
@@ -477,8 +487,22 @@ enum DynamicBackend {
     SetuptoolsDynamic,
     /// `[tool.hatch.version]` (hatch-vcs).
     Hatch,
-    /// `[tool.poetry-dynamic-versioning]`.
+    /// `[tool.poetry-dynamic-versioning]`, which requires a placeholder scalar.
     PoetryDynamic,
+}
+
+impl DynamicBackend {
+    /// Whether the declaration *requires* a static placeholder scalar.
+    ///
+    /// `poetry-dynamic-versioning` is the only backend that does: Poetry still
+    /// requires `tool.poetry.version` to be present, so the plugin's docs tell
+    /// you to keep `version = "0.0.0"` as a placeholder. A scalar beside that
+    /// declaration is expected, so it is not a static/dynamic conflict. Every
+    /// other backend computes the version outright, so a scalar beside it really
+    /// is a mix momo refuses to resolve.
+    fn requires_placeholder_scalar(self) -> bool {
+        matches!(self, DynamicBackend::PoetryDynamic)
+    }
 }
 
 impl fmt::Display for DynamicBackend {
@@ -665,6 +689,45 @@ dynamic = [\"version\"]
             .expect_err("a static scalar beside a dynamic declaration conflicts");
         assert!(matches!(err, ManifestError::Conflict { .. }), "{err}");
         assert!(err.to_string().contains("PEP 621"), "{err}");
+    }
+
+    #[test]
+    fn a_poetry_dynamic_versioning_placeholder_is_skipped_not_refused() {
+        // The plugin's classic layout: Poetry still requires `tool.poetry.version`,
+        // so the scalar is the plugin's placeholder, not a static version.
+        let original = "\
+[tool.poetry]
+name = \"acme\"
+version = \"0.0.0\"
+
+[tool.poetry-dynamic-versioning]
+enable = true
+";
+        assert_eq!(
+            skipped(original, &version("1.0.0")),
+            SkipReason::Dynamic("poetry-dynamic-versioning".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_poetry_dynamic_versioning_pep_621_placeholder_is_skipped() {
+        // PEP 621 mode: `[project].dynamic` plus the same required placeholder.
+        // The plugin computes the version, so the placeholder is left alone.
+        let original = "\
+[project]
+name = \"acme\"
+dynamic = [\"version\"]
+
+[tool.poetry]
+version = \"0.0.0\"
+
+[tool.poetry-dynamic-versioning]
+enable = true
+";
+        assert_eq!(
+            skipped(original, &version("1.0.0")),
+            SkipReason::Dynamic("poetry-dynamic-versioning".to_owned())
+        );
     }
 
     #[test]

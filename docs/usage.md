@@ -65,7 +65,7 @@ A `node:` package syncs its `package.json`. Only the top-level `version` string 
 
 ### Python
 
-A `uv:` package syncs its `pyproject.toml`. `[project].version` (PEP 621) and, when present, `[tool.poetry].version` are both rewritten, so a Poetry 2 migration never leaves one stale. A project whose version is computed elsewhere — `[project].dynamic = ["version"]`, setuptools-scm, setuptools dynamic, hatch-vcs, poetry-dynamic-versioning — is **skipped** with the backend named, because the tag *is* the version there; a static scalar beside a dynamic declaration is an error, never a guess. The value written is PEP 440, so the tag `v1.2.0-rc.1` yields `version = "1.2.0rc1"`. A single-package repo is probed for a `Cargo.toml`, then a `package.json`, then a `pyproject.toml`.
+A `uv:` package syncs its `pyproject.toml`. `[project].version` (PEP 621) and, when present, `[tool.poetry].version` are both rewritten, so a Poetry 2 migration never leaves one stale. A project whose version is computed elsewhere — `[project].dynamic = ["version"]`, setuptools-scm, setuptools dynamic, hatch-vcs, poetry-dynamic-versioning — is **skipped** with the backend named, because the tag *is* the version there; a static scalar beside a dynamic declaration is an error, never a guess — except for `poetry-dynamic-versioning`, whose declaration requires a placeholder scalar, so that scalar is skipped rather than refused. The value written is PEP 440, so the tag `v1.2.0-rc.1` yields `version = "1.2.0rc1"`. A single-package repo is probed for a `Cargo.toml`, then a `package.json`, then a `pyproject.toml`.
 
 Neither `release` nor `candidate` commits or tags. The ceremony is split so the tag lands on the commit that contains the changelog:
 
