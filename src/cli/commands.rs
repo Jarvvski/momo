@@ -485,10 +485,10 @@ fn release_package(
 
 /// Warn when a Package's minted Version cannot resolve as a proper Go major.
 ///
-/// From major 2 onward Go serves a version only when the module path ends in
-/// `/vN`: a `go:` module whose path lacks the suffix is served as
-/// `+incompatible`. The warning names that consequence; it never blocks the
-/// release.
+/// From major 2 onward Go serves a version only when the module path encodes
+/// that major: a `go:` module whose path lacks the suffix is tagged with a
+/// version `go get` cannot resolve. The warning names that consequence; it never
+/// blocks the release.
 fn warn_go_major(package: &Package, version: &Version) {
     if let Some(module) = tag::go_module_path(package)
         && let Some(warning) = tag::go_major_warning(module, version)

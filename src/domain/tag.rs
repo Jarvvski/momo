@@ -117,26 +117,38 @@ pub fn go_module_path(package: &Package) -> Option<&str> {
 
 /// A warning when tagging `version` cannot resolve as a proper Go major.
 ///
-/// From major 2 onward, Go serves a version only when the **module path** ends
-/// in `/vN` for that major: `v2.0.0` of `example.com/acme/api` resolves as
-/// `v2.0.0+incompatible`, while `example.com/acme/api/v2` resolves properly.
-/// Tagging `v2.0.0` is legitimate — only the path decides — so this is a
-/// warning, not an error. `None` below major 2, and when the path already ends
-/// in the matching suffix.
+/// From major 2 onward Go serves a version only when the **module path** encodes
+/// that major: `example.com/acme/api/v2` resolves `v2.0.0`, while a `v2.0.0` tag
+/// on `example.com/acme/api` does not resolve at all. Go falls back to
+/// `+incompatible` only for a module with no go.mod, and a `go:` module
+/// discovered by mise always has one, so the tag is simply unreachable.
+/// `gopkg.in` encodes the major as a `.vN` suffix instead of `/vN`, so
+/// `gopkg.in/yaml.v2` is already correct. Tagging `v2.0.0` is legitimate — only
+/// the path decides — so this is a warning, not an error. `None` below major 2,
+/// and when the path already encodes the matching major.
 pub fn go_major_warning(module_path: &str, version: &Version) -> Option<String> {
     let major = version.major;
     if major < 2 {
         return None;
     }
-    let suffix = format!("/v{major}");
-    if module_path.ends_with(&suffix) {
+    if module_path_encodes_major(module_path, major) {
         return None;
     }
     Some(format!(
         "`{module_path}` is being tagged `v{version}`, but its module path does not end in \
-         `{suffix}`; Go resolves a v{major} version only from a `{suffix}` module path, so \
-         `go get` serves this one as `+incompatible`"
+         `/v{major}`; Go resolves a v{major} version only from a `/v{major}` module path, so \
+         this version will not resolve"
     ))
+}
+
+/// Whether `module_path` already encodes `major` as its major version.
+///
+/// A path-based module carries its major in a `/vN` suffix. `gopkg.in` encodes
+/// it in a `.vN` suffix instead, which Go resolves the same way, so
+/// `gopkg.in/yaml.v2` needs no rewrite.
+fn module_path_encodes_major(module_path: &str, major: u64) -> bool {
+    module_path.ends_with(&format!("/v{major}"))
+        || (module_path.starts_with("gopkg.in/") && module_path.ends_with(&format!(".v{major}")))
 }
 
 #[cfg(test)]
@@ -230,7 +242,7 @@ mod tests {
         let warning =
             go_major_warning("example.com/acme/api", &Version::new(2, 0, 0)).expect("a warning");
         assert!(warning.contains("/v2"), "{warning}");
-        assert!(warning.contains("+incompatible"), "{warning}");
+        assert!(!warning.contains("+incompatible"), "{warning}");
     }
 
     #[test]
@@ -238,6 +250,22 @@ mod tests {
         assert_eq!(
             go_major_warning("example.com/acme/api/v2", &Version::new(2, 0, 0)),
             None
+        );
+    }
+
+    #[test]
+    fn a_gopkg_in_dot_suffix_satisfies_the_major() {
+        assert_eq!(
+            go_major_warning("gopkg.in/yaml.v2", &Version::new(2, 0, 0)),
+            None
+        );
+    }
+
+    #[test]
+    fn a_gopkg_in_dot_suffix_of_another_major_still_warns() {
+        assert!(
+            go_major_warning("gopkg.in/yaml.v2", &Version::new(3, 0, 0)).is_some(),
+            "a v3 tag on a .v2 path does not resolve"
         );
     }
 

@@ -317,7 +317,7 @@ slug = "cargo-momo"
 
 A Go module's version *is* its git tag, and Go resolves a module version by its **directory**, not its module name. momo therefore tags a `go:` package by its directory: a module rooted at `api/` is tagged `api/v1.3.0`, and a module at the repo root `v1.3.0`. Every other package is namespaced by its slug (`cargo-momo-v1.3.0`), so a Go module's tags are the one place the slug does not apply.
 
-The `/vN` major suffix lives in the **module path**, never in the tag. From v2 onward Go serves a version only when the module path ends in `/vN` for that major, so `example.com/acme/api` tagged `v2.0.0` resolves as `v2.0.0+incompatible`, while `example.com/acme/api/v2` resolves properly. Tagging `v2.0.0` is legitimate — only the path decides — so momo warns on the mismatch and does not refuse the release. A per-package `tag_prefix` overrides the derived prefix outright:
+The `/vN` major suffix lives in the **module path**, never in the tag. From v2 onward Go serves a version only when the module path encodes that major, so `example.com/acme/api` tagged `v2.0.0` does not resolve, while `example.com/acme/api/v2` resolves properly. A `gopkg.in` path encodes the major as a `.vN` suffix instead, so `gopkg.in/yaml.v2` is already correct. Tagging `v2.0.0` is legitimate — only the path decides — so momo warns on the mismatch and does not refuse the release. A per-package `tag_prefix` overrides the derived prefix outright:
 
 ```toml
 [packages."go:example.com/acme/api"]
