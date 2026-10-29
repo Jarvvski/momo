@@ -1,7 +1,7 @@
 # 05: Two Packages in one directory share a Changelog and a version ledger
 
 Type: bug
-Status: ready-for-human
+Status: resolved
 Severity: medium
 Area: domain/workspace, domain/package
 Verified: yes — reproduced against real mise (two projects at one root)
@@ -22,4 +22,13 @@ A repo whose root is both a Cargo package and a pnpm workspace root; mise emits 
 
 ## Suggested direction
 
-This needs a ruling. The conservative fix, consistent with the duplicate-slug check, is to refuse: extend the uniqueness check to the Package *directory*, or make the CWD default report `SelectionError::Ambiguous` when the deepest match is not unique. The alternative is per-package namespacing of the changelog and version file. Recommend refuse-and-name, matching the existing slug guard; it fails loudly instead of silently picking a package.
+This needs a ruling. The conservative fix, consistent with the duplicate-slug check, is to refuse: extend the uniqueness check to the Package *directory*, or make the CWD default report `SelectionError::Ambiguous` when the deepest match is not unique. The alternative is per-package namespacing of the changelog and version file. ## Decision (2026-10-29)
+
+**Namespace per package.** Two Packages sharing a directory each get their own Changelog and version ledger, derived from the slug, so both coexist; a Package alone in its directory keeps today's layout exactly.
+
+- Changelog: the slug is inserted before the extension of the configured name — `CHANGELOG.md` becomes `CHANGELOG.<slug>.md` (so `docs/CHANGELOG.md` → `docs/CHANGELOG.<slug>.md`).
+- Ledger: `<dir>/.momo/<slug>/version`.
+
+The bare CWD default still cannot tell two same-directory Packages apart, so it must report `SelectionError::Ambiguous` naming both — the same error the `-p` path already gives — rather than silently picking the last. Namespacing fixes the shared files; the ambiguity error fixes the silent selection.
+
+Reproduced against real mise + momo: a root `Cargo.toml` plus a pnpm root makes mise emit `cargo:momo-tools → .` and `node:root-tools → .`; one `momo add` from the root mutated both Packages through their shared `CHANGELOG.md`.

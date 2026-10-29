@@ -1,7 +1,7 @@
 # momo bug hunt — 2026-10-27
 
 Type: map
-Status: open
+Status: resolved
 
 A fresh bug hunt over momo 0.7.0, after the 2026-10-13 hardening effort closed (48 tickets, 45 resolved, 3 `wontfix`, shipped as 0.3.0). Four read-only investigators swept the manifest adapters, the workspace/graph layer, the release/config CLI, and the VCS/output/diagnostic layer. Every finding below was then re-read in the source by hand and, where the tooling allowed, reproduced — against the built binary, the installed jj 0.46.0, and the live GitHub anchor rendering. Nothing here is an investigator assertion taken on faith.
 
@@ -11,7 +11,7 @@ Fourteen tickets under `issues/`, each carrying its `Status:`, `Severity:`, `Are
 
 ## Status roll-up
 
-Eleven of the fourteen are fixed and landed, each on its own branch and PR, run by a solo sub-agent in its own jj workspace:
+All fourteen are fixed and landed, each on its own branch and PR, run by a solo sub-agent in its own jj workspace:
 
 | Ticket | Fix | PR |
 |--------|-----|----|
@@ -27,11 +27,11 @@ Eleven of the fourteen are fixed and landed, each on its own branch and PR, run 
 | 12 | Write `momo.toml` atomically | #127 |
 | 13 | Detect a mise config that lives only under `conf.d` | #126 |
 
-Open, awaiting a human ruling:
+| 05 | Namespace the Changelog and ledger when Packages share a directory | #134 |
+| 07 | Seed every Package's ledger with `init --version` | #132 |
+| 14 | Resolve the project root at the mise monorepo root | #133 |
 
-- **05** (`ready-for-human`) — two Packages in one directory share a changelog and ledger; refuse vs namespace.
-- **07** (`ready-for-human`) — `init --version` in a monorepo: seed every Package, or refuse the ambiguity.
-- **14** (`needs-triage`) — the one finding not reproduced by hand.
+The three that needed a human ruling — 05, 07 and 14 — were ruled on 2026-10-29 and fixed in a second wave. Nothing is open.
 
 ## Grouping into PRs
 
@@ -42,11 +42,10 @@ One focused change per branch, so each ticket lands on its own.
 | 1 | 01, 02, 03, 04 | The high-severity four: a core verb broken by config, a silent cascade false negative, and two Python range bugs |
 | 2 | 06, 07, 08 | Medium: jj remote parse, `init --version` ledger, error doc anchors |
 | 3 | 09, 10, 11, 12, 13 | Low: failed-add config, dry-run dirs, ref-name validation, atomic config, `conf.d` detection |
-| — | 05 | Blocked on the refuse-vs-namespace ruling |
+| 4 | 05, 07, 14 | Ruled 2026-10-29: shared-directory namespacing, per-package `init --version` seed, mise-root resolution |
 
 ## Fog / leads
 
-- Ticket 14 is the one finding not reproduced by hand; it needs a repro before it is actionable.
 - Not hunted this pass: `src/cli/output.rs` serialisation beyond field-shape spot-checks, the Python `pyproject.toml` writer, and the Go module-path edge cases. A second sweep could cover them.
 
 ## Method

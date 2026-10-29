@@ -1,7 +1,7 @@
 # 07: `init --version` seeds a ledger monorepo Packages never read
 
 Type: bug
-Status: ready-for-human
+Status: resolved
 Severity: medium
 Area: cli/commands, cli/version
 Verified: yes — read at the cited lines
@@ -20,4 +20,8 @@ A VCS-less mise monorepo (`monorepo_root = true`, `crates/a`), then `momo init -
 
 ## Suggested decision
 
-Seed every selected Package's ledger, or seed the repo-root ledger only for the single-package case and fail (or warn) when a monorepo has more than one Package. The former matches the flag's intent; the latter is honest about ambiguity. Pick one and document it in `docs/migrating.md`.
+Seed every selected Package's ledger, or seed the repo-root ledger only for the single-package case and fail (or warn) when a monorepo has more than one Package. ## Decision (2026-10-29)
+
+**Seed every selected Package.** `init --version` writes the version into each Package's own ledger, so the flag works as documented in a monorepo; the single-package case (root ledger) is unchanged.
+
+Reproduced: a VCS-less monorepo with `crates/a`, then `momo init --version 5.0.0`, writes `./.momo/version`, but `cargo:a` reads `crates/a/.momo/version`, so `status` reports `current: —`.
