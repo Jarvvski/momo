@@ -148,6 +148,31 @@ fn writing_a_crlf_manifest_preserves_its_line_endings() {
 }
 
 #[test]
+fn writing_a_crlf_manifest_keeps_multiline_strings_intact() {
+    /// A CRLF manifest whose multi-line basic and literal strings carry CRLF of
+    /// their own — the bytes a blanket LF promotion would double.
+    const CRLF: &str = "# The crate manifest.\r\n[package]\r\nname = \"momo\"\r\nversion = \"0.1.0\"\r\ndescription = \"\"\"\r\nline one\r\nline two\r\n\"\"\"\r\nnotes = '''\r\nliteral one\r\nliteral two\r\n'''\r\n";
+
+    let dir = TempDir::new().expect("temp dir");
+    let path = dir.path().join("Cargo.toml");
+    fs::write(&path, CRLF).expect("seed the manifest");
+
+    CargoManifest
+        .write(&path, &edits("0.2.0"))
+        .expect("write the manifest");
+
+    let written = fs::read_to_string(&path).expect("read the manifest");
+    assert_eq!(
+        written,
+        "# The crate manifest.\r\n[package]\r\nname = \"momo\"\r\nversion = \"0.2.0\"\r\ndescription = \"\"\"\r\nline one\r\nline two\r\n\"\"\"\r\nnotes = '''\r\nliteral one\r\nliteral two\r\n'''\r\n"
+    );
+    assert!(
+        !written.contains("\r\r"),
+        "a doubled carriage return corrupted a multi-line string: {written:?}"
+    );
+}
+
+#[test]
 fn rendering_a_manifest_leaves_the_file_untouched() {
     let dir = TempDir::new().expect("temp dir");
     let path = dir.path().join("Cargo.toml");
