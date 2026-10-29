@@ -10,6 +10,13 @@ pub use detect::{detect, named};
 pub use graph::discover;
 pub use monorepo::is_monorepo;
 
+/// The nearest ancestor holding the mise configuration detection finds.
+///
+/// The CLI uses this to root a repo that has a mise monorepo but no VCS or
+/// `momo.toml` marker, so mise's repo-relative project roots resolve against
+/// the directory holding the configuration rather than the current directory.
+pub(crate) use detect::find_root as config_root;
+
 /// The config file names mise reads in a directory, relative to that directory.
 ///
 /// Shared by detection ([`detect`]) and the monorepo check ([`is_monorepo`]) so
