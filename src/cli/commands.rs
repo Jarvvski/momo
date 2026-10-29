@@ -38,7 +38,7 @@ use crate::cli::output::{
 };
 use crate::cli::recording;
 use crate::cli::release::{self, Outcome};
-use crate::cli::version::{self, FileVersionSource, VERSION_FILE};
+use crate::cli::version::{self, FileVersionSource};
 use crate::cli::{Cli, Command, cascade, workspace};
 
 /// The momo verbs exposed as `momo:*` tasks, in command-surface order.
@@ -576,19 +576,31 @@ fn today() -> Date {
 ///
 /// Writes the default configuration - never the `MOMO_*` environment, which is
 /// transient and must not be baked into the committed file - and with
-/// `--version <x.y.z>` records that version in `.momo/version` so a fresh repo
-/// starts above the `0.0.0` bootstrap baseline. With `--dry-run`, prints what
-/// would be written and leaves the tree untouched. Refuses to overwrite an
+/// `--version <x.y.z>` records that version in the ledger so a fresh repo starts
+/// above the `0.0.0` bootstrap baseline. Every selected Package gets its own
+/// ledger: in a monorepo that is each Package's `.momo/version`, which is the one
+/// its release reads, while a repo without a project graph resolves to the single
+/// Package at the root, whose ledger is the root ledger. With `--dry-run`, prints
+/// what would be written and leaves the tree untouched. Refuses to overwrite an
 /// existing `momo.toml`.
 fn init(cli: &Cli, version: Option<&Version>) -> Result<()> {
     let root = project_root()?;
     let path = root.join(CONFIG_FILE);
     let config = Config::default();
 
+    // Resolve the Packages before writing anything: a monorepo seeds each
+    // Package's own ledger, so discovery must run while the tree is still
+    // untouched. A repo without a project graph resolves to the single Package
+    // at the root, whose ledger is the root ledger - today's behaviour exactly.
+    let discovery = workspace::load(&root, &config)?;
+    let packages = workspace::select(&discovery, cli, DefaultTarget::All)?;
+
     if cli.dry_run {
         eprintln!("would write {}", path.display());
         if version.is_some() {
-            eprintln!("would write {}", root.join(VERSION_FILE).display());
+            for package in &packages {
+                eprintln!("would write {}", package.version_file(&root).display());
+            }
         }
         print!("{config}");
         return Ok(());
@@ -602,8 +614,10 @@ fn init(cli: &Cli, version: Option<&Version>) -> Result<()> {
     println!("wrote {}", path.display());
 
     if let Some(version) = version {
-        FileVersionSource::new(&root).write(version)?;
-        println!("wrote {}", root.join(VERSION_FILE).display());
+        for package in &packages {
+            FileVersionSource::new(&package.dir(&root)).write(version)?;
+            println!("wrote {}", package.version_file(&root).display());
+        }
     }
     Ok(())
 }
