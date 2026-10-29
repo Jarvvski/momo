@@ -185,7 +185,7 @@ fn status(cli: &Cli, check: bool) -> Result<()> {
             Recording::Changelog => changelog.unread_sections(),
             Recording::Fragments => Vec::new(),
         };
-        let source = version::source(&package.dir(&root), &prefix, vcs.as_deref());
+        let source = version::source(&package.version_file(&root), &prefix, vcs.as_deref());
         let base = version::release_base(source.as_ref(), &changelog)?;
         let current = source.current()?;
         let next = next_version(&changes, &base)?;
@@ -615,7 +615,7 @@ fn init(cli: &Cli, version: Option<&Version>) -> Result<()> {
 
     if let Some(version) = version {
         for package in &packages {
-            FileVersionSource::new(&package.dir(&root)).write(version)?;
+            FileVersionSource::new(&package.version_file(&root)).write(version)?;
             println!("wrote {}", package.version_file(&root).display());
         }
     }

@@ -19,8 +19,6 @@ use crate::domain::changelog::Changelog;
 use crate::domain::vcs::Vcs;
 use crate::domain::version::{TagVersionSource, Version, VersionError, VersionSource};
 
-pub use crate::domain::package::VERSION_FILE;
-
 /// A [`VersionSource`] backed by `.momo/version`, the pending-release ledger.
 ///
 /// A missing file means the Package has never minted a version, so both the
@@ -30,10 +28,10 @@ pub struct FileVersionSource {
 }
 
 impl FileVersionSource {
-    /// Read the ledger under `root`.
-    pub fn new(root: &Path) -> Self {
+    /// Read the ledger at `path`.
+    pub fn new(path: &Path) -> Self {
         Self {
-            path: root.join(VERSION_FILE),
+            path: path.to_path_buf(),
         }
     }
 
@@ -87,18 +85,19 @@ impl VersionSource for FileVersionSource {
     }
 }
 
-/// The authoritative Version source for a Package rooted at `package_dir`.
+/// The authoritative Version source for the Package whose ledger is
+/// `version_file`.
 ///
 /// The latest VCS tag under `tag_prefix` when a repository is present, else the
 /// Package's `.momo/version` ledger.
 pub fn source<'a>(
-    package_dir: &Path,
+    version_file: &Path,
     tag_prefix: &'a str,
     vcs: Option<&'a dyn Vcs>,
 ) -> Box<dyn VersionSource + 'a> {
     match vcs {
         Some(vcs) => Box::new(TagVersionSource::new(vcs, tag_prefix)),
-        None => Box::new(FileVersionSource::new(package_dir)),
+        None => Box::new(FileVersionSource::new(version_file)),
     }
 }
 
