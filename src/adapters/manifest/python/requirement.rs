@@ -56,7 +56,12 @@ pub(crate) fn parse_requirement(input: &str) -> Option<Requirement> {
         return None;
     }
     let name = requirement[..index].to_owned();
-    if bytes.get(index) == Some(&b'[') {
+    // PEP 508 permits whitespace between the name and its extras
+    // (`name wsp* extras?`); skip it before looking for `[`, keeping it in
+    // `prefix` with the rest of the pre-specifier text.
+    let after_name = requirement[index..].trim_start();
+    index += requirement[index..].len() - after_name.len();
+    if after_name.starts_with('[') {
         index += requirement[index..].find(']')? + 1;
     }
 
@@ -383,6 +388,19 @@ mod tests {
         assert_eq!(parsed.specifier, ">=1.2,<2");
         assert_eq!(parsed.prefix, "acme[extra]");
         assert_eq!(parsed.suffix, " ; python_version < \"3.9\"");
+    }
+
+    #[test]
+    fn a_requirement_with_whitespace_before_its_extras_is_read() {
+        let parsed = parse_requirement("acme [extra]>=1.0").expect("a requirement");
+        assert_eq!(parsed.name, "acme");
+        assert_eq!(parsed.specifier, ">=1.0");
+        assert_eq!(parsed.prefix, "acme [extra]");
+
+        let parsed = parse_requirement("acme [a, b] >=1.0").expect("a requirement");
+        assert_eq!(parsed.name, "acme");
+        assert_eq!(parsed.specifier, ">=1.0");
+        assert_eq!(parsed.prefix, "acme [a, b] ");
     }
 
     #[test]
