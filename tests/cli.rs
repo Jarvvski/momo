@@ -435,8 +435,9 @@ fn output_flags_are_rejected_on_verbs_without_a_report() {
 
     for (args, flag, verb) in cases {
         let assert = momo(&dir).args(args).assert().failure();
-        if flag == "--format" {
-            // A JSON error goes to stdout: the rejection *is* the document.
+        if flag == "--format" || flag == "--json" {
+            // A JSON error goes to stdout: the rejection *is* the document,
+            // whether it was asked for with `--format json` or `--json`.
             let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
             assert!(
                 stdout.contains(flag) && stdout.contains(verb),
