@@ -33,7 +33,7 @@ pub fn tag(
     rev: Option<&str>,
     dry_run: bool,
 ) -> Result<Option<Tagged>> {
-    let Some(version) = FileVersionSource::new(&package.dir(repo_root)).current()? else {
+    let Some(version) = FileVersionSource::new(&package.version_file(repo_root)).current()? else {
         return Ok(None);
     };
     let prefix = tag::prefix(package, &config.tag_prefix);

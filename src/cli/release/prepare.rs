@@ -221,7 +221,7 @@ fn resolve(
     // The version source reports it from the tags; a VCS-less Package whose
     // ledger holds a Candidate falls back to the newest Release the Changelog
     // records.
-    let version_source = source(&package_dir, &prefix, vcs);
+    let version_source = source(&package.version_file(repo_root), &prefix, vcs);
     let last_release = release_base(version_source.as_ref(), &changelog)?;
     let current = version_source.current()?;
     let candidate = current.as_ref().filter(|version| !version.pre.is_empty());

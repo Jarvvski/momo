@@ -128,6 +128,7 @@ impl Workspace {
             .map(|package| package.configured(config))
             .collect();
         Self::check_unique_slugs(&packages)?;
+        let packages = Self::namespace_shared_directories(packages);
         Ok(Self {
             root: root.into(),
             packages,
@@ -176,6 +177,33 @@ impl Workspace {
         Ok(())
     }
 
+    /// Mark every Package whose directory another Package also occupies.
+    ///
+    /// Two Packages at one directory would otherwise share a Changelog and a
+    /// version ledger; the mark makes each take slug-derived paths instead. A
+    /// Package alone in its directory is left untouched.
+    fn namespace_shared_directories(packages: Vec<Package>) -> Vec<Package> {
+        let mut by_dir: BTreeMap<PathBuf, usize> = BTreeMap::new();
+        for package in &packages {
+            *by_dir
+                .entry(package.relative_root().to_path_buf())
+                .or_default() += 1;
+        }
+        packages
+            .into_iter()
+            .map(|package| {
+                if by_dir
+                    .get(package.relative_root())
+                    .is_some_and(|count| *count > 1)
+                {
+                    package.sharing_directory()
+                } else {
+                    package
+                }
+            })
+            .collect()
+    }
+
     /// Every Package, in discovery order.
     pub fn packages(&self) -> &[Package] {
         &self.packages
@@ -221,15 +249,36 @@ impl Workspace {
         }
         match default {
             DefaultTarget::All => Ok(self.packages.iter().collect()),
-            DefaultTarget::Cwd => self
-                .packages
-                .iter()
-                .filter(|entry| cwd.starts_with(entry.dir(&self.root)))
-                .max_by_key(|entry| entry.dir(&self.root).components().count())
-                .map(|entry| vec![entry])
-                .ok_or_else(|| SelectionError::NotInPackage {
-                    cwd: cwd.to_path_buf(),
-                }),
+            DefaultTarget::Cwd => {
+                let containing: Vec<&Package> = self
+                    .packages
+                    .iter()
+                    .filter(|entry| cwd.starts_with(entry.dir(&self.root)))
+                    .collect();
+                let Some(deepest) = containing
+                    .iter()
+                    .map(|entry| entry.dir(&self.root).components().count())
+                    .max()
+                else {
+                    return Err(SelectionError::NotInPackage {
+                        cwd: cwd.to_path_buf(),
+                    });
+                };
+                let matches: Vec<&Package> = containing
+                    .into_iter()
+                    .filter(|entry| entry.dir(&self.root).components().count() == deepest)
+                    .collect();
+                match matches.as_slice() {
+                    [only] => Ok(vec![*only]),
+                    many => Err(SelectionError::Ambiguous {
+                        query: cwd.display().to_string(),
+                        candidates: many
+                            .iter()
+                            .map(|package| package.identity().to_owned())
+                            .collect(),
+                    }),
+                }
+            }
         }
     }
 }
@@ -249,6 +298,20 @@ mod tests {
             vec![
                 Package::from_identity("cargo:a", "crates/a"),
                 Package::from_identity("cargo:b", "crates/b"),
+            ],
+            DependencyGraph::default(),
+            &Config::default(),
+        )
+        .expect("distinct slugs")
+    }
+
+    /// A workspace with two discovered Packages at one directory.
+    fn shared_directory() -> Workspace {
+        Workspace::new(
+            "/repo",
+            vec![
+                Package::from_identity("cargo:momo-tools", "."),
+                Package::from_identity("node:root-tools", "."),
             ],
             DependencyGraph::default(),
             &Config::default(),
@@ -355,6 +418,62 @@ mod tests {
             .select(None, false, DefaultTarget::Cwd, Path::new("/repo"))
             .expect_err("no containing package");
         assert!(matches!(err, SelectionError::NotInPackage { .. }));
+    }
+
+    #[test]
+    fn packages_sharing_a_directory_get_distinct_slug_derived_changelogs_and_ledgers() {
+        let workspace = shared_directory();
+        let config = Config::default();
+        let [cargo, node] = workspace.packages() else {
+            panic!("expected two packages");
+        };
+
+        assert_eq!(
+            cargo.changelog(Path::new("/repo"), &config),
+            Path::new("/repo/CHANGELOG.cargo-momo-tools.md")
+        );
+        assert_eq!(
+            node.changelog(Path::new("/repo"), &config),
+            Path::new("/repo/CHANGELOG.node-root-tools.md")
+        );
+        assert_eq!(
+            cargo.version_file(Path::new("/repo")),
+            Path::new("/repo/.momo/cargo-momo-tools/version")
+        );
+        assert_eq!(
+            node.version_file(Path::new("/repo")),
+            Path::new("/repo/.momo/node-root-tools/version")
+        );
+    }
+
+    #[test]
+    fn a_package_alone_in_its_directory_keeps_the_flat_layout() {
+        let workspace = monorepo();
+        let config = Config::default();
+        let package = &workspace.packages()[0];
+
+        assert_eq!(
+            package.changelog(Path::new("/repo"), &config),
+            Path::new("/repo/crates/a/CHANGELOG.md")
+        );
+        assert_eq!(
+            package.version_file(Path::new("/repo")),
+            Path::new("/repo/crates/a/.momo/version")
+        );
+    }
+
+    #[test]
+    fn the_default_cwd_on_a_shared_directory_is_ambiguous() {
+        let workspace = shared_directory();
+        let err = workspace
+            .select(None, false, DefaultTarget::Cwd, Path::new("/repo"))
+            .expect_err("two packages share the directory");
+        match err {
+            SelectionError::Ambiguous { candidates, .. } => {
+                assert_eq!(candidates, vec!["cargo:momo-tools", "node:root-tools"]);
+            }
+            other => panic!("expected an ambiguous-selection error, got {other}"),
+        }
     }
 
     #[test]

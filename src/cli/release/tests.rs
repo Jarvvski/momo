@@ -4,12 +4,13 @@ use std::path::Path;
 
 use crate::domain::config::Recording;
 use crate::domain::manifest::{DependencyRangeEdit, ManifestPlan, ManifestWrite, SkipReason};
+use crate::domain::package::VERSION_FILE;
 use crate::domain::vcs::{Vcs, VcsError, VcsKind};
 use tempfile::TempDir;
 use time::Date;
 
 use crate::cli::release::prepare::resolve_candidate;
-use crate::cli::version::{FileVersionSource, VERSION_FILE};
+use crate::cli::version::FileVersionSource;
 
 /// Resolve and render a Release, as a run does before writing anything.
 fn prepare(
@@ -585,7 +586,7 @@ fn a_dry_run_release_leaves_no_new_directory_behind() {
 fn a_tag_names_the_version_momo_last_released() {
     let dir = TempDir::new().expect("temp dir");
     let root = dir.path();
-    FileVersionSource::new(root)
+    FileVersionSource::new(&root.join(VERSION_FILE))
         .write(&Version::new(1, 2, 3))
         .expect("write the version file");
 

@@ -21,6 +21,7 @@ pub struct Package {
     slug: String,
     root: PathBuf,
     monorepo: bool,
+    shared_directory: bool,
     manifest: Option<PathBuf>,
     tag_prefix: Option<String>,
 }
@@ -38,9 +39,23 @@ impl Package {
             slug: slug.into(),
             root: root.into(),
             monorepo,
+            shared_directory: false,
             manifest: None,
             tag_prefix: None,
         }
+    }
+
+    /// Mark this Package as sharing its directory with another Package.
+    ///
+    /// Two Packages can live at one directory (a Cargo package and a Node
+    /// package at the repo root, say). A shared directory would otherwise give
+    /// them one Changelog and one version ledger, so each takes slug-derived
+    /// paths instead: `CHANGELOG.md` becomes `CHANGELOG.<slug>.md` and
+    /// `.momo/version` becomes `.momo/<slug>/version`. A Package alone in its
+    /// directory keeps the flat layout, so existing monorepos are unchanged.
+    pub fn sharing_directory(mut self) -> Self {
+        self.shared_directory = true;
+        self
     }
 
     /// The only Package of a single-package repo named `name`.
@@ -118,8 +133,40 @@ impl Package {
     }
 
     /// The Package's Changelog path, `config.changelog` under its directory.
+    ///
+    /// A Package that shares its directory with another inserts its slug before
+    /// the configured name's extension (`CHANGELOG.md` becomes
+    /// `CHANGELOG.<slug>.md`, `docs/CHANGELOG.md` becomes
+    /// `docs/CHANGELOG.<slug>.md`) so the two do not collide.
     pub fn changelog(&self, repo_root: &Path, config: &Config) -> PathBuf {
-        self.dir(repo_root).join(&config.changelog)
+        let name = if self.shared_directory {
+            self.namespaced_name(&config.changelog)
+        } else {
+            config.changelog.clone()
+        };
+        self.dir(repo_root).join(name)
+    }
+
+    /// The configured name with this Package's slug inserted before its
+    /// extension: `CHANGELOG.md` becomes `CHANGELOG.<slug>.md`.
+    ///
+    /// The parent directories are preserved, and a name without an extension
+    /// takes the slug as a suffix (`CHANGELOG` becomes `CHANGELOG.<slug>`).
+    fn namespaced_name(&self, name: &Path) -> PathBuf {
+        let Some(stem) = name.file_stem() else {
+            return name.to_path_buf();
+        };
+        let mut file = stem.to_os_string();
+        file.push(".");
+        file.push(&self.slug);
+        if let Some(extension) = name.extension() {
+            file.push(".");
+            file.push(extension);
+        }
+        match name.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.join(file),
+            _ => PathBuf::from(file),
+        }
     }
 
     /// The Package's Fragment store.
@@ -135,8 +182,18 @@ impl Package {
     }
 
     /// The Package's version-file path.
+    ///
+    /// A Package that shares its directory with another namespaces its ledger
+    /// by slug, `.momo/<slug>/version`, so the two do not collide.
     pub fn version_file(&self, repo_root: &Path) -> PathBuf {
-        self.dir(repo_root).join(VERSION_FILE)
+        if self.shared_directory {
+            self.dir(repo_root)
+                .join(".momo")
+                .join(&self.slug)
+                .join("version")
+        } else {
+            self.dir(repo_root).join(VERSION_FILE)
+        }
     }
 
     /// The configured manifest path override, relative to the Package's
@@ -258,6 +315,34 @@ mod tests {
         assert_eq!(
             package.changelog(root, &config()),
             root.join("CHANGELOG.md")
+        );
+    }
+
+    #[test]
+    fn a_package_sharing_its_directory_namespaces_its_changelog_and_ledger() {
+        let root = Path::new("/repo");
+        let package = Package::from_identity("cargo:momo", ".").sharing_directory();
+        assert_eq!(
+            package.changelog(root, &config()),
+            root.join("CHANGELOG.cargo-momo.md")
+        );
+        assert_eq!(
+            package.version_file(root),
+            root.join(".momo/cargo-momo/version")
+        );
+    }
+
+    #[test]
+    fn a_shared_package_inserts_its_slug_before_the_changelog_extension() {
+        let root = Path::new("/repo");
+        let config = Config {
+            changelog: PathBuf::from("docs/CHANGELOG.md"),
+            ..Config::default()
+        };
+        let package = Package::from_identity("node:root-tools", "web").sharing_directory();
+        assert_eq!(
+            package.changelog(root, &config),
+            root.join("web/docs/CHANGELOG.node-root-tools.md")
         );
     }
 
