@@ -68,13 +68,18 @@ pub fn set_value(value: &mut Value, text: &str) -> bool {
 /// `toml_edit` always renders LF and always terminates the document, so a CRLF
 /// manifest or one without a trailing newline would otherwise be rewritten
 /// wholesale. `rendered` is the untouched render of the parsed document.
+///
+/// The CRLF pass normalises first, so it is the identity on a `\r\n` the render
+/// already carries: a multi-line string keeps its raw `\r\n` verbatim, and a
+/// blanket promotion would double the `\r` inside it. Only a bare `\n` is
+/// promoted.
 pub fn preserve_line_endings(source: &str, rendered: String) -> String {
     let mut rendered = rendered;
     if !source.ends_with('\n') && rendered.ends_with('\n') {
         rendered.pop();
     }
     if uses_crlf(source) {
-        rendered = rendered.replace('\n', "\r\n");
+        rendered = rendered.replace("\r\n", "\n").replace('\n', "\r\n");
     }
     rendered
 }
