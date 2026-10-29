@@ -39,7 +39,11 @@ pub fn named(name: &str, root: &Path) -> Result<Box<dyn TaskEnvironment>, TaskEn
 /// `mise/conf.d/*.toml` fragment is detected too. This is the same predicate
 /// [`super::is_monorepo`] reads configuration with, so detection and the
 /// monorepo check agree.
-fn find_root(start: &Path) -> Option<PathBuf> {
+///
+/// Re-exported as [`super::config_root`]: the CLI resolves the project root
+/// with it when no VCS or `momo.toml` marker is found, so a mise monorepo with
+/// neither still roots at the directory holding its configuration.
+pub(crate) fn find_root(start: &Path) -> Option<PathBuf> {
     let absolute = std::path::absolute(start).ok()?;
     absolute
         .ancestors()

@@ -8,6 +8,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::adapters::taskenv;
 use crate::cli::atomic;
 use crate::domain::config::{Config, ConfigOverrides};
 use anyhow::{Context, Result};
@@ -18,14 +19,17 @@ pub const CONFIG_FILE: &str = "momo.toml";
 /// Locate the project root by walking up from `start`.
 ///
 /// The root is the nearest ancestor holding a VCS marker (`.jj` or `.git`) or a
-/// `momo.toml`; with none, `start` itself is the root.
+/// `momo.toml`. With none of those, it is the nearest ancestor holding the mise
+/// configuration — the same one detection finds — so a mise monorepo with no
+/// VCS marker still roots at the directory mise reports its project roots
+/// against. With neither, `start` itself is the root.
 pub fn project_root(start: &Path) -> PathBuf {
     for dir in start.ancestors() {
         if dir.join(".jj").exists() || dir.join(".git").exists() || dir.join(CONFIG_FILE).exists() {
             return dir.to_path_buf();
         }
     }
-    start.to_path_buf()
+    taskenv::config_root(start).unwrap_or_else(|| start.to_path_buf())
 }
 
 /// Read the effective configuration for the project rooted at `root`.
@@ -104,6 +108,65 @@ mod tests {
     use super::*;
 
     use tempfile::TempDir;
+
+    #[test]
+    fn project_root_stops_at_the_mise_config_when_no_marker_is_found() {
+        let root = TempDir::new().expect("temp dir");
+        fs::write(root.path().join("mise.toml"), "monorepo_root = true\n")
+            .expect("seed the mise config");
+        let nested = root.path().join("crates/a");
+        fs::create_dir_all(&nested).expect("create the nested package");
+
+        assert_eq!(project_root(&nested), root.path());
+    }
+
+    #[test]
+    fn project_root_finds_a_mise_config_under_conf_d() {
+        let root = TempDir::new().expect("temp dir");
+        fs::create_dir_all(root.path().join("mise/conf.d")).expect("create the conf.d directory");
+        fs::write(
+            root.path().join("mise/conf.d/monorepo.toml"),
+            "monorepo_root = true\n",
+        )
+        .expect("seed the conf.d fragment");
+        let nested = root.path().join("crates/a");
+        fs::create_dir_all(&nested).expect("create the nested package");
+
+        assert_eq!(project_root(&nested), root.path());
+    }
+
+    #[test]
+    fn project_root_prefers_a_vcs_marker_over_a_nested_mise_config() {
+        let root = TempDir::new().expect("temp dir");
+        fs::create_dir(root.path().join(".git")).expect("create the git marker");
+        let nested = root.path().join("crates/a");
+        fs::create_dir_all(&nested).expect("create the nested package");
+        fs::write(nested.join("mise.toml"), "monorepo_root = true\n")
+            .expect("seed the mise config");
+
+        assert_eq!(project_root(&nested), root.path());
+    }
+
+    #[test]
+    fn project_root_prefers_a_nested_momo_toml_over_an_ancestor_mise_config() {
+        let root = TempDir::new().expect("temp dir");
+        fs::write(root.path().join("mise.toml"), "monorepo_root = true\n")
+            .expect("seed the mise config");
+        let nested = root.path().join("crates/a");
+        fs::create_dir_all(&nested).expect("create the nested package");
+        fs::write(nested.join(CONFIG_FILE), "").expect("seed the momo config");
+
+        assert_eq!(project_root(&nested), nested);
+    }
+
+    #[test]
+    fn project_root_falls_back_to_start_without_a_marker_or_mise_config() {
+        let root = TempDir::new().expect("temp dir");
+        let nested = root.path().join("crates/a");
+        fs::create_dir_all(&nested).expect("create the nested directory");
+
+        assert_eq!(project_root(&nested), nested);
+    }
 
     #[test]
     fn write_replaces_the_config_atomically_and_leaves_no_temporary_behind() {
